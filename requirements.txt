@@ -1,0 +1,6 @@
+sqlalchemy
+pydantic
+fastapi
+uvicorn
+python-multipart
+git+https://github.com/SEOULTECH-AIS-gyounghun6612/CORE.git@python_toolbox

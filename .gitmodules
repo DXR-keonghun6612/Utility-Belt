@@ -1,0 +1,4 @@
+[submodule "submodules/python_toolbox"]
+	path = submodules/python_toolbox
+	url = https://github.com/SEOULTECH-AIS-gyounghun6612/CORE.git
+	branch = python_toolbox

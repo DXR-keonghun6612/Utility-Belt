@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "python_toolbox"
+version = "0.1.0"
+authors = [
+  { name="Choi_keonghun & Jun_eins", email="dev.gyounghun6612@gmail.com" },
+]
+description = "Frequently used Python utility functions and classes for AIS projects."
+readme = "README.md"
+requires-python = ">=3.11"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "numpy",
+    "opencv-python",
+    "pyyaml",
+    "matplotlib",
+    "python-dateutil",
+]
+
+[project.optional-dependencies]
+dev = [
+    "flake8",
+    "black",
+    "isort",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/SEOULTECH-AIS-gyounghun6612/CORE/tree/python_toolbox"
