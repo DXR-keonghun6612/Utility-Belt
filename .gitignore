@@ -45,3 +45,115 @@ test_accounts_export.json
 .venv
 env.bak/
 venv.bak/
+
+#
+# --- Collected from core/.gitignore ---
+#
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.venv
+venv/
+ENV/
+
+# Database (SQLite)
+*.db
+*.sqlite3
+
+# IDE / Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Environments
+.env
+
+#
+# --- Collected from web/.gitignore ---
+#
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.venv
+venv/
+ENV/
+
+# IDE / Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Environments
+.env
+
+#
+# --- Collected from web/frontend/.gitignore ---
+#
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+.vite/
+.eslintcache
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

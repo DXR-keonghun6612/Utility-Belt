@@ -2,3 +2,7 @@
 	path = submodules/python_toolbox
 	url = https://github.com/SEOULTECH-AIS-gyounghun6612/CORE.git
 	branch = python_toolbox
+[submodule "submodules/script_toolbox"]
+	path = submodules/script_toolbox
+	url = https://github.com/SEOULTECH-AIS-gyounghun6612/CORE.git
+	branch = script_toolbox
