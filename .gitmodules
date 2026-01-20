@@ -1,0 +1,4 @@
+[submodule "script/core"]
+	path = script/core
+	url = https://github.com/SEOULTECH-AIS-gyounghun6612/CORE.git
+	branch = bash_toolbox

@@ -1,0 +1,7 @@
+!template/*.conf
+
+*.conf
+*.json
+
+log.*
+*.log
