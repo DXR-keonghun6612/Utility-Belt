@@ -1,7 +1,28 @@
-!template/*.conf
+# OS generated files
+.DS_Store
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
 
+# Editor directories and files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+*.bak
+
+# Generated Configuration and Logs
+conf/
+log/
+tmp/
+temp/
+
+# File extensions to ignore
 *.conf
 *.json
-
-log.*
 *.log
+*.tmp
+
+# Exceptions (Do not ignore)
+!template/*.conf
