@@ -59,7 +59,7 @@ _ui_install_nvidia_driver() {
 #
 ui_install_application() {
     # --- 1. 설정 및 스크립트 스캔 ---
-    local install_dir="${SCRIPT_DIR}/script/install/ubuntu"
+    local install_dir="${SCRIPT_DIR}/script/install"
     
     # 스크립트 파일명 => "UI 표시 이름|설정 파일 키|설정 파일 섹션|설치 권한 유형" 매핑
     # 권한 유형: System (강제 시스템 설치), Selectable (설치 시 User/System 선택 가능)
@@ -67,12 +67,14 @@ ui_install_application() {
         ["miniconda.sh"]="Miniconda|miniconda|APPLICATION_LIST|Selectable"
         ["vscode.sh"]="VS Code|code|APPLICATION_LIST|System"
         ["nvidia_driver.sh"]="NVIDIA Driver|nvidia-driver|DRIVER_LIST|System"
+        ["docker.sh"]="Docker|docker|APPLICATION_LIST|System"
     )
     # UI 표시 이름 => 실제 실행할 함수 이름 매핑
     declare -A NAME_TO_LOGIC=(
         ["Miniconda"]="install_miniconda_logic"
         ["VS Code"]="install_vscode_logic"
         ["NVIDIA Driver"]="_ui_install_nvidia_driver"
+        ["Docker"]="install_docker_logic"
     )
     # UI 표시 이름 => 스크립트 파일명 역매핑 (설치 시 정보 조회를 위해 필요)
     declare -A NAME_TO_FILENAME
