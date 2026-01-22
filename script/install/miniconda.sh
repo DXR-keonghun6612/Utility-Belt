@@ -14,6 +14,9 @@ install_miniconda_logic() {
     local install_prefix=""
     local sudo_cmd=""
 
+    # --- 0. 필수 의존성 확인 ---
+    ensure_packages_installed "SYSTEM_TOOLS" "Miniconda Dependencies" "wget" || return 1
+
     if [[ "$install_mode" == "system" ]]; then
         install_prefix="/opt/miniconda3"
         # 현재 사용자가 root가 아니면 sudo 사용
