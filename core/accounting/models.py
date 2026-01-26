@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Date, ForeignKey, Enum, Numeric, Text
+from sqlalchemy import Column, String, Integer, Date, ForeignKey, Enum, Numeric, UniqueConstraint
 from sqlalchemy.orm import relationship
 import uuid
 
@@ -8,11 +8,20 @@ from core.accounting.typing import Account_Type, Account_Side
 class AccountModel(Base):
     __tablename__ = "accounts"
 
-    code = Column(String, primary_key=True, index=True) # 계정 코드 (예: '1001')
+    # Multi-tenancy: Surrogate Key 사용 (code는 중복 가능하므로 PK 불가)
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_id = Column(String, nullable=False, index=True) 
+
+    code = Column(String, nullable=False) # 유저별 식별 코드 (예: '1001')
     name = Column(String, nullable=False)
     category = Column(Enum(Account_Type), nullable=False) # ASSET, LIABILITY...
     side = Column(Enum(Account_Side), nullable=False)     # DEBIT/CREDIT
     description = Column(String, nullable=True)
+
+    # 한 유저 내에서는 코드가 유니크해야 함
+    __table_args__ = (
+        UniqueConstraint('owner_id', 'code', name='uix_account_owner_code'),
+    )
 
     # Relationship
     entries = relationship("JournalEntryModel", back_populates="account")
@@ -22,10 +31,12 @@ class TransactionModel(Base):
     __tablename__ = "transactions"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_id = Column(String, nullable=False, index=True) # Multi-tenancy
+
     date = Column(Date, nullable=False)
     description = Column(String, nullable=False) # 적요
     
-    # 추후 assets, geo 모듈과 연동될 FK (지금은 단순 String 처리하거나 생략 가능)
+    # 추후 assets, geo 모듈과 연동될 FK
     evidence_id = Column(String, nullable=True)
     location_id = Column(String, nullable=True)
 
@@ -38,8 +49,12 @@ class JournalEntryModel(Base):
     __tablename__ = "journal_entries"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    
     transaction_id = Column(String, ForeignKey("transactions.id"), nullable=False)
-    account_code = Column(String, ForeignKey("accounts.code"), nullable=False)
+    
+    # FK 변경: code(String) -> id(UUID)
+    # 계정 코드는 바뀔 수 있거나 중복될 수 있으므로 불변인 ID를 참조
+    account_id = Column(String, ForeignKey("accounts.id"), nullable=False)
     
     side = Column(Enum(Account_Side), nullable=False) # DEBIT / CREDIT
     amount = Column(Numeric(precision=15, scale=2), nullable=False) # 금액 (Decimal)

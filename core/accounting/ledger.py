@@ -3,7 +3,7 @@ from datetime import date
 from uuid import uuid4
 from decimal import Decimal
 from pathlib import Path
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import IntegrityError
 
 # Submodule Import
@@ -20,17 +20,26 @@ class Ledger:
     원장 (General Ledger):
     모든 계정 과목과 거래 내역을 관리하는 핵심 컨트롤러입니다.
     SQLAlchemy Session을 통해 DB와 상호작용합니다.
+    모든 작업은 user_id(owner_id)를 기준으로 격리됩니다.
     """
     def __init__(self, db: Session):
         self.db = db
 
     # --- 계정 관리 (Chart of Accounts) ---
     
-    def add_account(self, account: Account) -> Account:
+    def add_account(self, user_id: str, account: Account) -> Account:
         """
-        새로운 계정 과목을 DB에 등록합니다.
+        새로운 계정 과목을 DB에 등록합니다. (User Scope)
         """
+        # DTO에서 넘어온 owner_id가 없으면 user_id로 덮어씌움 (안전장치)
+        if not account.owner_id:
+            account.owner_id = user_id
+            
+        if account.owner_id != user_id:
+            raise ValueError("Account owner_id does not match the requesting user_id.")
+
         db_account = AccountModel(
+            owner_id=user_id,
             code=account.code,
             name=account.name,
             category=account.category,
@@ -43,20 +52,27 @@ class Ledger:
             self.db.refresh(db_account)
         except IntegrityError:
             self.db.rollback()
-            raise ValueError(f"Account code '{account.code}' already exists.")
+            raise ValueError(f"Account code '{account.code}' already exists for this user.")
         
+        # ID 업데이트 후 반환
+        account.id = db_account.id
         return account
 
-    def get_account(self, code: str) -> Account:
+    def get_account(self, user_id: str, code: str) -> Account:
         """
-        DB에서 계정을 조회하여 DTO로 반환합니다.
+        DB에서 계정을 조회하여 DTO로 반환합니다. (User Scope)
         """
-        db_account = self.db.query(AccountModel).filter(AccountModel.code == code).first()
-        if not db_account:
-            raise ValueError(f"Account code '{code}' not found.")
+        db_account = self.db.query(AccountModel).filter(
+            AccountModel.owner_id == user_id,
+            AccountModel.code == code
+        ).first()
         
-        # DB Model -> DTO 변환
+        if not db_account:
+            raise ValueError(f"Account code '{code}' not found for user '{user_id}'.")
+        
         return Account(
+            id=db_account.id,
+            owner_id=db_account.owner_id,
             code=db_account.code,
             name=db_account.name,
             category=db_account.category,
@@ -68,6 +84,7 @@ class Ledger:
 
     def record_transaction(
         self, 
+        user_id: str,
         tx_date: date, 
         description: str, 
         debits: List[Dict], # [{'code': '1001', 'amount': 10000}, ...]
@@ -80,14 +97,11 @@ class Ledger:
         대차평형을 검증한 뒤 DB에 저장합니다.
         """
         
-        # 1. Transaction Model 생성
-        # ID는 DB 저장 시 자동 생성되거나 여기서 지정 가능. 
-        # 모델에서 default=uuid4 설정을 했으므로 여기선 자동 생성에 맡기거나 명시적으로 생성 가능.
-        # DTO 반환을 위해 명시적으로 생성하는 것이 좋음.
         tx_id = str(uuid4())
         
         new_tx_model = TransactionModel(
             id=tx_id,
+            owner_id=user_id,
             date=tx_date,
             description=description,
             evidence_id=evidence_id,
@@ -96,20 +110,32 @@ class Ledger:
 
         entries_to_add = []
         
-        # 검증용 합계
         total_debit = Decimal('0')
         total_credit = Decimal('0')
 
+        # 계정 코드 캐싱 (한 트랜잭션 내 동일 계정 반복 사용 시 DB 조회 최소화)
+        account_map = {} # code -> AccountModel
+
+        def get_account_model(code: str) -> AccountModel:
+            if code not in account_map:
+                acc = self.db.query(AccountModel).filter(
+                    AccountModel.owner_id == user_id,
+                    AccountModel.code == code
+                ).first()
+                if not acc:
+                    raise ValueError(f"Account code '{code}' not found.")
+                account_map[code] = acc
+            return account_map[code]
+
         # 2. 차변(Debits) 처리
         for item in debits:
-            # 계정 존재 여부 확인 (없으면 에러 발생)
-            self.get_account(item['code']) 
+            acc = get_account_model(item['code'])
             
             amount = Decimal(str(item['amount']))
             total_debit += amount
             
             entries_to_add.append(JournalEntryModel(
-                account_code=item['code'],
+                account_id=acc.id, # FK는 UUID 사용
                 side=Account_Side.DEBIT,
                 amount=amount,
                 description=item.get('description')
@@ -117,89 +143,99 @@ class Ledger:
 
         # 3. 대변(Credits) 처리
         for item in credits:
-            self.get_account(item['code'])
+            acc = get_account_model(item['code'])
             
             amount = Decimal(str(item['amount']))
             total_credit += amount
             
             entries_to_add.append(JournalEntryModel(
-                account_code=item['code'],
+                account_id=acc.id, # FK는 UUID 사용
                 side=Account_Side.CREDIT,
                 amount=amount,
                 description=item.get('description')
             ))
 
-        # 4. 대차평형 검증 (Validation)
+        # 4. 대차평형 검증
         if total_debit != total_credit:
             raise ValueError(
                 f"Transaction is not balanced! (Debit: {total_debit}, Credit: {total_credit})"
             )
 
-        # 5. 모델 연결 및 저장 (Commit)
+        # 5. 저장
         new_tx_model.entries = entries_to_add
         
         self.db.add(new_tx_model)
         self.db.commit()
         self.db.refresh(new_tx_model)
 
-        # 6. 결과 반환 (Model -> DTO 변환)
-        # DB에는 통합되어 저장되지만, DTO는 debits/credits가 분리되어 있으므로 다시 나눠줌
-        res_debits = []
-        res_credits = []
-        
-        for e in new_tx_model.entries:
-            je = Journal_Entry(
-                account_code=e.account_code,
-                side=e.side,
-                amount=e.amount,
-                description=e.description
-            )
-            if e.side == Account_Side.DEBIT:
-                res_debits.append(je)
-            else:
-                res_credits.append(je)
+        # 6. 결과 반환 (Eager Loading을 안 했다면 relationship 접근 시 쿼리 발생)
+        # 여기서는 이미 메모리에 있는 정보와 account_map을 활용해 구성 가능하지만,
+        # 정석대로 모델에서 변환
+        return self._model_to_dto(new_tx_model)
 
-        return Transaction(
-            id=new_tx_model.id,
-            date=new_tx_model.date,
-            description=new_tx_model.description,
-            debits=res_debits,
-            credits=res_credits,
-            evidence_id=new_tx_model.evidence_id,
-            location_id=new_tx_model.location_id
-        )
+    def get_transaction(self, user_id: str, tx_id: str) -> Transaction:
+        """
+        특정 거래를 조회합니다.
+        """
+        # joinedload로 N+1 문제 방지 (entries와 그 안의 account까지 한 번에 로딩)
+        tx_model = self.db.query(TransactionModel).options(
+            joinedload(TransactionModel.entries).joinedload(JournalEntryModel.account)
+        ).filter(
+            TransactionModel.owner_id == user_id,
+            TransactionModel.id == tx_id
+        ).first()
 
-    def update_transaction_metadata(
-        self, 
-        transaction_id: str, 
-        description: Optional[str] = None,
-        evidence_id: Optional[str] = None,
-        location_id: Optional[str] = None
-    ) -> Transaction:
-        """
-        거래의 메타데이터(설명, 증빙, 위치)를 수정합니다.
-        금액이나 계정 등 회계적 중요 정보는 수정하지 않습니다.
-        """
-        tx_model = self.db.query(TransactionModel).filter(TransactionModel.id == transaction_id).first()
         if not tx_model:
-            raise ValueError(f"Transaction {transaction_id} not found.")
-
-        if description is not None:
-            tx_model.description = description
-        if evidence_id is not None:
-            tx_model.evidence_id = evidence_id
-        if location_id is not None:
-            tx_model.location_id = location_id
+            raise ValueError(f"Transaction {tx_id} not found.")
             
-        self.db.commit()
-        self.db.refresh(tx_model)
+        return self._model_to_dto(tx_model)
+
+    def get_all_transactions(self, user_id: str) -> List[Transaction]:
+        """
+        사용자의 모든 거래 내역을 조회합니다.
+        """
+        tx_models = self.db.query(TransactionModel).options(
+            joinedload(TransactionModel.entries).joinedload(JournalEntryModel.account)
+        ).filter(
+            TransactionModel.owner_id == user_id
+        ).order_by(TransactionModel.date.desc()).all()
         
-        # DTO 변환 및 반환 (기존 로직 재사용)
+        return [self._model_to_dto(tx) for tx in tx_models]
+
+    def get_all_accounts(self, user_id: str) -> List[Account]:
+        """
+        사용자의 모든 계정 과목을 조회합니다.
+        """
+        account_models = self.db.query(AccountModel).filter(
+            AccountModel.owner_id == user_id
+        ).order_by(AccountModel.code).all()
+
+        return [
+            Account(
+                id=a.id,
+                owner_id=a.owner_id,
+                code=a.code,
+                name=a.name,
+                category=a.category,
+                side=a.side,
+                description=a.description
+            ) for a in account_models
+        ]
+
+    def _model_to_dto(self, tx_model: TransactionModel) -> Transaction:
+        """
+        내부 헬퍼: TransactionModel -> Transaction DTO 변환
+        """
         res_debits = []
         res_credits = []
+        
         for e in tx_model.entries:
-            je = JournalEntry(
-                account_code=e.account_code,
+            # account 정보가 로딩되어 있어야 함 (joinedload 권장)
+            # 만약 lazy loading 상태라면 여기서 쿼리 발생
+            
+            je = Journal_Entry(
+                account_code=e.account.code, # AccountModel에 접근
+                account_name=e.account.name,
                 side=e.side,
                 amount=e.amount,
                 description=e.description
@@ -211,6 +247,7 @@ class Ledger:
 
         return Transaction(
             id=tx_model.id,
+            owner_id=tx_model.owner_id,
             date=tx_model.date,
             description=tx_model.description,
             debits=res_debits,
@@ -218,79 +255,12 @@ class Ledger:
             evidence_id=tx_model.evidence_id,
             location_id=tx_model.location_id
         )
+    
+    # --- Export ---
 
-    def get_all_transactions(self) -> List[Transaction]:
-        """
-        모든 거래 내역을 조회하여 DTO 리스트로 반환합니다.
-        """
-        tx_models = self.db.query(TransactionModel).all()
-        results = []
-        
-        for tx in tx_models:
-            res_debits = []
-            res_credits = []
-            for e in tx.entries:
-                je = Journal_Entry(
-                    account_code=e.account_code,
-                    side=e.side,
-                    amount=e.amount,
-                    description=e.description
-                )
-                if e.side == Account_Side.DEBIT:
-                    res_debits.append(je)
-                else:
-                    res_credits.append(je)
-            
-            results.append(Transaction(
-                id=tx.id,
-                date=tx.date,
-                description=tx.description,
-                debits=res_debits,
-                credits=res_credits,
-                evidence_id=tx.evidence_id,
-                location_id=tx.location_id
-            ))
-            
-        return results
-
-    def get_all_accounts(self) -> List[Account]:
-        """
-        모든 계정 과목을 조회하여 DTO 리스트로 반환합니다.
-        """
-        account_models = self.db.query(AccountModel).all()
-        return [
-            Account(
-                code=a.code,
-                name=a.name,
-                category=a.category,
-                side=a.side,
-                description=a.description
-            ) for a in account_models
-        ]
-
-    def export_to_json(self, file_path: str) -> bool:
-        """
-        모든 거래 내역을 JSON 파일로 내보냅니다.
-        Returns:
-            bool: 성공 여부
-        """
-        transactions = self.get_all_transactions()
+    def export_to_json(self, user_id: str, file_path: str) -> bool:
+        transactions = self.get_all_transactions(user_id)
         data_list = [tx.to_dict() for tx in transactions]
-        
-        # python_toolbox의 Json.Write_to 사용
-        # (이미 Handle_exp 데코레이터가 있어서 예외 처리됨)
-        return Process.Json.Write_to(
-            file=Path(file_path),
-            data=data_list,
-            indent=4
-        )
-
-    def export_accounts_to_json(self, file_path: str) -> bool:
-        """
-        모든 계정 정보를 JSON 파일로 내보냅니다.
-        """
-        accounts = self.get_all_accounts()
-        data_list = [a.to_dict() for a in accounts]
         
         return Process.Json.Write_to(
             file=Path(file_path),
