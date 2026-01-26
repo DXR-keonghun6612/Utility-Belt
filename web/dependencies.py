@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from core.database import SessionLocal
 from core.accounting.ledger import Ledger
 from core.finance.service import FinanceManager
+from core.automation.scheduler import AutomationManager
 
 def get_db():
     db = SessionLocal()
@@ -16,6 +17,9 @@ def get_ledger(db: Session = Depends(get_db)) -> Ledger:
 
 def get_finance_manager(db: Session = Depends(get_db), ledger: Ledger = Depends(get_ledger)) -> FinanceManager:
     return FinanceManager(db, ledger)
+
+def get_automation_manager(db: Session = Depends(get_db), ledger: Ledger = Depends(get_ledger)) -> AutomationManager:
+    return AutomationManager(db, ledger)
 
 def get_current_user_id(x_user_id: str = Header(..., description="User ID for Multi-tenancy (Mock Auth)")) -> str:
     if not x_user_id:
