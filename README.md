@@ -2,27 +2,27 @@
 
 ## 개요
 
-- 정의: 크로스플랫폼 서버 관리 자동화 도구
-- OS: Linux (TUI), Windows (GUI) 동시 지원
+- 정의: 서버 관리 자동화 도구
+- OS: Linux (TUI, GUI) 지원
 - 기술 스택:
   - Linux: `bash` + `dialog` (텍스트 인터페이스)
-  - Windows: `PowerShell` + `Windows Forms` (그래픽 인터페이스)
 - 주요 기능: 시스템 설정, 소프트웨어 설치, 모니터링, 스토리지 관리
+
+## 진행 사항
+
+- [ ] driver 설치 관련 결과 config 파일에 연동작성 되지 않는 문제 해결 
 
 ## 주요 기능 상세
 
 ### 크로스플랫폼 지원 (Cross-Platform)
 
 - Linux (Ubuntu/Debian): `dialog` 유틸리티를 활용한 직관적인 TUI 제공.
-- Windows (10, 11, Server): `Windows Forms`를 통해 친숙한 GUI 제공.
-- 구조: OS별 독립된 스크립트 구조로 기능 추가 및 유지보수가 용이.
 
 ### 지능형 권한 관리 (Intelligent Permissions)
 
 - 권한 자동 감지: 스크립트 실행 시 관리자(root/Admin) 여부 확인 후 최적 모드(관리자/사용자)로 전환.
 - 필요 시점 권한 상승:
   - Linux: `sudo`를 통해 꼭 필요한 명령어에 대해서만 `root` 권한 사용.
-  - Windows: 관리자 권한이 필요한 기능 실행 전 사용자에게 안내.
 
 ### 프로필 기반 상태 관리 (Profile-based Management)
 
@@ -41,7 +41,6 @@
   - 내보내기: 수집된 하드웨어 정보를 `JSON` 형식 파일로 저장.
 - 소프트웨어 설치:
   - Linux: `apt` 패키지, NVIDIA 드라이버, Miniconda 자동 설치.
-  - Windows: `winget` 패키지, NVIDIA 드라이버, Miniconda 자동 설치.
 - 시스템 설정:
   - 계정: 로컬 사용자 및 그룹 생성, 삭제, 수정.
   - 네트워크: 고정 IP 설정, 네트워크 본딩/팀 구성, Hosts 파일 관리.
@@ -51,13 +50,8 @@
 
 ## 요구사항
 
-- Linux:
-  - OS: Ubuntu, Debian 기반 시스템
-  - 필수: `bash`, `git`, `dialog`, `sudo`
-- Windows:
-  - OS: Windows 10/11, Windows Server 2016 이상
-  - 필수: `PowerShell 5.1+`, `.NET Framework 4.5+`
-  - 권장: `Git for Windows`, `Winget` 클라이언트
+- OS: Ubuntu, Debian 기반 시스템
+- 필수: `bash`, `git`, `dialog`, `sudo`
 
 ## 설치
 
@@ -101,43 +95,6 @@ bash -x ./ASAP.sh
 
 # 실행 과정을 파일로 저장 (분석용)
 bash -x ./ASAP.sh 2> debug_trace.log
-```
-
----
-
-### Windows (PowerShell)
-
-**1. 기본 실행**
-PowerShell을 **관리자 권한**으로 실행한 후, 스크립트 실행 정책을 우회하여 실행합니다.
-```powershell
-# 실행 정책(Execution Policy)을 일시적으로 Bypass로 설정하여 실행
-powershell.exe -ExecutionPolicy Bypass -File .\ASAP.ps1
-```
-
-**2. 로그 기록 (Transcript)**
-PowerShell의 `Start-Transcript` 기능을 사용하여 콘솔의 모든 내용을 기록할 수 있습니다.
-```powershell
-# 기록 시작
-Start-Transcript -Path "log.txt"
-
-# 스크립트 실행
-.\ASAP.ps1
-
-# 기록 종료 (로그 파일 저장 완료)
-Stop-Transcript
-```
-
-**3. 디버그 모드 (Debugging)**
-스크립트 실행 중 변수 할당이나 조건문 분기 등을 추적하려면 `Set-PSDebug`를 사용합니다.
-```powershell
-# 디버그 추적 레벨 설정 (1: 기본, 2: 상세)
-Set-PSDebug -Trace 1
-
-# 스크립트 실행
-.\ASAP.ps1
-
-# 디버그 모드 해제
-Set-PSDebug -Off
 ```
 
 ## 프로젝트 구조
