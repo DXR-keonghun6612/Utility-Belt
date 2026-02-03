@@ -146,9 +146,63 @@ _ui_form_create_cifs_profile() {
         ui_message_box "All fields are required." "Error"; return 1
     fi
     
-    # Credential 파일 생성
-    local cred_file="${HOME}/.smbcredentials_${profile_name}"
-    if ! _ui_manage_cifs_credentials "${cred_file}"; then return 1; fi
+    # [기능 추가] Credential 저장 위치 선택
+    local loc_choice
+    loc_choice=$(ui_create_menu "Credential Location" "Where to save credentials?" \
+        "Select storage location for security." 15 60 5 \
+        "USER" "User Home (~/.credentials/)" \
+        "ROOT" "Root Home (/root/.credentials/)")
+    
+    if [[ "$loc_choice" == "CANCEL" ]]; then return 1; fi
+
+    local cred_dir
+    if [[ "$loc_choice" == "USER" ]]; then
+        cred_dir="${HOME}/.credentials"
+    else
+        cred_dir="/root/.credentials"
+        # Root 경로 선택 시 권한 체크 (쓰기 가능 여부 확인은 생성 시점에)
+        if [[ "${G_IS_ROOT}" != "true" && -z "${G_SUDO_PREFIX}" ]]; then
+            ui_message_box "Root privileges are required to save to /root." "Permission Error"; return 1
+        fi
+    fi
+
+    # 디렉토리 생성 (필요 시 sudo 사용)
+    if [[ ! -d "${cred_dir}" ]]; then
+        if [[ "$loc_choice" == "USER" ]]; then
+            mkdir -p "${cred_dir}"
+        else
+            ${G_SUDO_PREFIX} mkdir -p "${cred_dir}"
+        fi
+    fi
+    
+    # Credential 파일 경로 및 생성
+    local cred_file="${cred_dir}/cifs_${profile_name}"
+    
+    # _ui_manage_cifs_credentials 함수는 현재 사용자 권한으로 파일을 씁니다.
+    # Root 경로인 경우 임시 파일에 쓰고 이동하는 방식이 필요하지만, 
+    # 현재 함수 구조상 내부에서 직접 쓰기 때문에 권한 문제가 발생할 수 있습니다.
+    # 이를 해결하기 위해 _ui_manage_cifs_credentials 호출 전/후 처리가 복잡해지므로,
+    # 해당 함수에 파일 경로만 넘기고, 파일 쓰기 권한은 그 함수 내부나 호출부에서 처리해야 합니다.
+    # 하지만 _ui_manage_cifs_credentials는 단순 cat redirection을 사용하므로,
+    # 여기서는 임시 파일 패턴을 사용하겠습니다.
+    
+    local temp_cred
+    temp_cred=$(mktemp)
+    
+    if ! _ui_manage_cifs_credentials "${temp_cred}"; then 
+        rm -f "${temp_cred}"; return 1 
+    fi
+
+    # 파일 이동 및 권한 설정
+    if [[ "$loc_choice" == "USER" ]]; then
+        mv "${temp_cred}" "${cred_file}"
+        chmod 600 "${cred_file}"
+    else
+        # sudo를 사용하여 이동 및 권한 설정
+        ${G_SUDO_PREFIX} mv "${temp_cred}" "${cred_file}"
+        ${G_SUDO_PREFIX} chown root:root "${cred_file}"
+        ${G_SUDO_PREFIX} chmod 600 "${cred_file}"
+    fi
 
     add_config_section "${conf_file}" "${profile_name}"
 
