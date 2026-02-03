@@ -1,111 +1,101 @@
-# Automated Server Administration Platform: 자동화된 서버 관리 플랫폼
+# Automated Server Administration Platform (ASAP)
 
-## 개요
+ASAP는 리눅스 서버 초기 설정과 유지보수를 위한 TUI 기반 자동화 플랫폼입니다. `bash`와 `dialog`를 활용해 복잡한 관리 작업을 직관적인 인터페이스로 통합합니다.
 
-- 정의: 서버 관리 자동화 도구
-- OS: Linux (TUI, GUI) 지원
-- 기술 스택:
-  - Linux: `bash` + `dialog` (텍스트 인터페이스)
-- 주요 기능: 시스템 설정, 소프트웨어 설치, 모니터링, 스토리지 관리
+## 🚀 프로젝트 개요
 
-## 진행 사항
+- 목표: 서버 인프라 구축의 코드 기반 자동화
+- 설계 원칙:
+  - 선언적 관리: `.conf` 프로필 기반의 상태 정의
+  - 멱등성 유지: 반복 실행 시에도 시스템 무결성 보장
+  - 자가 치유(Self-Healing): UUID/PTUUID 추적을 통한 스토리지 경로 보호
+- OS: Ubuntu/Debian 기반 리눅스 지원
 
-- [ ] driver 설치 관련 결과 config 파일에 연동작성 되지 않는 문제 해결 
+## ✨ 주요 기능 (Key Features)
 
-## 주요 기능 상세
+### 1. 지능형 권한 제어
 
-### 크로스플랫폼 지원 (Cross-Platform)
+- 권한 자동 감지: 실행 사용자(Root/일반)에 따른 메뉴 구성 최적화
+- 최소 권한 원칙: 필요한 시점에만 `sudo`를 호출하여 보안성 강화
 
-- Linux (Ubuntu/Debian): `dialog` 유틸리티를 활용한 직관적인 TUI 제공.
+### 2. 선언적 스토리지 관리
 
-### 지능형 권한 관리 (Intelligent Permissions)
+- 프로필 기반 자동화: `LVM`, `CIFS`, `Direct Disk` 마운트 통합 관리
+- 자가 치유 매커니즘: 디스크 경로 변동 시 PTUUID/UUID 기반 설정 자동 갱신
+- 고급 LVM 구성: PV/VG/LV 생성 및 SSD 캐시(Cache Pool) 연동 지원
 
-- 권한 자동 감지: 스크립트 실행 시 관리자(root/Admin) 여부 확인 후 최적 모드(관리자/사용자)로 전환.
-- 필요 시점 권한 상승:
-  - Linux: `sudo`를 통해 꼭 필요한 명령어에 대해서만 `root` 권한 사용.
+### 3. 하이브리드 네트워크 스택
 
-### 프로필 기반 상태 관리 (Profile-based Management)
+- 듀얼 스택 지원: `NetworkManager`와 `systemd-networkd` 환경 자동 대응
+- 고급 토폴로지: 본딩(Active-Backup, LACP) 및 티밍 설정을 TUI로 처리
+- 연결 설정: 고정 IP, 게이트웨이, DNS, `/etc/hosts` 매핑 자동화
 
-- 선언적 관리: `.conf` 설정 파일에 원하는 상태를 '프로필'로 정의.
-- 스토리지:
-  - 프로필 종류: `direct`(단일 디스크), `lvm`(Linux), `Storage Spaces`(Windows), `cifs`(원격 공유).
-  - UI를 통해 프로필을 선택하여 마운트/언마운트 상태를 손쉽게 동기화.
-- Samba/SMB:
-  - 공유 설정을 프로필 단위로 `.conf` 파일에 저장.
-  - UI에서 각 공유 프로필을 활성화/비활성화.
+### 4. 모듈형 소프트웨어 프로비저닝
 
-### 모듈화된 기능 (Modular Functions)
+- 자동 설치 도구: Docker, NVIDIA Driver, Miniconda, VS Code 환경 구성
+- 사용자 도구: Git 전역 설정 및 SSH Key(ed25519/rsa) 생성/관리 자동화
+- 패키지 관리: APT 의존성 자동 확인 및 대량 설치 지원
 
-- 시스템 모니터링:
-  - 조회 항목: CPU, 메인보드, GPU, 메모리, 스토리지 상세 정보.
-  - 내보내기: 수집된 하드웨어 정보를 `JSON` 형식 파일로 저장.
-- 소프트웨어 설치:
-  - Linux: `apt` 패키지, NVIDIA 드라이버, Miniconda 자동 설치.
-- 시스템 설정:
-  - 계정: 로컬 사용자 및 그룹 생성, 삭제, 수정.
-  - 네트워크: 고정 IP 설정, 네트워크 본딩/팀 구성, Hosts 파일 관리.
-- 사용자 도구:
-  - Git: 사용자 정보(이름/이메일), 인증 도우미 설정.
-  - SSH: `ed25519`/`rsa` 키 생성, `ssh-agent` 관리.
+### 5. 시스템 텔레메트리
 
-## 요구사항
+- 하드웨어 감사: CPU, GPU, 메모리, 보드 정보를 심층 스캔
+- 데이터 직렬화: 수집된 자산 정보를 외부 연동용 `JSON`으로 내보내기
 
-- OS: Ubuntu, Debian 기반 시스템
-- 필수: `bash`, `git`, `dialog`, `sudo`
+## 🛠 요구사항
 
-## 설치
+- OS: Ubuntu 20.04+ / Debian 계열
+- Shell: Bash 4.0 이상
+- 의존성: `dialog`, `lvm2`, `parted`, `cifs-utils`, `NetworkManager`
 
-1. 저장소 복제:
+## 📦 설치 및 실행
 
-   ```bash
-   git clone <URL> Utility_Belt && cd Utility_Belt
-   ```
+### 1. 설치
 
-2. 서브모듈 초기화 (필요 시):
-
-   ```bash
-   git submodule update --init --recursive
-   ```
-
-## 사용법 (Usage) & 디버깅 (Debugging)
-
-### Linux (Bash)
-
-**1. 기본 실행**
-가장 일반적인 실행 방법입니다. `dialog` 패키지가 없으면 자동으로 설치를 시도합니다.
 ```bash
-bash ./ASAP.sh
+git clone <Repository_URL> ASAP
+cd ASAP
+git submodule update --init --recursive
 ```
 
-**2. 로그 저장 (Logging)**
-실행 중 발생하는 오류 메시지를 파일로 저장하려면 표준 에러(stderr)를 리다이렉션합니다.
+### 2. 사용법 (Usage) & 디버깅
+
+기본 실행: 스크립트에 실행 권한을 부여한 후 실행
+
 ```bash
-# 에러 메시지만 'error.log'에 저장
-bash ./ASAP.sh 2> error.log
+chmod +x ASAP.sh
+./ASAP.sh
+```
+
+로그 저장 (Logging): 실행 중 발생하는 오류나 전체 출력을 파일로 기록
+
+```bash
+# 에러 메시지만 'error.log'에 저장 (권장)
+./ASAP.sh 2> error.log
 
 # 모든 출력(표준 출력 + 에러)을 'output.log'에 저장
-bash ./ASAP.sh > output.log 2>&1
+./ASAP.sh > output.log 2>&1
 ```
 
-**3. 디버그 모드 (Debugging)**
-스크립트의 실행 과정을 한 줄씩 추적(Trace)하려면 `-x` 옵션을 사용합니다.
+디버그 모드 (Debugging): 스크립트의 상세 실행 과정을 추적
+
 ```bash
-# 실행 과정을 화면에 출력하며 실행
+# 실행 과정을 화면에 출력
 bash -x ./ASAP.sh
 
 # 실행 과정을 파일로 저장 (분석용)
 bash -x ./ASAP.sh 2> debug_trace.log
 ```
 
-## 프로젝트 구조
+## 📂 프로젝트 구조
 
-- 진입점: `ASAP.sh` (Linux), `ASAP.ps1` (Windows)
-- 설정: `template/` (템플릿), `*.conf` (실행 설정)
-- 백엔드 로직: `script/`
-  - `core/<os>`: 핵심 라이브러리 (권한 감지, 파서, UI 툴킷).
-  - `system/<os>`: 시스템 관리 로직 (계정, 네트워크, 스토리지).
-  - `user/<os>`: 사용자 도구 로직 (Git, SSH).
-  - `install/<os>`: 소프트웨어 설치 로직.
-- 프론트엔드 UI: `ui/<os>`
-  - `ui/ubuntu`: TUI (`dialog`) 스크립트.
-  - `ui/windows`: GUI (`Windows Forms`) 스크립트.
+- `ASAP.sh`: 메인 엔트리포인트 및 권한 분기
+- `script/core/`: 핵심 라이브러리 (파서, 공통 함수)
+- `script/system/`: 시스템 관리 로직 (계정, 네트워크, 스토리지)
+- `script/install/`: 애플리케이션 자동 설치 스크립트
+- `ui/`: `dialog` 기반 TUI 인터페이스 모듈
+- `conf/` & `template/`: 설정 파일 및 기본 템플릿
+
+## 📝 TODO
+
+- [x] Driver 설치 결과의 Config 파일 연동성 강화
+- [x] 원격 마운트 시 Credential 저장 위치 선택 옵션 추가
