@@ -56,7 +56,11 @@ get_memory_info() {
             installed_slots=$((installed_slots + count))
             total_size_mb=$((total_size_mb + count * size_mb))
             
+            # 출력 시 보기 좋게 변환 (GB 단위가 크면 GB로)
             local size_str="${size_mb} MB"
+            if [[ "$size_mb" -ge 1024 ]]; then
+                size_str="$((size_mb / 1024)) GB"
+            fi
             local speed_str="${speed_mts} MT/s"
             
             echo "  - ${count}x ${type} ${size_str} @ ${speed_str} (Manufacturer: ${manufacturer})"
@@ -64,7 +68,12 @@ get_memory_info() {
 
         if [[ "$total_size_mb" -gt 0 ]]; then
             local total_size_gb=$((total_size_mb / 1024))
-            echo "Total Installed Memory: ${total_size_gb} GB"
+            # 소수점 출력을 위해 awk 사용 (선택 사항, 여기서는 정수 나눗셈 유지하거나 개선 가능)
+            if [[ "$total_size_gb" -gt 0 ]]; then
+                echo "Total Installed Memory: ${total_size_gb} GB"
+            else
+                echo "Total Installed Memory: ${total_size_mb} MB"
+            fi
         fi
     fi
 
@@ -121,21 +130,35 @@ _get_memory_details_raw() {
     memory_details=$(${G_SUDO_PREFIX} dmidecode -t 17 | awk '
         BEGIN { RS = ""; FS = "\n" }
         {
-            manufacturer = "N/A"; type = "N/A"; size = "N/A"; speed = "N/A";
+            manufacturer = "N/A"; type = "N/A"; size_raw = "N/A"; speed = "N/A";
             for (i = 1; i <= NF; i++) {
                 if ($i ~ /^[ \t]+Manufacturer:/) { sub(/^[^:]+:[ \t]*/, "", $i); manufacturer = $i }
                 if ($i ~ /^[ \t]+Type:/)       { sub(/^[^:]+:[ \t]*/, "", $i); type = $i }
-                if ($i ~ /^[ \t]+Size:/)       { sub(/^[^:]+:[ \t]*/, "", $i); size = $i }
+                if ($i ~ /^[ \t]+Size:/)       { sub(/^[^:]+:[ \t]*/, "", $i); size_raw = $i }
                 if ($i ~ /^[ \t]+Configured Memory Speed:/) { sub(/^[^:]+:[ \t]*/, "", $i); speed = $i }
             }
-            if (size !~ /No Module Installed/ && size !~ /N\/A/) {
+            if (size_raw !~ /No Module Installed/ && size_raw !~ /N\/A/) {
                 gsub(/^[ \t]+|[ \t]+$/, "", manufacturer);
                 gsub(/^[ \t]+|[ \t]+$/, "", type);
-                gsub(/^[ \t]+|[ \t]+$/, "", size);
+                gsub(/^[ \t]+|[ \t]+$/, "", size_raw);
                 gsub(/^[ \t]+|[ \t]+$/, "", speed);
                 
-                size_mb = size;
-                sub(/ .*/, "", size_mb);
+                # Size 값 파싱 (단위 처리)
+                split(size_raw, size_parts, " ");
+                val = size_parts[1];
+                unit = size_parts[2];
+                
+                size_mb = 0;
+                if (unit == "GB") {
+                    size_mb = val * 1024;
+                } else if (unit == "MB") {
+                    size_mb = val;
+                } else if (unit == "kB") {
+                    size_mb = val / 1024;
+                } else {
+                    size_mb = val; # 기본값 MB로 가정하거나 Unknown
+                }
+
                 speed_mts = speed;
                 sub(/ .*/, "", speed_mts);
 
@@ -168,7 +191,7 @@ _get_memory_details_raw() {
 get_system_info_json() {
     # Helper function to escape strings for JSON
     json_escape() {
-        echo -n "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+        echo -n "" | sed 's/\\/\\\\/g; s/"/\\"/g'
     }
 
     # 1. CPU 정보 수집 (lscpu 직접 사용)
@@ -202,7 +225,7 @@ get_system_info_json() {
     local storage_json_array
     storage_json_array=$(lsblk -d -o NAME,MODEL,SIZE -b | awk '
         NR > 1 {
-            name=$1
+            name=
             size=$NF
             model=""
             for (i=2; i<NF; i++) { model = model (i==2 ? "" : " ") $i }
@@ -234,7 +257,7 @@ get_system_info_json() {
     
     local installed_slots=0
     if [[ -n "$raw_mem_details" ]]; then
-        installed_slots=$(echo "$raw_mem_details" | awk -F'|' '{s+=$1} END {print s}')
+        installed_slots=$(echo "$raw_mem_details" | awk -F'|' '{s+=} END {print s}')
     fi
     local empty_slots=$((total_slots - installed_slots))
 
