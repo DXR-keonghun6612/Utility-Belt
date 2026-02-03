@@ -46,6 +46,9 @@ _ui_install_nvidia_driver() {
 
     clear
     if install_nvidia_driver_logic "${selected_driver}"; then
+        # [Config 연동] 설치 성공 시 DRIVER_LIST에 기록
+        local timestamp; timestamp=$(date "+%Y-%m-%dT%H:%M:%S")
+        set_config_value "${CONFIG_FILE}" "DRIVER_LIST" "nvidia-driver" "${selected_driver} (${timestamp})"
         ui_message_box "Driver '${selected_driver}' installed.\nA reboot is highly recommended." "Installation Successful"
     else
         ui_message_box "Failed to install '${selected_driver}'. Check the terminal for logs." "Installation Failed"
@@ -64,17 +67,27 @@ ui_install_application() {
     # 스크립트 파일명 => "UI 표시 이름|설정 파일 키|설정 파일 섹션|설치 권한 유형" 매핑
     # 권한 유형: System (강제 시스템 설치), Selectable (설치 시 User/System 선택 가능)
     declare -A SCRIPT_MAP=(
-        ["miniconda.sh"]="Miniconda|miniconda|APPLICATION_LIST|Selectable"
+        ["conda.sh"]="Conda|conda|APPLICATION_LIST|Selectable"
         ["vscode.sh"]="VS Code|code|APPLICATION_LIST|System"
         ["nvidia_driver.sh"]="NVIDIA Driver|nvidia-driver|DRIVER_LIST|System"
+        ["cuda_toolkit.sh"]="CUDA Toolkit|cuda-toolkit|APPLICATION_LIST|System"
         ["docker.sh"]="Docker|docker|APPLICATION_LIST|System"
     )
     # UI 표시 이름 => 실제 실행할 함수 이름 매핑
     declare -A NAME_TO_LOGIC=(
-        ["Miniconda"]="install_miniconda_logic"
+        ["Conda"]="install_conda_logic"
         ["VS Code"]="install_vscode_logic"
         ["NVIDIA Driver"]="_ui_install_nvidia_driver"
+        ["CUDA Toolkit"]="install_cuda_toolkit_logic"
         ["Docker"]="install_docker_logic"
+    )
+    # UI 표시 이름 => 설치 확인 함수 매핑
+    declare -A NAME_TO_CHECK=(
+        ["Conda"]="is_installed_conda"
+        ["VS Code"]="is_installed_vscode"
+        ["NVIDIA Driver"]="is_installed_nvidia_driver"
+        ["CUDA Toolkit"]="is_installed_cuda_toolkit"
+        ["Docker"]="is_installed_docker"
     )
     # UI 표시 이름 => 스크립트 파일명 역매핑 (설치 시 정보 조회를 위해 필요)
     declare -A NAME_TO_FILENAME
@@ -95,13 +108,48 @@ ui_install_application() {
         local is_checked="off"
         local status_desc="Not Installed"
 
-        # 설치 상태 확인
-        if [[ "$section" == "DRIVER_LIST" && "$key" == "nvidia-driver" ]]; then
-            if dpkg-query -W -f='${Status}' nvidia-driver-* 2>/dev/null | grep -q 'install ok installed'; then
-                is_checked="on"; status_desc="(Installed)"
+        # [개선된 로직] 설치 확인 함수 우선 사용
+        local check_func="${NAME_TO_CHECK[$name]}"
+        local installed=false
+        local is_verified_externally=false # 상태 검증 여부
+
+        if [[ -n "$check_func" ]] && command -v "$check_func" &>/dev/null; then
+            if "$check_func"; then
+                installed=true
             fi
-        elif [[ -n "$(get_config_value "${CONFIG_FILE}" "$section" "$key")" ]]; then
-            is_checked="on"; status_desc="(Installed)"
+            is_verified_externally=true
+        else
+            # Fallback: 기존 Config/DPKG 확인 방식
+            if [[ "$section" == "DRIVER_LIST" && "$key" == "nvidia-driver" ]]; then
+                if dpkg-query -W -f='${Status}' nvidia-driver-* 2>/dev/null | grep -q 'install ok installed'; then
+                    installed=true
+                fi
+                is_verified_externally=true
+            elif [[ -n "$(get_config_value "${CONFIG_FILE}" "$section" "$key")" ]]; then
+                installed=true
+            fi
+        fi
+
+        if [[ "$installed" == "true" ]]; then
+            is_checked="on"
+            status_desc="(Installed)"
+        fi
+        
+        # [Sync Config] 실제 설치 상태와 설정 파일 동기화
+        if [[ "$is_verified_externally" == "true" ]]; then
+            local current_conf_val
+            current_conf_val=$(get_config_value "${CONFIG_FILE}" "$section" "$key")
+
+            if [[ "$installed" == "true" ]]; then
+                if [[ -z "$current_conf_val" ]]; then
+                    local timestamp; timestamp=$(date "+%Y-%m-%dT%H:%M:%S")
+                    set_config_value "${CONFIG_FILE}" "$section" "$key" "${timestamp}"
+                fi
+            else
+                if [[ -n "$current_conf_val" ]]; then
+                    delete_config_value "${CONFIG_FILE}" "$section" "$key"
+                fi
+            fi
         fi
         
         initial_states["$name"]=$is_checked
@@ -125,58 +173,86 @@ ui_install_application() {
 
     if [[ "$selections_str" == "CANCEL" ]]; then return; fi
 
-    # --- 4. 선택된 항목 순차 설치 실행 ---
+    # --- 4. 선택된 항목 순차 처리 (설치/삭제) ---
     local -a selections
     eval "selections=($selections_str)"
 
-    if [[ ${#selections[@]} -eq 0 ]]; then
-        ui_message_box "No items were selected for installation." "Info"; return
-    fi
-
     clear
-    echo "--- Starting selected installations ---"
+    echo "--- Processing software setup changes ---"
 
-    for selection_display in "${selections[@]}"; do
-        # "Name [Type]" 형식에서 "Name" 추출 (마지막 공백 이후 제거)
-        local selection="${selection_display% \[*\]}"
+    # 모든 스크립트에 대해 상태 변화 감지
+    for script_file in "${available_scripts[@]}"; do
+        if [[ -z "${SCRIPT_MAP[$script_file]}" ]]; then continue; fi
+
+        IFS='|' read -r name key section install_type <<< "${SCRIPT_MAP[$script_file]}"
         
-        # 이미 설치된 항목은 건너뜀
-        if [[ "${initial_states[$selection]}" == "on" ]]; then
-            echo "[INFO] '${selection}' is already installed. Skipping."
-            continue
-        fi
-        
-        local logic_func="${NAME_TO_LOGIC[$selection]}"
-        local script_file="${NAME_TO_FILENAME[$selection]}"
-        IFS='|' read -r _ _ _ install_type <<< "${SCRIPT_MAP[$script_file]}"
-        
-        local mode_arg=""
-        
-        # Selectable 타입인 경우 사용자에게 모드 선택 요청
-        if [[ "$install_type" == "Selectable" ]]; then
-            local mode_choice
-            mode_choice=$(ui_create_menu "Installation Mode" "Select Mode for ${selection}" \
-                "How should ${selection} be installed?" 15 60 5 \
-                "user" "User Mode (Install to Home Directory)" \
-                "system" "System Mode (Install to /opt, requires sudo)")
-            
-            if [[ "$mode_choice" == "CANCEL" ]]; then
-                echo "[WARN] Installation of '${selection}' cancelled by user."
-                continue
+        local is_selected=false
+        for sel in "${selections[@]}"; do
+            # selections에는 "Name [Type]" 형식이 들어있으므로 비교 시 주의
+            if [[ "$sel" == "$name "* ]]; then
+                is_selected=true
+                break
             fi
-            mode_arg="$mode_choice"
-        fi
+        done
 
-        if [[ -n "$logic_func" ]] && command -v "$logic_func" &>/dev/null; then
+        local initial_state="${initial_states[$name]}"
+        local logic_func="${NAME_TO_LOGIC[$name]}"
+        
+        # [Case 1] 신규 설치: 초기 OFF -> 현재 ON
+        if [[ "$initial_state" == "off" && "$is_selected" == "true" ]]; then
             echo "----------------------------------------"
-            echo "[INFO] Running installer for: ${selection}"
-            if [[ -n "$mode_arg" ]]; then
-                "$logic_func" "$mode_arg"
-            else
-                "$logic_func"
+            echo "[ACTION] Installing: ${name}"
+            
+            local mode_arg=""
+            local conda_type="miniconda" # default
+
+            # [Special Handling] Conda의 경우 유형 선택 (Miniconda vs Anaconda)
+            if [[ "$name" == "Conda" ]]; then
+                conda_type=$(ui_create_menu "Conda Distribution" "Select Distribution" \
+                    "Which distribution do you want to install?" 15 60 5 \
+                    "miniconda" "Miniconda (Lightweight, Recommended)" \
+                    "anaconda" "Anaconda (Full, Large)")
+                if [[ "$conda_type" == "CANCEL" ]]; then
+                    echo "[INFO] Conda installation canceled by user."
+                    continue
+                fi
             fi
-        else
-            echo "[WARN] No logic function found for '${selection}'. Check NAME_TO_LOGIC map. Skipping."
+
+            if [[ "$install_type" == "Selectable" ]]; then
+                mode_arg=$(ui_create_menu "Installation Mode" "Select Mode for ${name}" \
+                    "How should ${name} be installed?" 15 60 5 \
+                    "user" "User Mode (Install to Home Directory)" \
+                    "system" "System Mode (Install to /opt, requires sudo)")
+                [[ "$mode_choice" == "CANCEL" ]] && continue
+            fi
+
+            if [[ -n "$logic_func" ]] && command -v "$logic_func" &>/dev/null; then
+                if [[ "$name" == "Conda" ]]; then
+                    "$logic_func" "$mode_arg" "$conda_type"
+                else
+                    "$logic_func" "$mode_arg"
+                fi
+            else
+                echo "[WARN] No installer logic found for '${name}'."
+            fi
+
+        # [Case 2] 삭제: 초기 ON -> 현재 OFF
+        elif [[ "$initial_state" == "on" && "$is_selected" == "false" ]]; then
+            echo "----------------------------------------"
+            echo "[ACTION] Uninstalling: ${name}"
+            
+            # uninstall 함수 이름 추측 (logic_func의 'install'을 'uninstall'로 변경)
+            local uninstall_func="${logic_func/install/uninstall}"
+            
+            if [[ -n "$uninstall_func" ]] && command -v "$uninstall_func" &>/dev/null; then
+                "$uninstall_func"
+                # 성공 시 설정 파일에서 제거
+                delete_config_value "${CONFIG_FILE}" "$section" "$key"
+            else
+                echo "[INFO] '${name}' uninstallation is not yet supported via script."
+                echo "       Please remove it manually if needed."
+                # 지원하지 않더라도 설정 파일에서 수동으로 지울지 여부는 신중해야 함
+            fi
         fi
     done
 

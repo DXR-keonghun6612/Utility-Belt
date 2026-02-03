@@ -69,7 +69,7 @@ _initialize_script() {
 
     # --- 3. Install 모듈 로드 ---
     # 설치 관련 로직을 로드합니다.
-    local install_scripts=("miniconda.sh" "nvidia_driver.sh" "vscode.sh")
+    local install_scripts=("conda.sh" "nvidia_driver.sh" "cuda_toolkit.sh" "vscode.sh" "docker.sh")
     for script in "${install_scripts[@]}"; do
         if [[ -f "${INSTALL_DIR}/${script}" ]]; then
             source "${INSTALL_DIR}/${script}"
