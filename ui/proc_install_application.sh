@@ -133,21 +133,30 @@ ui_install_application() {
         if [[ "$installed" == "true" ]]; then
             is_checked="on"
             status_desc="(Installed)"
+
+            # [SPECIAL] CUDA Toolkit: Always force OFF to allow entering Management Menu
+            if [[ "$name" == "CUDA Toolkit" ]]; then
+                is_checked="off"
+                status_desc="(Installed - Check to Manage)"
+            fi
         fi
         
         # [Sync Config] 실제 설치 상태와 설정 파일 동기화
         if [[ "$is_verified_externally" == "true" ]]; then
-            local current_conf_val
-            current_conf_val=$(get_config_value "${CONFIG_FILE}" "$section" "$key")
+            # [SPECIAL] CUDA Toolkit은 버전별 개별 키를 사용하므로 범용 키 동기화 제외
+            if [[ "$name" != "CUDA Toolkit" ]]; then
+                local current_conf_val
+                current_conf_val=$(get_config_value "${CONFIG_FILE}" "$section" "$key")
 
-            if [[ "$installed" == "true" ]]; then
-                if [[ -z "$current_conf_val" ]]; then
-                    local timestamp; timestamp=$(date "+%Y-%m-%dT%H:%M:%S")
-                    set_config_value "${CONFIG_FILE}" "$section" "$key" "${timestamp}"
-                fi
-            else
-                if [[ -n "$current_conf_val" ]]; then
-                    delete_config_value "${CONFIG_FILE}" "$section" "$key"
+                if [[ "$installed" == "true" ]]; then
+                    if [[ -z "$current_conf_val" ]]; then
+                        local timestamp; timestamp=$(date "+%Y-%m-%dT%H:%M:%S")
+                        set_config_value "${CONFIG_FILE}" "$section" "$key" "${timestamp}"
+                    fi
+                else
+                    if [[ -n "$current_conf_val" ]]; then
+                        delete_config_value "${CONFIG_FILE}" "$section" "$key"
+                    fi
                 fi
             fi
         fi
