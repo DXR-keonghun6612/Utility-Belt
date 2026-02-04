@@ -71,6 +71,7 @@ ui_install_application() {
         ["vscode.sh"]="VS Code|code|APPLICATION_LIST|System"
         ["nvidia_driver.sh"]="NVIDIA Driver|nvidia-driver|DRIVER_LIST|System"
         ["cuda_toolkit.sh"]="CUDA Toolkit|cuda-toolkit|APPLICATION_LIST|System"
+        ["cudnn_library.sh"]="cuDNN Library|cudnn-library|APPLICATION_LIST|System"
         ["docker.sh"]="Docker|docker|APPLICATION_LIST|System"
     )
     # UI 표시 이름 => 실제 실행할 함수 이름 매핑
@@ -79,6 +80,7 @@ ui_install_application() {
         ["VS Code"]="install_vscode_logic"
         ["NVIDIA Driver"]="_ui_install_nvidia_driver"
         ["CUDA Toolkit"]="install_cuda_toolkit_logic"
+        ["cuDNN Library"]="install_cudnn_library_logic"
         ["Docker"]="install_docker_logic"
     )
     # UI 표시 이름 => 설치 확인 함수 매핑
@@ -87,6 +89,7 @@ ui_install_application() {
         ["VS Code"]="is_installed_vscode"
         ["NVIDIA Driver"]="is_installed_nvidia_driver"
         ["CUDA Toolkit"]="is_installed_cuda_toolkit"
+        ["cuDNN Library"]="is_installed_cudnn_library"
         ["Docker"]="is_installed_docker"
     )
     # UI 표시 이름 => 스크립트 파일명 역매핑 (설치 시 정보 조회를 위해 필요)
@@ -186,6 +189,7 @@ ui_install_application() {
     local -a selections
     eval "selections=($selections_str)"
 
+    local any_action_performed=false
     clear
     echo "--- Processing software setup changes ---"
 
@@ -197,7 +201,6 @@ ui_install_application() {
         
         local is_selected=false
         for sel in "${selections[@]}"; do
-            # selections에는 "Name [Type]" 형식이 들어있으므로 비교 시 주의
             if [[ "$sel" == "$name "* ]]; then
                 is_selected=true
                 break
@@ -209,30 +212,26 @@ ui_install_application() {
         
         # [Case 1] 신규 설치: 초기 OFF -> 현재 ON
         if [[ "$initial_state" == "off" && "$is_selected" == "true" ]]; then
+            any_action_performed=true
             echo "----------------------------------------"
             echo "[ACTION] Installing: ${name}"
             
             local mode_arg=""
-            local conda_type="miniconda" # default
+            local conda_type="miniconda" 
 
-            # [Special Handling] Conda의 경우 유형 선택 (Miniconda vs Anaconda)
             if [[ "$name" == "Conda" ]]; then
                 conda_type=$(ui_create_menu "Conda Distribution" "Select Distribution" \
                     "Which distribution do you want to install?" 15 60 5 \
                     "miniconda" "Miniconda (Lightweight, Recommended)" \
                     "anaconda" "Anaconda (Full, Large)")
-                if [[ "$conda_type" == "CANCEL" ]]; then
-                    echo "[INFO] Conda installation canceled by user."
-                    continue
-                fi
+                if [[ "$conda_type" == "CANCEL" ]]; then continue; fi
             fi
 
             if [[ "$install_type" == "Selectable" ]]; then
                 mode_arg=$(ui_create_menu "Installation Mode" "Select Mode for ${name}" \
                     "How should ${name} be installed?" 15 60 5 \
-                    "user" "User Mode (Install to Home Directory)" \
-                    "system" "System Mode (Install to /opt, requires sudo)")
-                [[ "$mode_choice" == "CANCEL" ]] && continue
+                    "user" "User Mode" "system" "System Mode")
+                [[ "$mode_arg" == "CANCEL" ]] && continue
             fi
 
             if [[ -n "$logic_func" ]] && command -v "$logic_func" &>/dev/null; then
@@ -241,29 +240,22 @@ ui_install_application() {
                 else
                     "$logic_func" "$mode_arg"
                 fi
-            else
-                echo "[WARN] No installer logic found for '${name}'."
             fi
 
         # [Case 2] 삭제: 초기 ON -> 현재 OFF
         elif [[ "$initial_state" == "on" && "$is_selected" == "false" ]]; then
+            any_action_performed=true
             echo "----------------------------------------"
             echo "[ACTION] Uninstalling: ${name}"
-            
-            # uninstall 함수 이름 추측 (logic_func의 'install'을 'uninstall'로 변경)
             local uninstall_func="${logic_func/install/uninstall}"
-            
             if [[ -n "$uninstall_func" ]] && command -v "$uninstall_func" &>/dev/null; then
                 "$uninstall_func"
-                # 성공 시 설정 파일에서 제거
                 delete_config_value "${CONFIG_FILE}" "$section" "$key"
-            else
-                echo "[INFO] '${name}' uninstallation is not yet supported via script."
-                echo "       Please remove it manually if needed."
-                # 지원하지 않더라도 설정 파일에서 수동으로 지울지 여부는 신중해야 함
             fi
         fi
     done
 
-    read -rp $'\nAll selected operations completed. Press Enter to continue...'
+    if [[ "$any_action_performed" == "true" ]]; then
+        read -rp $'\nAll selected operations completed. Press Enter to continue...'
+    fi
 }
