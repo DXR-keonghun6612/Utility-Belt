@@ -69,7 +69,7 @@ _initialize_script() {
 
     # --- 3. Install 모듈 로드 ---
     # 설치 관련 로직을 로드합니다.
-    local install_scripts=("conda.sh" "nvidia_driver.sh" "cuda_toolkit.sh" "cudnn_library.sh" "vscode.sh" "docker.sh")
+    local install_scripts=("conda.sh" "nvidia_driver.sh" "cuda_toolkit.sh" "cudnn_library.sh" "vscode.sh" "docker.sh" "ros2.sh" "opencv.sh")
     for script in "${install_scripts[@]}"; do
         if [[ -f "${INSTALL_DIR}/${script}" ]]; then
             source "${INSTALL_DIR}/${script}"
@@ -156,6 +156,8 @@ ui_menu_configuration() {
 # --- 메인 실행 루프 ---
 # ==============================================================================
 main() {
+    export G_INTERACTIVE="true"
+
     # Check permissions using G_IS_ROOT defined in 00_conf.sh
     if [[ "${G_IS_ROOT}" == "true" ]]; then
         # ==============================================================================

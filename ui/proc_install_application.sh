@@ -73,6 +73,8 @@ ui_install_application() {
         ["cuda_toolkit.sh"]="CUDA Toolkit|cuda-toolkit|APPLICATION_LIST|System"
         ["cudnn_library.sh"]="cuDNN Library|cudnn-library|APPLICATION_LIST|System"
         ["docker.sh"]="Docker|docker|APPLICATION_LIST|System"
+        ["ros2.sh"]="ROS 2|ros2|APPLICATION_LIST|System"
+        ["opencv.sh"]="OpenCV|opencv|APPLICATION_LIST|System"
     )
     # UI 표시 이름 => 실제 실행할 함수 이름 매핑
     declare -A NAME_TO_LOGIC=(
@@ -82,6 +84,8 @@ ui_install_application() {
         ["CUDA Toolkit"]="install_cuda_toolkit_logic"
         ["cuDNN Library"]="install_cudnn_library_logic"
         ["Docker"]="install_docker_logic"
+        ["ROS 2"]="install_ros2_logic"
+        ["OpenCV"]="install_opencv_logic"
     )
     # UI 표시 이름 => 설치 확인 함수 매핑
     declare -A NAME_TO_CHECK=(
@@ -91,6 +95,8 @@ ui_install_application() {
         ["CUDA Toolkit"]="is_installed_cuda_toolkit"
         ["cuDNN Library"]="is_installed_cudnn_library"
         ["Docker"]="is_installed_docker"
+        ["ROS 2"]="is_installed_ros2"
+        ["OpenCV"]="is_installed_opencv"
     )
     # UI 표시 이름 => 스크립트 파일명 역매핑 (설치 시 정보 조회를 위해 필요)
     declare -A NAME_TO_FILENAME
@@ -146,8 +152,8 @@ ui_install_application() {
         
         # [Sync Config] 실제 설치 상태와 설정 파일 동기화
         if [[ "$is_verified_externally" == "true" ]]; then
-            # [SPECIAL] CUDA Toolkit은 버전별 개별 키를 사용하므로 범용 키 동기화 제외
-            if [[ "$name" != "CUDA Toolkit" ]]; then
+            # [SPECIAL] CUDA Toolkit과 cuDNN Library는 버전별 개별 키를 사용하므로 범용 키 동기화 제외
+            if [[ "$name" != "CUDA Toolkit" && "$name" != "cuDNN Library" ]]; then
                 local current_conf_val
                 current_conf_val=$(get_config_value "${CONFIG_FILE}" "$section" "$key")
 
