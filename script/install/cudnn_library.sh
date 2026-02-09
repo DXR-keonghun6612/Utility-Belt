@@ -25,7 +25,10 @@ _sync_local_cudnn_to_config() {
     
     if [[ -n "$installed_pkgs" ]]; then
         while read -r pkg ver; do
+            [[ -z "$ver" ]] && continue
             local clean_ver="${ver%%-*}"
+            [[ -z "$clean_ver" ]] && continue
+            
             local conf_key="cudnn-library-${clean_ver}"
             if [[ -z "$(get_config_value "${CONFIG_FILE}" "APPLICATION_LIST" "${conf_key}")" ]]; then
                 local timestamp; timestamp=$(date "+%Y-%m-%dT%H:%M:%S")
