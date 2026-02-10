@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==============================================================================
 # 파일명: opencv.sh
-# 설명: OpenCV (Source Build) 설치 로직 (CUDA Toolkit 감지 및 연동 지원)
+# 설명: OpenCV 빌드 및 설치 로직
 # ==============================================================================
 
 # -----------------------------------------------------------------------------
@@ -41,68 +41,50 @@ _detect_cuda_toolkit() {
 }
 
 # -----------------------------------------------------------------------------
-# @description OpenCV 설치 메인 로직
+# @description OpenCV 빌드 로직 (소스 다운로드 및 컴파일)
+# @param $1 version
+# @param $2 with_cuda
+# @param $3 gpu_arch
+# @param $4 jobs
+# @param $5 prefix
+# @param $6 build_path (기본값: /tmp/opencv_build)
 # -----------------------------------------------------------------------------
-install_opencv_logic() {
-    # --- 0. 환경 감지 ---
-    local detected_cuda_path
-    detected_cuda_path=$(_detect_cuda_toolkit)
-    local cpu_cores=$(nproc)
+build_opencv_logic() {
+    local version="${1:-4.10.0}"
+    local with_cuda="${2:-OFF}"
+    local gpu_arch="${3}"
+    local jobs="${4:-$(nproc)}"
+    local prefix="${5:-/usr/local}"
+    local work_dir="${6:-/tmp/opencv_build}"
+
+    local detected_cuda_path=$(_detect_cuda_toolkit)
     
-    # --- 1. 사용자 옵션 입력 (UI) ---
-    
-    # 1-1. 버전 선택
-    local version
-    version=$(ui_input_box "Enter OpenCV version to install:" "OpenCV Setup" "4.10.0")
-    [[ -z "$version" || "$version" == "CANCEL" ]] && return 1
-
-    # 1-2. CUDA 옵션 (CUDA Toolkit이 감지된 경우에만)
-    local with_cuda="OFF"
-    local cuda_path=""
-    local gpu_arch=""
-
-    if [[ -n "$detected_cuda_path" ]]; then
-        if ui_confirm "CUDA Toolkit detected at '${detected_cuda_path}'.
-
-Do you want to build OpenCV with CUDA acceleration?" "CUDA Support"; then
-            with_cuda="ON"
-            
-            # CUDA 경로 확인 (사용자가 직접 수정 가능)
-            cuda_path=$(ui_input_box "Confirm CUDA Toolkit Path:" "CUDA Settings" "${detected_cuda_path}")
-            [[ -z "$cuda_path" ]] && cuda_path="${detected_cuda_path}"
-
-            # GPU 아키텍처(Compute Capability) 감지 및 입력
-            local detected_arch=""
-            if command -v nvidia-smi &>/dev/null; then
-                detected_arch=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader,nounits | head -n 1)
-            fi
-            gpu_arch=$(ui_input_box "Enter GPU Compute Capability (e.g., 8.6, 8.9):" "CUDA Arch" "${detected_arch}")
-            [[ -z "$gpu_arch" ]] && gpu_arch="${detected_arch}"
-        fi
+    if [[ "${with_cuda}" == "ON" && -z "${detected_cuda_path}" ]]; then
+        echo "[ERROR] CUDA support requested but CUDA Toolkit not found." >&2
+        return 1
     fi
 
-    # 1-3. 빌드 및 설치 설정
-    local jobs=$(ui_input_box "Enter number of parallel build jobs:" "Build Speed" "${cpu_cores}")
-    [[ -z "$jobs" ]] && jobs="${cpu_cores}"
+    if [[ "${with_cuda}" == "ON" && -z "${gpu_arch}" ]]; then
+        if command -v nvidia-smi &>/dev/null; then
+            gpu_arch=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader,nounits | head -n 1)
+        fi
+        [[ -z "${gpu_arch}" ]] && gpu_arch="7.5"
+    fi
 
-    local prefix=$(ui_input_box "Enter installation prefix:" "Install Path" "/usr/local")
-    [[ -z "$prefix" ]] && prefix="/usr/local"
-
-    # --- 2. 의존성 설치 ---
-    echo "[INFO] Installing system dependencies..."
-    ensure_packages_installed "SYSTEM_TOOLS" "OpenCV Build Dependencies" 
-        "build-essential" "cmake" "git" "pkg-config" "unzip" "wget" 
-        "libjpeg-dev" "libpng-dev" "libtiff-dev" 
-        "libavcodec-dev" "libavformat-dev" "libswscale-dev" "libv4l-dev" 
-        "libxvidcore-dev" "libx264-dev" 
+    # 1. 의존성 설치
+    echo "[INFO] Installing build dependencies for OpenCV ${version}..."
+    ensure_packages_installed "SYSTEM_TOOLS" "OpenCV Build Dependencies" \
+        "build-essential" "cmake" "git" "pkg-config" "unzip" "wget" \
+        "libjpeg-dev" "libpng-dev" "libtiff-dev" \
+        "libavcodec-dev" "libavformat-dev" "libswscale-dev" "libv4l-dev" \
+        "libxvidcore-dev" "libx264-dev" \
         "libgtk-3-dev" "libatlas-base-dev" "gfortran" "python3-dev" "python3-numpy" || return 1
 
-    # --- 3. 소스 다운로드 ---
-    local work_dir="/tmp/opencv_build"
+    # 2. 소스 다운로드
     mkdir -p "${work_dir}"
     cd "${work_dir}" || return 1
 
-    echo "[INFO] Downloading OpenCV ${version} and Contrib..."
+    echo "[INFO] Downloading OpenCV ${version} into ${work_dir}..."
     for repo in "opencv" "opencv_contrib"; do
         if [[ ! -d "${repo}-${version}" ]]; then
             wget -O "${repo}.zip" "https://github.com/opencv/${repo}/archive/${version}.zip" || return 1
@@ -110,8 +92,8 @@ Do you want to build OpenCV with CUDA acceleration?" "CUDA Support"; then
         fi
     done
 
-    # --- 4. 빌드 및 설치 ---
-    echo "[INFO] Configuring CMake..."
+    # 3. 빌드 설정 및 실행
+    echo "[INFO] Configuring CMake for OpenCV ${version}..."
     cd "opencv-${version}" || return 1
     mkdir -p build && cd build || return 1
 
@@ -132,7 +114,7 @@ Do you want to build OpenCV with CUDA acceleration?" "CUDA Support"; then
             "-D WITH_CUDA=ON"
             "-D WITH_CUDNN=ON"
             "-D OPENCV_DNN_CUDA=ON"
-            "-D CUDA_TOOLKIT_ROOT_DIR=${cuda_path}"
+            "-D CUDA_TOOLKIT_ROOT_DIR=${detected_cuda_path}"
             "-D CUDA_ARCH_BIN=${gpu_arch}"
             "-D WITH_CUBLAS=1"
             "-D CUDA_FAST_MATH=1"
@@ -144,16 +126,45 @@ Do you want to build OpenCV with CUDA acceleration?" "CUDA Support"; then
     echo "[INFO] Building OpenCV ${version} (Jobs: ${jobs})..."
     make -j"${jobs}" || return 1
 
-    echo "[INFO] Installing to ${prefix}..."
-    ${G_SUDO_PREFIX} make install || return 1
+    echo "[SUCCESS] OpenCV ${version} build completed in $(pwd)"
+    return 0
+}
+
+# -----------------------------------------------------------------------------
+# @description OpenCV 설치 로직 (시스템 적용)
+# @param $1 version
+# @param $2 with_cuda
+# @param $3 gpu_arch
+# @param $4 jobs
+# @param $5 prefix
+# @param $6 build_path (기본값: /tmp/opencv_build)
+# -----------------------------------------------------------------------------
+install_opencv_logic() {
+    local version="${1:-4.10.0}"
+    local prefix="${5:-/usr/local}"
+    local work_dir="${6:-/tmp/opencv_build}"
+    local build_dir="${work_dir}/opencv-${version}/build"
+
+    # 빌드 결과물이 없는 경우 빌드 먼저 수행
+    if [[ ! -f "${build_dir}/Makefile" ]]; then
+        echo "[INFO] Build artifacts not found at ${build_dir}. Starting build first..."
+        build_opencv_logic "$@" || return 1
+    fi
+
+    echo "[INFO] Installing OpenCV ${version} from ${build_dir} to ${prefix}..."
+    cd "${build_dir}" || return 1
+    
+    if ! ${G_SUDO_PREFIX} make install; then
+        echo "[ERROR] OpenCV installation failed." >&2
+        return 1
+    fi
+
     ${G_SUDO_PREFIX} ldconfig
 
-    # --- 5. 완료 기록 ---
+    # 완료 기록
     local timestamp=$(date "+%Y-%m-%dT%H:%M:%S")
     set_config_value "${CONFIG_FILE}" "APPLICATION_LIST" "opencv" "${version} (${timestamp})"
-    
-    ui_message_box "OpenCV ${version} installation completed.
-Location: ${prefix}
-CUDA Support: ${with_cuda}" "Success"
+
+    echo "[SUCCESS] OpenCV ${version} installed successfully."
     return 0
 }

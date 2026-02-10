@@ -54,8 +54,10 @@ is_installed_cuda_toolkit() {
 
 # -----------------------------------------------------------------------------
 # @description NVIDIA 저장소 설정 (Keyring 설치)
+# @param $1 target_arch (선택: aarch64의 경우 "sbsa" 또는 "arm64")
 # -----------------------------------------------------------------------------
 _setup_cuda_repo() {
+    local target_arch_arg="$1"
     source /etc/os-release
     local distro="${ID}${VERSION_ID//./}"
     local machine_arch=$(uname -m)
@@ -66,13 +68,12 @@ _setup_cuda_repo() {
             target_arch="x86_64"
             ;;
         aarch64)
-            # ARM64의 경우 sbsa(Server)와 generic arm64(Desktop/Jetson) 선택 필요
-            target_arch=$(ui_create_menu "CUDA Architecture Selection" "Select ARM Variant" \
-                "Detected ARM64 (aarch64). Choose the repository target:" 15 70 2 \
-                "sbsa" "Server Base System Architecture (Standard Servers)" \
-                "arm64" "Generic ARM64 (Jetson, Desktop, RPi)")
-            
-            [[ "${target_arch}" == "CANCEL" ]] && return 1
+            if [[ -n "${target_arch_arg}" ]]; then
+                target_arch="${target_arch_arg}"
+            else
+                # 인자가 없으면 기본값 설정 (Headless 대응)
+                target_arch="sbsa"
+            fi
             ;;
         *)
             echo "[ERROR] Unsupported architecture: ${machine_arch}" >&2
@@ -83,6 +84,7 @@ _setup_cuda_repo() {
     local keyring_url="https://developer.download.nvidia.com/compute/cuda/repos/${distro}/${target_arch}/cuda-keyring_1.1-1_all.deb"
     local keyring_tmp="/tmp/cuda-keyring.deb"
 
+    echo "[INFO] Setting up NVIDIA repository for ${target_arch}..."
     if ! wget -q "${keyring_url}" -O "${keyring_tmp}"; then
         echo "[ERROR] Failed to download keyring from ${keyring_url}" >&2
         return 1
@@ -140,48 +142,42 @@ _switch_cuda_version() {
     if [[ -d "${target_path}" ]]; then
         [[ -L "${link_path}" || -d "${link_path}" ]] && ${G_SUDO_PREFIX} rm -rf "${link_path}"
         ${G_SUDO_PREFIX} ln -s "${target_path}" "${link_path}"
+        echo "[INFO] Switched active CUDA to ${target_ver}"
+        return 0
     fi
+    return 1
 }
 
 # -----------------------------------------------------------------------------
 # @description CUDA Toolkit 설치 로직 (저장소 방식 + 정밀 버전)
+# @param $1 target_choice (pkg=ver 형식)
+# @param $2 target_arch (aarch64용 아키텍처 옵션)
 # -----------------------------------------------------------------------------
 _install_cuda_pkg() {
-    local target_choice="$1" # pkg=ver 형식
+    local target_choice="$1"
+    local target_arch="$2"
 
     # 1. 저장소 확보
     if ! apt-cache pkgnames "cuda-toolkit-" | grep -q "."; then
-        _setup_cuda_repo || { ui_message_box "Failed to setup NVIDIA repository." "Error"; return 1; }
+        _setup_cuda_repo "${target_arch}" || return 1
     fi
 
-    # 2. 버전 선택
+    # 2. 버전 선택 (인자가 없으면 에러 또는 최신 자동 선택)
     if [[ -z "${target_choice}" ]]; then
-        local version_list
-        mapfile -t version_list < <(_get_available_cuda_versions)
-        
-        if [[ ${#version_list[@]} -eq 0 ]]; then
-            ui_message_box "Could not find any CUDA packages in the repository." "Error"; return 1
-        fi
-
-        target_choice=$(ui_create_menu "CUDA Toolkit Selection" "Select Precise Version" \
-            "Choose specific patch version to install via APT:" 18 80 10 "${version_list[@]}")
-        [[ "$target_choice" == "CANCEL" ]] && return 1
+        echo "[ERROR] No CUDA version specified for installation." >&2
+        return 1
     fi
 
     # 3. 설치 수행
     local pkg_name="${target_choice%%=*}"
     local full_ver="${target_choice#*=}"
-    local clean_ver="${full_ver%%-*}" # 리비전 제거 (12.4.1)
+    local clean_ver="${full_ver%%-*}"
 
-    clear
     echo "========================================================"
     echo " Installing ${pkg_name} version ${full_ver}"
     echo "========================================================"
     
-    # --allow-downgrades 옵션으로 자유로운 버전 이동 보장
     if ${G_SUDO_PREFIX} apt-get install --allow-downgrades -y "${target_choice}"; then
-        
-        # 3단계 버전 정규화 (12.4 -> 12.4.0)
         local normalized_ver="${clean_ver}"
         [[ "${normalized_ver}" =~ ^[0-9]+\.[0-9]+$ ]] && normalized_ver="${normalized_ver}.0"
         
@@ -205,50 +201,33 @@ _install_cuda_pkg() {
             } | ${G_SUDO_PREFIX} tee "${profile_script}" > /dev/null
         fi
         
-        ui_message_box "Successfully installed CUDA Toolkit ${clean_ver}." "Installation Complete"
+        echo "[SUCCESS] CUDA Toolkit ${clean_ver} installed successfully."
         return 0
     else
-        ui_message_box "APT failed to install ${target_choice}.\nPlease check repository access." "Installation Failed"
+        echo "[ERROR] APT failed to install ${target_choice}." >&2
         return 1
     fi
 }
 
 # -----------------------------------------------------------------------------
 # @description CUDA Toolkit 관리 로직 (Main Entry)
+# @param $1 action ("INSTALL" or "SWITCH")
+# @param $2 target_choice/target_ver
+# @param $3 target_arch (aarch64 전용)
 # -----------------------------------------------------------------------------
 install_cuda_toolkit_logic() {
+    local action="$1"
+    local target="$2"
+    local arch="$3"
+
     [[ $(get_package_manager_type) != "dpkg" ]] && { echo "[ERROR] Only Debian/Ubuntu supported." >&2; return 1; }
 
-    is_installed_cuda_toolkit > /dev/null 2>&1
-    
-    while true; do
-        local local_versions=$(_get_local_cuda_versions)
-        [[ -z "${local_versions}" ]] && { _install_cuda_pkg ""; return $?; }
-
-        local current_link_target=""
-        [[ -L "/usr/local/cuda" ]] && current_link_target=$(readlink -f /usr/local/cuda)
-
-        local menu_desc="Currently installed versions:\n"
-        for ver in $local_versions; do
-            local mark=""; [[ "$current_link_target" == *"/cuda-${ver}" ]] && mark=" (*Active)"
-            menu_desc+="  - ${ver}${mark}\n"
-        done
-
-        local action=$(ui_create_menu "CUDA Version Manager" "Manage CUDA" "${menu_desc}" 20 80 6 \
-            "INSTALL" "Install a NEW version (via Network Repo)" \
-            "SWITCH"  "Switch active version (Update Symlink)" \
-            "EXIT"    "Return")
-
-        case "$action" in
-            "INSTALL") _install_cuda_pkg "" ;;
-            "SWITCH")
-                local ver_opts=()
-                for ver in $local_versions; do ver_opts+=("$ver" "Set as active"); done
-                local ver_choice=$(ui_create_menu "Switch Version" "Select Version" "Choose version to link:" 15 70 5 "${ver_opts[@]}")
-                [[ "$ver_choice" != "CANCEL" ]] && _switch_cuda_version "$ver_choice"
-                ;;
-            *) break ;;
+    # 인자가 넘어온 경우에만 동작
+    if [[ -n "${action}" ]]; then
+        case "${action}" in
+            "INSTALL") _install_cuda_pkg "${target}" "${arch}" ;;
+            "SWITCH")  _switch_cuda_version "${target}" ;;
         esac
-    done
+    fi
     return 0
 }

@@ -102,51 +102,28 @@ _get_available_cudnn_versions() {
 
 # -----------------------------------------------------------------------------
 # @description cuDNN Library 설치 로직 (Main Entry)
+# @param $1 target_choice (pkg=ver 형식)
 # -----------------------------------------------------------------------------
 install_cudnn_library_logic() {
     local target_choice="$1"
 
     if ! apt-cache pkgnames "libcudnn" | grep -q "."; then
-        ui_message_box "NVIDIA repository is not found.\nPlease install 'CUDA Toolkit' first to setup the repository." "Repository Missing"
+        echo "[ERROR] NVIDIA repository not found. Please install CUDA Toolkit first." >&2
         return 1
     fi
 
-    # 1. 현재 CUDA 버전 감지
-    local cuda_major
-    cuda_major=$(_get_active_cuda_major_version)
-
-    # 2. 버전 선택
+    # 1. 인자가 없으면 에러 (무인 설치 시 버전 명시 필수)
     if [[ -z "${target_choice}" ]]; then
-        local version_list_raw
-        version_list_raw=$(_get_available_cudnn_versions "${cuda_major}")
-        
-        if [[ -z "${version_list_raw}" ]]; then
-            ui_message_box "No compatible cuDNN packages found for CUDA ${cuda_major}.\nShowing all available packages..." "Notice"
-            version_list_raw=$(_get_available_cudnn_versions "unknown")
-        fi
-
-        if [[ -z "${version_list_raw}" ]]; then
-            ui_message_box "No cuDNN packages found in the repository." "Error"; return 1
-        fi
-
-        local menu_options=()
-        while read -r tag item; do
-            menu_options+=("${tag}" "${item}")
-        done <<< "${version_list_raw}"
-
-        local prompt="Detected active CUDA major version: ${cuda_major}\n\nPlease select a compatible cuDNN version:"
-        [[ "$cuda_major" == "unknown" ]] && prompt="Could not detect active CUDA version.\nPlease select a cuDNN version:"
-
-        target_choice=$(ui_create_menu "cuDNN Installation" "Select Compatible Version" "${prompt}" 18 80 10 "${menu_options[@]}")
-        [[ "$target_choice" == "CANCEL" ]] && return 1
+        echo "[ERROR] No cuDNN version specified for installation." >&2
+        return 1
     fi
 
-    # 3. 설치 수행
+    # 2. 설치 수행
     local pkg_name="${target_choice%%=*}"
     local full_ver="${target_choice#*=}"
     local clean_ver="${full_ver%%-*}"
 
-    # 개발용 패키지명 결정 (libcudnn9 -> libcudnn9-dev / libcudnn9-cuda-12 -> libcudnn9-dev-cuda-12)
+    # 개발용 패키지명 결정
     local dev_pkg=""
     if [[ "$pkg_name" =~ -cuda- ]]; then
         dev_pkg="${pkg_name/-cuda/-dev-cuda}"
@@ -155,7 +132,6 @@ install_cudnn_library_logic() {
     fi
     local dev_target="${dev_pkg}=${full_ver}"
 
-    clear
     echo "========================================================"
     echo " Installing ${pkg_name} version ${full_ver}"
     echo "========================================================"
@@ -170,10 +146,10 @@ install_cudnn_library_logic() {
              set_config_value "${CONFIG_FILE}" "APPLICATION_LIST" "${conf_key}" "${timestamp}"
         fi
         
-        ui_message_box "cuDNN Library ${clean_ver} and its headers installed successfully." "Success"
+        echo "[SUCCESS] cuDNN Library ${clean_ver} installed successfully."
         return 0
     else
-        ui_message_box "Failed to install cuDNN packages.\nPlease check the terminal for errors." "Error"
+        echo "[ERROR] Failed to install cuDNN packages." >&2
         return 1
     fi
 }

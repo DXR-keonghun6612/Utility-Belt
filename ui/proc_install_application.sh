@@ -58,6 +58,173 @@ _ui_install_nvidia_driver() {
 
 
 ##
+# @description OpenCV 설치를 위한 전용 UI.
+#
+_ui_install_opencv() {
+    # 1. 버전 선택
+    local version
+    version=$(ui_input_box "Enter OpenCV version to install:" "OpenCV Setup" "4.10.0")
+    [[ -z "$version" || "$version" == "CANCEL" ]] && return 1
+
+    # 2. CUDA 지원 여부
+    local with_cuda="OFF"
+    local gpu_arch=""
+    
+    # 01_install_package.sh의 _detect_cuda_toolkit을 활용할 수 없으므로 직접 체크하거나 
+    # 로직 내부의 자동 감지 기능을 믿고 질문만 던짐
+    if ui_confirm "Do you want to build OpenCV with CUDA acceleration?\n(CUDA Toolkit must be installed)" "CUDA Support"; then
+        with_cuda="ON"
+        
+        # GPU 아키텍처 입력
+        local detected_arch=""
+        if command -v nvidia-smi &>/dev/null; then
+            detected_arch=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader,nounits | head -n 1)
+        fi
+        gpu_arch=$(ui_input_box "Enter GPU Compute Capability (e.g., 8.6, 8.9):" "CUDA Arch" "${detected_arch}")
+        [[ -z "$gpu_arch" ]] && gpu_arch="${detected_arch}"
+    fi
+
+    # 3. 병렬 빌드 수
+    local jobs
+    jobs=$(ui_input_box "Enter number of parallel build jobs:" "Build Speed" "$(nproc)")
+    [[ -z "$jobs" ]] && jobs="$(nproc)"
+
+    # 4. 설치 실행
+    clear
+    echo "========================================================"
+    echo " Starting OpenCV ${version} Build & Installation"
+    echo " CUDA: ${with_cuda} (Arch: ${gpu_arch:-N/A})"
+    echo " Jobs: ${jobs}"
+    echo "========================================================"
+    
+    if install_opencv_logic "${version}" "${with_cuda}" "${gpu_arch}" "${jobs}"; then
+        ui_message_box "OpenCV ${version} installation completed successfully." "Success"
+    else
+        ui_message_box "OpenCV installation failed. Check terminal logs." "Error"
+    fi
+}
+
+
+##
+# @description CUDA Toolkit 관리 전용 UI.
+#
+_ui_install_cuda_toolkit() {
+    while true; do
+        local local_versions=$(_get_local_cuda_versions)
+        
+        # 1. 설치된 버전이 없는 경우 즉시 설치 UI로 이동
+        if [[ -z "${local_versions}" ]]; then
+            local target_arch=""
+            if [[ $(uname -m) == "aarch64" ]]; then
+                target_arch=$(ui_create_menu "CUDA Architecture" "Select ARM Variant" \
+                    "Choose the repository target:" 15 70 2 \
+                    "sbsa" "Server Base (Standard)" "arm64" "Generic ARM64")
+                [[ "${target_arch}" == "CANCEL" ]] && return 1
+            fi
+
+            local version_list
+            mapfile -t version_list < <(_get_available_cuda_versions)
+            [[ ${#version_list[@]} -eq 0 ]] && { ui_message_box "No CUDA packages found." "Error"; return 1; }
+
+            local choice
+            choice=$(ui_create_menu "CUDA Installation" "Select Version" "Choose version to install:" 18 80 10 "${version_list[@]}")
+            [[ "${choice}" == "CANCEL" ]] && return 1
+
+            clear
+            install_cuda_toolkit_logic "INSTALL" "${choice}" "${target_arch}"
+            return $?
+        fi
+
+        # 2. 설치된 버전이 있는 경우 관리 메뉴 표시
+        local current_link=""
+        [[ -L "/usr/local/cuda" ]] && current_link=$(readlink -f /usr/local/cuda)
+
+        local menu_desc="Installed versions:\n"
+        for ver in $local_versions; do
+            local mark=""; [[ "$current_link" == *"/cuda-${ver}" ]] && mark=" (*Active)"
+            menu_desc+="  - ${ver}${mark}\n"
+        done
+
+        local action
+        action=$(ui_create_menu "CUDA Version Manager" "Manage CUDA" "${menu_desc}" 20 80 6 \
+            "INSTALL" "Install a NEW version" \
+            "SWITCH"  "Switch active version" \
+            "EXIT"    "Return")
+
+        case "$action" in
+            "INSTALL")
+                local target_arch=""
+                [[ $(uname -m) == "aarch64" ]] && target_arch=$(ui_create_menu "Arch" "Select" "" 10 50 2 "sbsa" "SBSA" "arm64" "ARM64")
+                
+                local version_list
+                mapfile -t version_list < <(_get_available_cuda_versions)
+                local choice
+                choice=$(ui_create_menu "Install" "Select Version" "" 18 80 10 "${version_list[@]}")
+                [[ "${choice}" != "CANCEL" ]] && { clear; install_cuda_toolkit_logic "INSTALL" "${choice}" "${target_arch}"; }
+                ;;
+            "SWITCH")
+                local opts=()
+                for ver in $local_versions; do opts+=("$ver" "Set as active"); done
+                local choice
+                choice=$(ui_create_menu "Switch" "Select Version" "" 15 70 5 "${opts[@]}")
+                [[ "${choice}" != "CANCEL" ]] && install_cuda_toolkit_logic "SWITCH" "${choice}"
+                ;;
+            *) break ;;
+        esac
+    done
+}
+
+
+##
+# @description cuDNN Library 설치 전용 UI.
+#
+_ui_install_cudnn_library() {
+    if ! apt-cache pkgnames "libcudnn" | grep -q "."; then
+        ui_message_box "NVIDIA repository is not found.\nPlease install 'CUDA Toolkit' first." "Repository Missing"
+        return 1
+    fi
+
+    # 1. 현재 CUDA 버전 감지
+    local cuda_major
+    cuda_major=$(_get_active_cuda_major_version)
+
+    # 2. 버전 목록 조회
+    local version_list_raw
+    version_list_raw=$(_get_available_cudnn_versions "${cuda_major}")
+    
+    if [[ -z "${version_list_raw}" ]]; then
+        ui_message_box "No compatible cuDNN packages found for CUDA ${cuda_major}.\nShowing all available packages..." "Notice"
+        version_list_raw=$(_get_available_cudnn_versions "unknown")
+    fi
+
+    if [[ -z "${version_list_raw}" ]]; then
+        ui_message_box "No cuDNN packages found in the repository." "Error"; return 1
+    fi
+
+    local menu_options=()
+    while read -r tag item; do
+        menu_options+=("${tag}" "${item}")
+    done <<< "${version_list_raw}"
+
+    local prompt="Detected active CUDA major version: ${cuda_major}\n\nPlease select a compatible cuDNN version:"
+    [[ "$cuda_major" == "unknown" ]] && prompt="Could not detect active CUDA version.\nPlease select a cuDNN version:"
+
+    # 3. 버전 선택
+    local choice
+    choice=$(ui_create_menu "cuDNN Installation" "Select Version" "${prompt}" 18 80 10 "${menu_options[@]}")
+    [[ "$choice" == "CANCEL" ]] && return 1
+
+    # 4. 설치 실행
+    clear
+    if install_cudnn_library_logic "${choice}"; then
+        ui_message_box "cuDNN Library installed successfully." "Success"
+    else
+        ui_message_box "cuDNN installation failed." "Error"
+    fi
+}
+
+
+##
 # @description '추가 소프트웨어 설치' 메인 UI 함수 (동적 체크리스트 방식).
 #
 ui_install_application() {
@@ -81,11 +248,11 @@ ui_install_application() {
         ["Conda"]="install_conda_logic"
         ["VS Code"]="install_vscode_logic"
         ["NVIDIA Driver"]="_ui_install_nvidia_driver"
-        ["CUDA Toolkit"]="install_cuda_toolkit_logic"
-        ["cuDNN Library"]="install_cudnn_library_logic"
+        ["CUDA Toolkit"]="_ui_install_cuda_toolkit"
+        ["cuDNN Library"]="_ui_install_cudnn_library"
         ["Docker"]="install_docker_logic"
         ["ROS 2"]="install_ros2_logic"
-        ["OpenCV"]="install_opencv_logic"
+        ["OpenCV"]="_ui_install_opencv"
     )
     # UI 표시 이름 => 설치 확인 함수 매핑
     declare -A NAME_TO_CHECK=(
