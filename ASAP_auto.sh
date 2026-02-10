@@ -1,18 +1,17 @@
 #!/bin/bash
 # ==============================================================================
 # 파일명: ASAP_auto.sh
-# 설명: 설정 파일(config.conf)에 기반한 무인 자동 설치(Headless Provisioning) 스크립트
+# 설명: 설정 파일(config.conf)의 프로필 섹션을 기반으로 한 무인 자동 설치 스크립트
 # 사용법: sudo ./ASAP_auto.sh [config_file_path]
 # ==============================================================================
 
-# 1. 자동화 모드 강제 설정
+# 1. 자동화 모드 강제 설정 (UI 팝업 차단)
 export G_INTERACTIVE="false"
 
-# 2. 초기화 로직 (ASAP.sh의 로직 공유)
+# 2. 초기화 로직
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
 CORE_DIR="${SCRIPT_DIR}/script/core"
 INSTALL_DIR="${SCRIPT_DIR}/script/install"
-SYSTEM_DIR="${SCRIPT_DIR}/script/system"
 
 if [[ -f "${CORE_DIR}/core.sh" ]]; then
     source "${CORE_DIR}/core.sh"
@@ -21,27 +20,27 @@ else
     exit 1
 fi
 
-# 설정 파일 경로 결정
+# 설정 파일 경로 결정 및 초기화 (is_interactive=false 전달)
 CONFIG_PATH="${1:-${SCRIPT_DIR}/conf/config.conf}"
 TEMPLATE_PATH="${SCRIPT_DIR}/template/config.conf"
 
-if ! load_core_libraries "${SCRIPT_DIR}" "${CONFIG_PATH}" "${TEMPLATE_PATH}"; then
+if ! load_core_libraries "${SCRIPT_DIR}" "${CONFIG_PATH}" "${TEMPLATE_PATH}" "false"; then
     echo "[FATAL] Library initialization failed."
     exit 1
 fi
 
-# 설치 관련 스크립트 소싱 (로직 함수들을 메모리에 로드)
+# 설치 로직 및 확인 함수 스크립트 로드
 install_scripts=("conda.sh" "nvidia_driver.sh" "cuda_toolkit.sh" "cudnn_library.sh" "vscode.sh" "docker.sh" "ros2.sh" "opencv.sh")
 for script in "${install_scripts[@]}"; do
     [[ -f "${INSTALL_DIR}/${script}" ]] && source "${INSTALL_DIR}/${script}"
 done
 
 # -----------------------------------------------------------------------------
-# @description 자동 설치 엔진 로직
+# @description 프로필 기반 자동 설치 엔진
 # -----------------------------------------------------------------------------
 run_provisioning() {
     echo "========================================================================"
-    echo " Starting ASAP Automatic Provisioning"
+    echo " Starting ASAP Automatic Provisioning (Profile-Based)"
     echo " Config: $CONFIG_FILE"
     echo "========================================================================"
 
@@ -50,84 +49,127 @@ run_provisioning() {
     local pkg_section="PACKAGES_LIST"
     local pkgs_to_install=()
     
-    local pkg_keys
-    if command -v get_config_keys &>/dev/null; then
-        pkg_keys=$(get_config_keys "$pkg_section" "$CONFIG_FILE")
-    else
-        pkg_keys=$(sed -n "/^\[$pkg_section\]/,/^\[/p" "$CONFIG_FILE" | grep -E '^[a-zA-Z0-9_-]+=' | cut -d= -f1 | tr -d ' ')
+    local pkg_keys_output
+    if pkg_keys_output=$(get_config_keys "$pkg_section" "$CONFIG_FILE"); then
+        while read -r pkg; do
+            [[ -n "$pkg" ]] && pkgs_to_install+=("$pkg")
+        done <<< "$pkg_keys_output"
     fi
-
-    for pkg in $pkg_keys; do
-        # 값이 비어있지 않더라도 sync_package가 중복 설치를 방지하므로 
-        # 설정에 존재하는 모든 키를 대상으로 실행 (상태 동기화 포함)
-        pkgs_to_install+=("$pkg")
-    done
 
     if [[ ${#pkgs_to_install[@]} -gt 0 ]]; then
         echo "[PROVISION] Syncing ${#pkgs_to_install[@]} packages from $pkg_section..."
-        # sync_package <section> <comment> <pkgs...>
         sync_package "$pkg_section" "Auto Provisioning" "${pkgs_to_install[@]}"
     fi
 
-    # --- 2. 애플리케이션 설치 ([AUTO_INSTALL] 섹션) ---
-    echo -e "\n>>> Checking [AUTO_INSTALL] for specialized applications..."
-    declare -A SCRIPT_MAP=(
-        ["conda.sh"]="Conda|conda|APPLICATION_LIST"
-        ["vscode.sh"]="VS Code|code|APPLICATION_LIST"
-        ["nvidia_driver.sh"]="NVIDIA Driver|nvidia-driver|DRIVER_LIST"
-        ["cuda_toolkit.sh"]="CUDA Toolkit|cuda-toolkit|APPLICATION_LIST"
-        ["cudnn_library.sh"]="cuDNN Library|cudnn-library|APPLICATION_LIST"
-        ["docker.sh"]="Docker|docker|APPLICATION_LIST"
-        ["ros2.sh"]="ROS 2|ros2|APPLICATION_LIST"
-        ["opencv.sh"]="OpenCV|opencv|APPLICATION_LIST"
-    )
-    
-    declare -A NAME_TO_LOGIC=(
-        ["Conda"]="install_conda_logic"
-        ["VS Code"]="install_vscode_logic"
-        ["NVIDIA Driver"]="install_nvidia_driver_logic"
-        ["CUDA Toolkit"]="install_cuda_toolkit_logic"
-        ["cuDNN Library"]="install_cudnn_library_logic"
-        ["Docker"]="install_docker_logic"
-        ["ROS 2"]="install_ros2_logic"
-        ["OpenCV"]="install_opencv_logic"
-    )
+    # --- 2. 애플리케이션 프로필 처리 ---
+    echo -e "\n>>> Checking Application Profiles..."
 
-    local section="AUTO_INSTALL"
-    local keys_raw
-    if command -v get_config_keys &>/dev/null; then
-        keys_raw=$(get_config_keys "$section" "$CONFIG_FILE")
-    else
-        keys_raw=$(sed -n "/^\[$section\]/,/^\[/p" "$CONFIG_FILE" | grep -E '^[a-zA-Z0-9_-]+=' | cut -d= -f1 | tr -d ' ')
+    # -------------------------------------------------------------------------
+    # [CONDA_PROFILE]
+    # -------------------------------------------------------------------------
+    if grep -q "\[CONDA_PROFILE\]" "$CONFIG_FILE"; then
+        if is_installed_conda; then
+            echo "[INFO] Conda is already installed. Skipping."
+        else
+            echo "[PROVISION] Processing [CONDA_PROFILE]..."
+            local mode=$(get_config_value "$CONFIG_FILE" "CONDA_PROFILE" "mode")
+            local type=$(get_config_value "$CONFIG_FILE" "CONDA_PROFILE" "type")
+            install_conda_logic "${mode:-user}" "${type:-miniconda}"
+        fi
     fi
 
-    [[ -z "$keys_raw" ]] && { echo "[INFO] No items in [$section]."; exit 0; }
+    # -------------------------------------------------------------------------
+    # [VSCODE_PROFILE]
+    # -------------------------------------------------------------------------
+    if grep -q "\[VSCODE_PROFILE\]" "$CONFIG_FILE"; then
+        if is_installed_vscode; then
+            echo "[INFO] Visual Studio Code is already installed. Skipping."
+        else
+            echo "[PROVISION] Processing [VSCODE_PROFILE]..."
+            install_vscode_logic
+        fi
+    fi
 
-    for key in $keys_raw; do
-        local value=$(get_config_value "$CONFIG_FILE" "$section" "$key")
-        [[ -z "$value" || "$value" == "no" || "$value" == "false" ]] && continue
+    # -------------------------------------------------------------------------
+    # [NVIDIA_DRIVER_PROFILE]
+    # -------------------------------------------------------------------------
+    if grep -q "\[NVIDIA_DRIVER_PROFILE\]" "$CONFIG_FILE"; then
+        if is_installed_nvidia_driver; then
+            echo "[INFO] NVIDIA Driver is already installed. Skipping."
+        else
+            echo "[PROVISION] Processing [NVIDIA_DRIVER_PROFILE]..."
+            local driver=$(get_config_value "$CONFIG_FILE" "NVIDIA_DRIVER_PROFILE" "driver_version")
+            [[ -n "$driver" ]] && install_nvidia_driver_logic "$driver"
+        fi
+    fi
 
-        local target_name=""
-        for script in "${!SCRIPT_MAP[@]}"; do
-            IFS='|' read -r name conf_key conf_section <<< "${SCRIPT_MAP[$script]}"
-            [[ "$conf_key" == "$key" ]] && { target_name="$name"; break; }
-        done
-
-        [[ -z "$target_name" ]] && continue
-
-        echo "------------------------------------------------------------------------"
-        echo "[PROVISION] Installing: $target_name"
+    # -------------------------------------------------------------------------
+    # [CUDA_TOOLKIT_PROFILE]
+    # -------------------------------------------------------------------------
+    if grep -q "\[CUDA_TOOLKIT_PROFILE\]" "$CONFIG_FILE"; then
+        echo "[PROVISION] Processing [CUDA_TOOLKIT_PROFILE]..."
+        local ver=$(get_config_value "$CONFIG_FILE" "CUDA_TOOLKIT_PROFILE" "version")
+        local arch=$(get_config_value "$CONFIG_FILE" "CUDA_TOOLKIT_PROFILE" "arch")
         
-        local args=()
-        if [[ "$value" != "yes" && "$value" != "true" ]]; then
-            IFS=':, ' read -r -a args <<< "$value"
+        # CUDA는 여러 버전이 있을 수 있으므로 logic 내부의 switch/install 로직에 맡김
+        if [[ -n "$ver" ]]; then
+            install_cuda_toolkit_logic "INSTALL" "$ver" "$arch"
         fi
+    fi
 
-        local logic_func="${NAME_TO_LOGIC[$target_name]}"
-        if [[ -n "$logic_func" && "$(type -t $logic_func)" == "function" ]]; then
-            "$logic_func" "${args[@]}"
+    # -------------------------------------------------------------------------
+    # [CUDNN_LIBRARY_PROFILE]
+    # -------------------------------------------------------------------------
+    if grep -q "\[CUDNN_LIBRARY_PROFILE\]" "$CONFIG_FILE"; then
+        if is_installed_cudnn_library; then
+            echo "[INFO] cuDNN Library is already installed. Skipping."
+        else
+            echo "[PROVISION] Processing [CUDNN_LIBRARY_PROFILE]..."
+            local ver=$(get_config_value "$CONFIG_FILE" "CUDNN_LIBRARY_PROFILE" "version")
+            [[ -n "$ver" ]] && install_cudnn_library_logic "$ver"
         fi
-    done
+    fi
+
+    # -------------------------------------------------------------------------
+    # [DOCKER_PROFILE]
+    # -------------------------------------------------------------------------
+    if grep -q "\[DOCKER_PROFILE\]" "$CONFIG_FILE"; then
+        if is_installed_docker; then
+            echo "[INFO] Docker is already installed. Skipping."
+        else
+            echo "[PROVISION] Processing [DOCKER_PROFILE]..."
+            install_docker_logic
+        fi
+    fi
+
+    # -------------------------------------------------------------------------
+    # [ROS2_PROFILE]
+    # -------------------------------------------------------------------------
+    if grep -q "\[ROS2_PROFILE\]" "$CONFIG_FILE"; then
+        if is_installed_ros2; then
+            echo "[INFO] ROS2 is already installed. Skipping."
+        else
+            echo "[PROVISION] Processing [ROS2_PROFILE]..."
+            install_ros2_logic
+        fi
+    fi
+
+    # -------------------------------------------------------------------------
+    # [OPENCV_PROFILE]
+    # -------------------------------------------------------------------------
+    if grep -q "\[OPENCV_PROFILE\]" "$CONFIG_FILE"; then
+        # OpenCV는 시스템 설치 여부(pkg-config)와 상관없이 
+        # 사용자가 프로필을 명시했다면 빌드 경로를 체크하여 설치 로직을 태움 (reinstall/update 대응)
+        echo "[PROVISION] Processing [OPENCV_PROFILE]..."
+        local ver=$(get_config_value "$CONFIG_FILE" "OPENCV_PROFILE" "version")
+        local cuda=$(get_config_value "$CONFIG_FILE" "OPENCV_PROFILE" "with_cuda")
+        local arch=$(get_config_value "$CONFIG_FILE" "OPENCV_PROFILE" "gpu_arch")
+        local jobs=$(get_config_value "$CONFIG_FILE" "OPENCV_PROFILE" "jobs")
+        local prefix=$(get_config_value "$CONFIG_FILE" "OPENCV_PROFILE" "prefix")
+        local bpath=$(get_config_value "$CONFIG_FILE" "OPENCV_PROFILE" "build_path")
+        
+        install_opencv_logic "${ver:-4.10.0}" "${cuda:-OFF}" "${arch}" "${jobs}" "${prefix}" "${bpath:-/tmp/opencv_build}"
+    fi
 
     echo "========================================================================"
     echo " Provisioning Completed"
