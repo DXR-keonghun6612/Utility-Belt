@@ -4,7 +4,7 @@
 # 최종 수정일: 2026-01-20
 # 작업자 : K.H. Choi
 # 설명: 네트워크 조회, 연결 확인, 설정 변경 등 핵심 기능을 수행하는 유틸리티 모듈.
-#       최신 리눅스 환경과의 호환성을 위해 NetworkManager를 기준으로 함.
+#       최신 리눅스 환경과의 호환성을 위해 network-manager를 기준으로 함.
 # ==============================================================================
 
 
@@ -18,7 +18,7 @@
 _initialize_network_utils() {
     # ensure_packages_installed 함수를 사용하여 패키지 확인 및 설치
     # ping 명령어를 위한 iputils-ping 추가
-    ensure_packages_installed "PACKAGES_LIST" "Network Management Utils" "NetworkManager" "iputils-ping" || return $?
+    ensure_packages_installed "PACKAGES_LIST" "Network Management Utils" "network-manager" "iputils-ping" || return $?
     
     log_success "Network management utility initialized successfully."
     return 0
@@ -181,7 +181,7 @@ set_hostname() {
 _set_static_ip_nmcli() {
     local interface="$1"; local ip_cidr="$2"; local gateway="$3"; local dns="$4"
     
-    log_info "Applying static IP via NetworkManager (nmcli)..."
+    log_info "Applying static IP via Network-Manager (nmcli)..."
     if ${G_SUDO_PREFIX} nmcli con mod "${interface}" ipv4.method manual ipv4.addresses "${ip_cidr}" ipv4.gateway "${gateway}" ipv4.dns "${dns}" && \
        ${G_SUDO_PREFIX} nmcli con down "${interface}" && ${G_SUDO_PREFIX} nmcli con up "${interface}"; then
         log_success "Successfully applied new IP settings via nmcli."
@@ -235,19 +235,19 @@ set_static_ip() {
         _set_static_ip_networkd "$@"
         return $?
     else
-        log_error "Supported network manager (NetworkManager or systemd-networkd) not found."
+        log_error "Supported network manager (network-manager or systemd-networkd) not found."
         return 2
     fi
 }
 
 ##
-# @description 여러 인터페이스를 묶어 네트워크 본딩을 생성. (NetworkManager 필요)
+# @description 여러 인터페이스를 묶어 네트워크 본딩을 생성. (network-manager 필요)
 #
 create_network_bond() {
     local bond_name="$1"; local mode="$2"; local slaves_str="$3"
 
     if ! command -v nmcli &> /dev/null; then
-        log_error "'nmcli' is not available. This function requires NetworkManager."
+        log_error "'nmcli' is not available. This function requires network-manager."
         return 1
     fi
 

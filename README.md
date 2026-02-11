@@ -26,7 +26,7 @@ ASAP는 리눅스 서버 초기 설정과 유지보수를 위한 TUI 기반 자�
 
 ### 3. 하이브리드 네트워크 스택
 
-- 듀얼 스택 지원: `NetworkManager`와 `systemd-networkd` 환경 자동 대응
+- 듀얼 스택 지원: `network-manager`와 `systemd-networkd` 환경 자동 대응
 - 고급 토폴로지: 본딩(Active-Backup, LACP) 및 티밍 설정을 TUI로 처리
 - 연결 설정: 고정 IP, 게이트웨이, DNS, `/etc/hosts` 매핑 자동화
 
@@ -45,7 +45,7 @@ ASAP는 리눅스 서버 초기 설정과 유지보수를 위한 TUI 기반 자�
 
 - OS: Ubuntu 20.04+ / Debian 계열
 - Shell: Bash 4.0 이상
-- 의존성: `dialog`, `lvm2`, `parted`, `cifs-utils`, `NetworkManager`
+- 의존성: `dialog`, `lvm2`, `parted`, `cifs-utils`, `network-manager`
 
 ## 📦 설치 및 실행
 
