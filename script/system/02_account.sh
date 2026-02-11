@@ -203,12 +203,14 @@ manage_group_members() {
 #       $2 primary_group (선택 사항) 사용자의 주 그룹 이름
 #       $3 create_home (yes/no) 홈 디렉터리 생성 여부
 #       $4 shell_access (yes/no) 원격 로그인 허용 여부
+#       $5 home_base (선택 사항) 홈 디렉터리 생성 지점 (기본값: /home)
 # -----------------------------------------------------------------------------
 add_system_user() {
     local username="$1"
     local primary_group="$2"
     local create_home="$3"
     local shell_access="$4"
+    local home_base="${5:-/home}"
 
     if [[ -z "${username}" ]]; then
         log_error "Username is required."; return 1
@@ -228,8 +230,14 @@ add_system_user() {
         log_info "  - Login shell: /usr/sbin/nologin (remote login disabled)"
     fi
 
-    # 홈 디렉터리 생성 여부 설정 (-m: 생성, -M: 생성 안 함).
-    [[ "${create_home}" == "yes" ]] && useradd_opts+=("-m") || useradd_opts+=("-M")
+    # 홈 디렉터리 생성 여부 설정
+    if [[ "${create_home}" == "yes" ]]; then
+        useradd_opts+=("-m" "-d" "${home_base}/${username}")
+        log_info "  - Home directory: ${home_base}/${username} (will be created)"
+    else
+        useradd_opts+=("-M")
+        log_info "  - Home directory: (will NOT be created)"
+    fi
 
     # 주 그룹 지정. 그룹이 존재하지 않으면 경고 메시지 출력.
     if [[ -n "${primary_group}" ]]; then
@@ -243,6 +251,12 @@ add_system_user() {
     log_info "Creating user '${username}'..."
     if ${G_SUDO_PREFIX} useradd "${useradd_opts[@]}" "${username}"; then
         log_success "Successfully created user '${username}'."
+        
+        # /home 이외의 장소에 생성된 경우 /home으로 심볼릭 링크 생성 (create_home이 yes인 경우)
+        if [[ "${create_home}" == "yes" && "${home_base}" != "/home" ]]; then
+            log_info "Creating symbolic link: /home/${username} -> ${home_base}/${username}"
+            ${G_SUDO_PREFIX} ln -sf "${home_base}/${username}" "/home/${username}"
+        fi
     else
         log_error "Failed to create user '${username}'."
         return 1
@@ -330,10 +344,13 @@ set_password_interactively() {
 
 ##
 # @description 시스템 사용자를 삭제하고 관련 데이터(홈 디렉터리, 심볼릭 링크)를 정리.
+# @param
+#       $1 username 삭제할 사용자 이름
+#       $2 home_base (선택 사항) 홈 디렉터리 생성 지점 (기본값: /home)
 #
 delete_system_user() {
     local username="$1"
-    local user_home_base="$2"
+    local home_base="${2:-/home}"
 
     if [[ -z "${username}" ]]; then
         log_error "Username to delete is required."
@@ -352,20 +369,21 @@ delete_system_user() {
         return 1
     fi
 
-    # --- 2. 실제 홈 디렉터리 삭제 (선택 사항) ---
-    if [[ -n "${user_home_base}" && "${user_home_base}" != "no_home" ]]; then
-        local user_home_dir="${user_home_base}/${username}"
-        if [[ -d "${user_home_dir}" ]]; then
-            log_info "Deleting real home directory (${user_home_dir})..."
-            ${G_SUDO_PREFIX} rm -rf "${user_home_dir}"
+    # --- 2. 홈 디렉터리 및 심볼릭 링크 삭제 ---
+    if [[ "${home_base}" != "no_home" ]]; then
+        # 실제 홈 디렉터리 삭제
+        local real_home="${home_base}/${username}"
+        if [[ -d "${real_home}" ]]; then
+            log_info "Deleting real home directory (${real_home})..."
+            ${G_SUDO_PREFIX} rm -rf "${real_home}"
         fi
-    fi
 
-    # --- 3. /home 아래의 심볼릭 링크 삭제 ---
-    local symlink_path="/home/${username}"
-    if [[ -L "${symlink_path}" ]]; then
-        log_info "Deleting symbolic link (${symlink_path})..."
-        ${G_SUDO_PREFIX} rm -f "${symlink_path}"
+        # /home 아래의 심볼릭 링크 삭제 (home_base가 /home이 아닌 경우에만 의미가 있으나 안전하게 항상 확인)
+        local symlink_path="/home/${username}"
+        if [[ -L "${symlink_path}" ]]; then
+            log_info "Deleting symbolic link (${symlink_path})..."
+            ${G_SUDO_PREFIX} rm -f "${symlink_path}"
+        fi
     fi
 
     log_success "User '${username}' and related data have been processed."

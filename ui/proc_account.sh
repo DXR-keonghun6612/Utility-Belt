@@ -203,25 +203,26 @@ ui_delete_group() {
 # ==============================================================================
 
 ui_add_user() {
-    local home_base="$1"
-    
     local values
-    values=$(ui_create_form "Add New User" "Enter New User Information" "" 16 60 0 \
+    values=$(ui_create_form "Add New User" "Enter New User Information" "" 18 65 0 \
         "Username:"                   1 1 "" 1 30 35 0 \
         "Primary Group:"              2 1 "" 2 30 35 0 \
-        "Allow Remote Login (yes/no):" 3 1 "no" 3 30 35 0)
+        "Allow Remote Login (yes/no):" 3 1 "no" 3 30 35 0 \
+        "Home Base Path:"             4 1 "/home" 4 30 35 0)
 
     if [[ $? -ne 0 ]]; then
         _ui_show_cancel_message; return
     fi
 
-    local username group_name shell_access
+    local username group_name shell_access home_base
     {
         read -r username
         read -r group_name
         read -r shell_access
+        read -r home_base
     } <<< "$values"
     shell_access=$(echo "$shell_access" | tr '[:upper:]' '[:lower:]')
+    home_base="${home_base:-/home}"
 
     if [[ -z "$username" || -z "$group_name" ]]; then
         ui_message_box "Error: Username and Primary Group are required." "Error" 8 50; return
@@ -232,15 +233,16 @@ ui_add_user() {
     
     add_system_group "$group_name"
     
-    if ! add_system_user "$username" "$group_name" "no" "$shell_access"; then
-        read -rp $'/\nUser creation failed. Press Enter to continue.../'
+    # create_home="yes"로 설정하고 home_base를 전달하여 백엔드에서 홈 디렉토리 및 심볼릭 링크 생성을 처리하도록 함.
+    if ! add_system_user "$username" "$group_name" "yes" "$shell_access" "${home_base}"; then
+        read -rp $'\nUser creation failed. Press Enter to continue...'
         return
     fi
 
     if ! ui_handle_password_change "${username}" "System" "set_password_interactively"; then
         echo "[Warning] System password setup was cancelled or failed. Rolling back..."
-        delete_system_user "${username}" "no_home"
-        read -rp $'/\nOperation has been rolled back. Press Enter to continue.../'
+        delete_system_user "${username}" "${home_base}"
+        read -rp $'\nOperation has been rolled back. Press Enter to continue...'
         return
     fi
     ui_message_box "System password has been updated." "Info" 5 60; sleep 1
@@ -252,30 +254,18 @@ ui_add_user() {
             ui_message_box "Samba user has been configured." "Info" 5 60; sleep 1 ;;
         1) 
             echo "[Warning] Samba user setup failed. Rolling back..."
-            delete_system_user "${username}" "no_home"
-            read -rp $'/\nOperation has been rolled back. Press Enter to continue.../'
+            delete_system_user "${username}" "${home_base}"
+            read -rp $'\nOperation has been rolled back. Press Enter to continue...'
             return ;;
         2) 
             ui_message_box "Samba password setup skipped." "Info" 5 60; sleep 1 ;;
     esac
 
-    local user_home_dir="${home_base}/${username}"
-    echo "Creating home directory (${user_home_dir}) and setting permissions..."
-    sudo mkdir -p "${user_home_dir}"
-    sudo chown -R "${username}:${group_name}" "${user_home_dir}"
-    
-    if [[ ! -L "/home/${username}" ]]; then
-        sudo ln -s "${user_home_dir}" "/home/${username}"
-        echo "Symbolic link /home/${username} created successfully."
-    fi
-    
     echo "--- All operations complete ---"
     _ui_show_completion_message
 }
 
 ui_delete_user() {
-    local home_base="$1"
-    
     local user_list=()
     while read -r user; do
         user_list+=("$user" "")
@@ -292,7 +282,13 @@ ui_delete_user() {
         _ui_show_cancel_message; return
     fi
 
-    if ui_confirm "Are you sure you want to delete user '${username}' and all related data?" "Confirm Deletion" 10 50; then
+    local home_base
+    home_base=$(ui_input_box "Enter the Home Base Path for this user (to clean up data):" "Delete User" "/home" 8 60)
+    if [[ $? -ne 0 ]]; then
+        _ui_show_cancel_message; return
+    fi
+
+    if ui_confirm "Are you sure you want to delete user '${username}' and all related data in '${home_base}'?" "Confirm Deletion" 10 55; then
         clear
         echo "--- Starting Delete User operation [Target: ${username}] ---"
         delete_samba_user "${username}"
@@ -389,7 +385,6 @@ ui_modify_user() {
 # ==============================================================================
 
 ui_account_management() {
-    local home_base="$1"
     while true; do
         local choice=$(ui_create_menu \
             "Main Menu > Account Management" \
@@ -407,9 +402,9 @@ ui_account_management() {
             "BACK"      "Return to Main Menu")
 
         case "$choice" in
-            ADD_USER)   ui_add_user "${home_base}" ;; 
+            ADD_USER)   ui_add_user ;; 
             MOD_USER)   ui_modify_user ;; 
-            DEL_USER)   ui_delete_user "${home_base}" ;; 
+            DEL_USER)   ui_delete_user ;; 
             ADD_GROUP)  ui_add_group ;; 
             MOD_GROUP)  ui_modify_group_members ;; 
             DEL_GROUP)  ui_delete_group ;; 
