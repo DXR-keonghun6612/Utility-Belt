@@ -19,7 +19,7 @@ is_installed_cuda_toolkit() {
     # [Cleanup] 삭제된 버전 정리
     if command -v get_config_keys &>/dev/null; then
         local all_cuda_keys
-        all_cuda_keys=$(get_config_keys "APPLICATION_LIST" "${CONFIG_FILE}" | grep "^cuda-toolkit-")
+        all_cuda_keys=$(get_config_keys "APPLICATION_LIST" "${G_STATE_FILE}" | grep "^cuda-toolkit-")
         for key in ${all_cuda_keys}; do
             local ver_in_key="${key#cuda-toolkit-}"
             ver_in_key="${ver_in_key//-/.}"
@@ -32,7 +32,7 @@ is_installed_cuda_toolkit() {
                     dir_exists=true; break
                 fi
             done
-            [[ "$dir_exists" == "false" ]] && delete_config_value "${CONFIG_FILE}" "APPLICATION_LIST" "${key}"
+            [[ "$dir_exists" == "false" ]] && delete_config_value "${G_STATE_FILE}" "APPLICATION_LIST" "${key}"
         done
     fi
 
@@ -43,9 +43,10 @@ is_installed_cuda_toolkit() {
             [[ "$ver" =~ ^[0-9]+\.[0-9]+$ ]] && normalized_ver="${ver}.0"
             local pkg_key="cuda-toolkit-${normalized_ver//./-}"
             
-            if [[ -z "$(get_config_value "${CONFIG_FILE}" "APPLICATION_LIST" "${pkg_key}")" ]]; then
+            if [[ -z "$(get_config_value "${G_STATE_FILE}" "APPLICATION_LIST" "${pkg_key}")" ]]; then
                 local timestamp; timestamp=$(date "+%Y-%m-%dT%H:%M:%S")
-                set_config_value "${CONFIG_FILE}" "APPLICATION_LIST" "${pkg_key}" "${timestamp}"
+                add_config_section "${G_STATE_FILE}" "APPLICATION_LIST"
+                set_config_value "${G_STATE_FILE}" "APPLICATION_LIST" "${pkg_key}" "${timestamp}"
             fi
         done
     fi
@@ -71,12 +72,11 @@ _setup_cuda_repo() {
             if [[ -n "${target_arch_arg}" ]]; then
                 target_arch="${target_arch_arg}"
             else
-                # 인자가 없으면 기본값 설정 (Headless 대응)
                 target_arch="sbsa"
             fi
             ;;
         *)
-            echo "[ERROR] Unsupported architecture: ${machine_arch}" >&2
+            log_error "Unsupported architecture: ${machine_arch}"
             return 1
             ;;
     esac
@@ -84,9 +84,9 @@ _setup_cuda_repo() {
     local keyring_url="https://developer.download.nvidia.com/compute/cuda/repos/${distro}/${target_arch}/cuda-keyring_1.1-1_all.deb"
     local keyring_tmp="/tmp/cuda-keyring.deb"
 
-    echo "[INFO] Setting up NVIDIA repository for ${target_arch}..."
+    log_info "Setting up NVIDIA repository for ${target_arch}..."
     if ! wget -q "${keyring_url}" -O "${keyring_tmp}"; then
-        echo "[ERROR] Failed to download keyring from ${keyring_url}" >&2
+        log_error "Failed to download keyring from ${keyring_url}"
         return 1
     fi
 
@@ -108,7 +108,6 @@ _get_available_cuda_versions() {
         return
     fi
 
-    # madison을 사용하여 동일 패키지 내의 모든 패치 버전 추출
     apt-cache madison ${base_pkgs} | sort -Vr | awk -F'|' '{
         pkg=$1; gsub(/ /, "", pkg);
         full_ver=$2; gsub(/ /, "", full_ver);
@@ -134,7 +133,6 @@ _switch_cuda_version() {
     local link_path="/usr/local/cuda"
 
     if [[ ! -d "${target_path}" ]]; then
-        # 12.4.0 요청 시 12.4 디렉토리가 있을 수 있음
         local alt_path="/usr/local/cuda-${target_ver%.0}"
         [[ -d "${alt_path}" ]] && target_path="${alt_path}"
     fi
@@ -142,7 +140,7 @@ _switch_cuda_version() {
     if [[ -d "${target_path}" ]]; then
         [[ -L "${link_path}" || -d "${link_path}" ]] && ${G_SUDO_PREFIX} rm -rf "${link_path}"
         ${G_SUDO_PREFIX} ln -s "${target_path}" "${link_path}"
-        echo "[INFO] Switched active CUDA to ${target_ver}"
+        log_info "Switched active CUDA to ${target_ver}"
         return 0
     fi
     return 1
@@ -157,25 +155,20 @@ _install_cuda_pkg() {
     local target_choice="$1"
     local target_arch="$2"
 
-    # 1. 저장소 확보
     if ! apt-cache pkgnames "cuda-toolkit-" | grep -q "."; then
         _setup_cuda_repo "${target_arch}" || return 1
     fi
 
-    # 2. 버전 선택 (인자가 없으면 에러 또는 최신 자동 선택)
     if [[ -z "${target_choice}" ]]; then
-        echo "[ERROR] No CUDA version specified for installation." >&2
+        log_error "No CUDA version specified for installation."
         return 1
     fi
 
-    # 3. 설치 수행
     local pkg_name="${target_choice%%=*}"
     local full_ver="${target_choice#*=}"
     local clean_ver="${full_ver%%-*}"
 
-    echo "========================================================"
-    echo " Installing ${pkg_name} version ${full_ver}"
-    echo "========================================================"
+    log_info "Installing ${pkg_name} version ${full_ver}..."
     
     if ${G_SUDO_PREFIX} apt-get install --allow-downgrades -y "${target_choice}"; then
         local normalized_ver="${clean_ver}"
@@ -184,15 +177,10 @@ _install_cuda_pkg() {
         local pkg_key="cuda-toolkit-${normalized_ver//./-}"
         local timestamp=$(date "+%Y-%m-%dT%H:%M:%S")
         
-        if command -v _record_state &>/dev/null; then
-             _record_state "${CONFIG_FILE}" "APPLICATION_LIST" "CUDA Toolkit" "${timestamp}" "${pkg_key}"
-        else
-             set_config_value "${CONFIG_FILE}" "APPLICATION_LIST" "${pkg_key}" "${timestamp}"
-        fi
+        set_config_value "${G_STATE_FILE}" "APPLICATION_LIST" "${pkg_key}" "${timestamp}"
 
         _switch_cuda_version "${clean_ver}"
         
-        # 환경변수 설정
         local profile_script="/etc/profile.d/cuda.sh"
         if [[ ! -f "${profile_script}" ]]; then
             {
@@ -201,10 +189,10 @@ _install_cuda_pkg() {
             } | ${G_SUDO_PREFIX} tee "${profile_script}" > /dev/null
         fi
         
-        echo "[SUCCESS] CUDA Toolkit ${clean_ver} installed successfully."
+        log_success "CUDA Toolkit ${clean_ver} installed successfully."
         return 0
     else
-        echo "[ERROR] APT failed to install ${target_choice}." >&2
+        log_error "APT failed to install ${target_choice}."
         return 1
     fi
 }
@@ -220,9 +208,8 @@ install_cuda_toolkit_logic() {
     local target="$2"
     local arch="$3"
 
-    [[ $(get_package_manager_type) != "dpkg" ]] && { echo "[ERROR] Only Debian/Ubuntu supported." >&2; return 1; }
+    [[ $(get_package_manager_type) != "dpkg" ]] && { log_error "Only Debian/Ubuntu supported."; return 1; }
 
-    # 인자가 넘어온 경우에만 동작
     if [[ -n "${action}" ]]; then
         case "${action}" in
             "INSTALL") _install_cuda_pkg "${target}" "${arch}" ;;

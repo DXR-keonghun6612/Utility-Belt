@@ -4,8 +4,8 @@ Utility Belt의 시스템 모니터링 모듈은 서버의 하드웨어 및 주�
 
 ## 1. 개요
 
-- **UI 스크립트**: `ui/ubuntu/proc_system_moniter.sh`
-- **백엔드 로직**: `script/system/ubuntu/02_system_moniter.sh`
+- **UI 스크립트**: `ui/ubuntu/proc_system_monitor.sh`
+- **백엔드 로직**: `script/system/ubuntu/02_system_monitor.sh`
 - **주요 기능**:
   - 주요 하드웨어 정보(CPU, RAM, Disk 등) 조회
   - 시스템 정보를 JSON 형식으로 내보내기

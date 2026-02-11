@@ -1,9 +1,9 @@
 #!/bin/bash
 # ==============================================================================
-# 파일명: 02_system_moniter.sh
+# 파일명: 02_system_monitor.sh
 # 최종 수정일: 2026-01-20
 # 작업자 : K.H. Choi
-# 설명: 
+# 설명: 시스템 하드웨어 정보 수집 및 JSON 출력 유틸리티.
 # ==============================================================================
 
 
@@ -14,36 +14,35 @@
 # -----------------------------------------------------------------------------
 # @description 패키지 설치 유틸리티에 필요한 패키지를 확인하고 설치함.
 # -----------------------------------------------------------------------------
-_initialize_monitering_utils() {
+_initialize_monitoring_utils() {
     # ensure_packages_installed 함수를 사용하여 패키지 확인 및 설치
     ensure_packages_installed "PACKAGES_LIST" "Monitoring Management Utils" "dmidecode" "util-linux" || return $?
     
-    echo "[INFO] System monitoring utility initialized successfully." >&2
+    log_success "System monitoring utility initialized successfully."
     return 0
 }
 
 # 초기화 함수 호출
-_initialize_monitering_utils
+_initialize_monitoring_utils
 
 get_cpu_info() {
-    MODEL=$(lscpu | grep "Model name:" | sed 's/Model name:[ \t]*//')
-    CORES=$(lscpu | grep "^CPU(s):" | awk '{print $2}')
-    echo "CPU Model: $MODEL"
-    echo "CPU Cores: $CORES"
+    local model; model=$(lscpu | grep "Model name:" | sed 's/Model name:[ \t]*//')
+    local cores; cores=$(lscpu | grep "^CPU(s):" | awk '{print $2}')
+    echo "CPU Model: $model"
+    echo "CPU Cores: $cores"
 }
 
 # 메인보드 정보 수집
 get_motherboard_info() {
-    MANUFACTURER=$(${G_SUDO_PREFIX} dmidecode -t 2 | grep 'Manufacturer:' | awk -F': ' '{print $2}')
-    PRODUCT=$(${G_SUDO_PREFIX} dmidecode -t 2 | grep 'Product Name:' | awk -F': ' '{print $2}')
-    echo "M/B Manufacturer: $MANUFACTURER"
-    echo "M/B Product: $PRODUCT"
+    local manufacturer; manufacturer=$(${G_SUDO_PREFIX} dmidecode -t 2 | grep 'Manufacturer:' | awk -F': ' '{print $2}')
+    local product; product=$(${G_SUDO_PREFIX} dmidecode -t 2 | grep 'Product Name:' | awk -F': ' '{print $2}')
+    echo "M/B Manufacturer: $manufacturer"
+    echo "M/B Product: $product"
 }
 
 # 메모리 정보 수집
 get_memory_info() {
-    local raw_details
-    raw_details=$(_get_memory_details_raw)
+    local raw_details; raw_details=$(_get_memory_details_raw)
 
     local installed_slots=0
     if [[ -z "$raw_details" ]]; then
@@ -56,11 +55,8 @@ get_memory_info() {
             installed_slots=$((installed_slots + count))
             total_size_mb=$((total_size_mb + count * size_mb))
             
-            # 출력 시 보기 좋게 변환 (GB 단위가 크면 GB로)
             local size_str="${size_mb} MB"
-            if [[ "$size_mb" -ge 1024 ]]; then
-                size_str="$((size_mb / 1024)) GB"
-            fi
+            [[ "$size_mb" -ge 1024 ]] && size_str="$((size_mb / 1024)) GB"
             local speed_str="${speed_mts} MT/s"
             
             echo "  - ${count}x ${type} ${size_str} @ ${speed_str} (Manufacturer: ${manufacturer})"
@@ -68,7 +64,6 @@ get_memory_info() {
 
         if [[ "$total_size_mb" -gt 0 ]]; then
             local total_size_gb=$((total_size_mb / 1024))
-            # 소수점 출력을 위해 awk 사용 (선택 사항, 여기서는 정수 나눗셈 유지하거나 개선 가능)
             if [[ "$total_size_gb" -gt 0 ]]; then
                 echo "Total Installed Memory: ${total_size_gb} GB"
             else
@@ -78,8 +73,7 @@ get_memory_info() {
     fi
 
     # 빈 슬롯 정보 출력
-    local total_slots
-    total_slots=$(${G_SUDO_PREFIX} dmidecode -t 16 | grep "Number Of Devices:" | awk -F': ' '{print $2}')
+    local total_slots; total_slots=$(${G_SUDO_PREFIX} dmidecode -t 16 | grep "Number Of Devices:" | awk -F': ' '{print $2}')
     if [[ -n "$total_slots" && "$total_slots" -gt 0 ]]; then
         local empty_slots=$((total_slots - installed_slots))
         echo "Total Memory Slots: ${total_slots}"
@@ -90,19 +84,10 @@ get_memory_info() {
 
 # GPU 정보 수집
 get_gpu_info() {
-    # nvidia-smi 명령어가 있는지 확인합니다.
     if command -v nvidia-smi &> /dev/null; then
-        # nvidia-smi를 사용하여 하드웨어 정보를 쿼리합니다.
-        local model
-        model=$(nvidia-smi --query-gpu=name --format=csv,noheader,nounits)
-        local memory
-        memory=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits)
-        # 보드 제조사 (Subsystem Vendor) 정보 쿼리
-        # local board_vendor
-        # board_vendor=$(nvidia-smi --query-gpu=subsystem.name --format=csv,noheader,nounits)
-
+        local model; model=$(nvidia-smi --query-gpu=name --format=csv,noheader,nounits)
+        local memory; memory=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits)
         echo "GPU Chipset: ${model:-N/A}"
-        # echo "GPU Board Vendor: ${board_vendor:-N/A}"
         echo "GPU Memory: ${memory:-N/A} MiB"
     else
         echo "GPU Info: NVIDIA Driver/SMI Not Found"
@@ -112,7 +97,6 @@ get_gpu_info() {
 # 저장 장치 정보 수집
 get_storage_info() {
     echo "Storage Devices:"
-    # lsblk를 사용하여 로컬 디스크(disk 타입)만 필터링하여 출력
     lsblk -d -o NAME,MODEL,SIZE | grep -E 'sd|hd|vd|nvme'
 }
 
@@ -120,14 +104,8 @@ get_storage_info() {
 # --- 내부 헬퍼 함수 ---
 # ==============================================================================
 
-##
-# @description (내부 함수) dmidecode를 실행하여 정제된 메모리 모듈 데이터를 반환합니다.
-# @stdout 각 라인은 고유한 모듈 정보를 나타내며, 포맷은 다음과 같습니다:
-#         COUNT|MANUFACTURER|TYPE|SIZE_MB|SPEED_MTS
-#
 _get_memory_details_raw() {
-    local memory_details
-    memory_details=$(${G_SUDO_PREFIX} dmidecode -t 17 | awk '
+    local memory_details; memory_details=$(${G_SUDO_PREFIX} dmidecode -t 17 | awk '
         BEGIN { RS = ""; FS = "\n" }
         {
             manufacturer = "N/A"; type = "N/A"; size_raw = "N/A"; speed = "N/A";
@@ -143,7 +121,6 @@ _get_memory_details_raw() {
                 gsub(/^[ \t]+|[ \t]+$/, "", size_raw);
                 gsub(/^[ \t]+|[ \t]+$/, "", speed);
                 
-                # Size 값 파싱 (단위 처리)
                 split(size_raw, size_parts, " ");
                 val = size_parts[1];
                 unit = size_parts[2];
@@ -156,7 +133,7 @@ _get_memory_details_raw() {
                 } else if (unit == "kB") {
                     size_mb = val / 1024;
                 } else {
-                    size_mb = val; # 기본값 MB로 가정하거나 Unknown
+                    size_mb = val;
                 }
 
                 speed_mts = speed;
@@ -167,11 +144,7 @@ _get_memory_details_raw() {
         }')
     
     if [[ -n "$memory_details" ]]; then
-        # 동일한 사양의 모듈을 그룹화하고 개수를 셉니다.
-        local summary
-        summary=$(echo "${memory_details}" | sort | uniq -c)
-        
-        # 파싱 안정성을 위해 while 루프 사용
+        local summary; summary=$(echo "${memory_details}" | sort | uniq -c)
         while IFS= read -r line; do
             local count; count=$(echo "$line" | sed 's/^ *//' | cut -d' ' -f1)
             local data; data=$(echo "$line" | sed 's/^ *//' | cut -d' ' -f2-)
@@ -184,48 +157,32 @@ _get_memory_details_raw() {
 # --- JSON 출력 함수 (재설계됨) ---
 # ==============================================================================
 
-##
-# @description 시스템의 모든 하드웨어 정보를 JSON 형식으로 출력합니다.
-#              텍스트 출력 함수에 의존하지 않고 직접 시스템 명령어를 호출하여 데이터를 수집합니다.
-#
 get_system_info_json() {
-    # Helper function to escape strings for JSON
     json_escape() {
-        echo -n "" | sed 's/\\/\\\\/g; s/"/\\"/g'
+        echo -n "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
     }
 
-    # 1. CPU 정보 수집 (lscpu 직접 사용)
-    local cpu_model="N/A"
-    local cpu_cores="0"
+    local cpu_model="N/A"; local cpu_cores="0"
     if command -v lscpu &> /dev/null; then
         cpu_model=$(lscpu | grep "Model name:" | sed 's/Model name:[ \t]*//')
         cpu_cores=$(lscpu | grep "^CPU(s):" | awk '{print $2}')
     fi
 
-    # 2. 마더보드 정보 수집 (dmidecode 직접 사용)
-    local mb_manufacturer="N/A"
-    local mb_product="N/A"
+    local mb_manufacturer="N/A"; local mb_product="N/A"
     if command -v dmidecode &> /dev/null; then
         mb_manufacturer=$(${G_SUDO_PREFIX} dmidecode -t 2 | grep 'Manufacturer:' | head -n 1 | awk -F': ' '{print $2}')
         mb_product=$(${G_SUDO_PREFIX} dmidecode -t 2 | grep 'Product Name:' | head -n 1 | awk -F': ' '{print $2}')
     fi
 
-    # 3. GPU 정보 수집 (nvidia-smi 직접 사용)
-    local gpu_chipset="N/A"
-    local gpu_board_vendor="N/A"
-    local gpu_memory_mib="0"
-    
+    local gpu_chipset="N/A"; local gpu_board_vendor="N/A"; local gpu_memory_mib="0"
     if command -v nvidia-smi &> /dev/null; then
         gpu_chipset=$(nvidia-smi --query-gpu=name --format=csv,noheader,nounits | head -n 1)
-        # gpu_board_vendor=$(nvidia-smi --query-gpu=subsystem.name --format=csv,noheader,nounits | head -n 1)
         gpu_memory_mib=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -n 1)
     fi
 
-    # 4. 스토리지 정보 수집 (lsblk 사용)
-    local storage_json_array
-    storage_json_array=$(lsblk -d -o NAME,MODEL,SIZE -b | awk '
+    local storage_json_array; storage_json_array=$(lsblk -d -o NAME,MODEL,SIZE -b | awk '
         NR > 1 {
-            name=
+            name=$1
             size=$NF
             model=""
             for (i=2; i<NF; i++) { model = model (i==2 ? "" : " ") $i }
@@ -234,7 +191,6 @@ get_system_info_json() {
             printf "{\"name\":\"%s\",\"model\":\"%s\",\"size_bytes\":%s}", name, model, size
         }' | sed 's/^/[/' | sed 's/$/]/')
 
-    # 5. 메모리 정보 수집 및 파싱 (내부 함수 사용으로 단순화)
     local raw_mem_details; raw_mem_details=$(_get_memory_details_raw)
     local modules_json_parts=()
     if [[ -n "$raw_mem_details" ]]; then
@@ -245,9 +201,7 @@ get_system_info_json() {
     fi
     
     local memory_modules_json="["
-    if [[ ${#modules_json_parts[@]} -gt 0 ]]; then
-        memory_modules_json+=$(IFS=,; echo "${modules_json_parts[*]}")
-    fi
+    [[ ${#modules_json_parts[@]} -gt 0 ]] && memory_modules_json+=$(IFS=,; echo "${modules_json_parts[*]}")
     memory_modules_json+="]"
 
     local total_slots="0"
@@ -256,12 +210,9 @@ get_system_info_json() {
     fi
     
     local installed_slots=0
-    if [[ -n "$raw_mem_details" ]]; then
-        installed_slots=$(echo "$raw_mem_details" | awk -F'|' '{s+=} END {print s}')
-    fi
+    [[ -n "$raw_mem_details" ]] && installed_slots=$(echo "$raw_mem_details" | awk -F'|' '{s+=$1} END {print s}')
     local empty_slots=$((total_slots - installed_slots))
 
-    # 6. 최종 JSON 조립
     printf "{\n"
     printf '  "cpu": {\n'
     printf '    "model": "%s",\n' "$(json_escape "$cpu_model")"

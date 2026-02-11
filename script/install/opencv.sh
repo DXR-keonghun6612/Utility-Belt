@@ -5,7 +5,8 @@
 # ==============================================================================
 
 # -----------------------------------------------------------------------------
-# @description OpenCV 설치 여부 확인
+# @description OpenCV 설치 여부 확인 및 설정 동기화
+# @return 0: 설치됨, 1: 설치 안 됨
 # -----------------------------------------------------------------------------
 is_installed_opencv() {
     local installed=1
@@ -16,8 +17,32 @@ is_installed_opencv() {
     fi
 
     # 2. Python 바인딩 확인
-    if python3 -c "import cv2" &>/dev/null; then
-        installed=0
+    if [[ $installed -ne 0 ]]; then
+        if python3 -c "import cv2" &>/dev/null; then
+            installed=0
+        fi
+    fi
+
+    # [Sync Config] 설치 상태 동기화
+    if [[ -n "${G_STATE_FILE}" ]]; then
+        if [[ $installed -eq 0 ]]; then
+            local current_val
+            current_val=$(get_config_value "${G_STATE_FILE}" "APPLICATION_LIST" "opencv")
+            if [[ -z "${current_val}" ]]; then
+                local timestamp; timestamp=$(date "+%Y-%m-%dT%H:%M:%S")
+                local ver="detected"
+                # pkg-config로 버전 추출 시도
+                if pkg-config --exists opencv4 2>/dev/null; then
+                    ver=$(pkg-config --modversion opencv4)
+                elif pkg-config --exists opencv 2>/dev/null; then
+                    ver=$(pkg-config --modversion opencv)
+                fi
+                add_config_section "${G_STATE_FILE}" "APPLICATION_LIST"
+                set_config_value "${G_STATE_FILE}" "APPLICATION_LIST" "opencv" "${ver} (${timestamp})"
+            fi
+        else
+            delete_config_value "${G_STATE_FILE}" "APPLICATION_LIST" "opencv"
+        fi
     fi
 
     return $installed
@@ -60,7 +85,7 @@ build_opencv_logic() {
     local detected_cuda_path=$(_detect_cuda_toolkit)
     
     if [[ "${with_cuda}" == "ON" && -z "${detected_cuda_path}" ]]; then
-        echo "[ERROR] CUDA support requested but CUDA Toolkit not found." >&2
+        log_error "CUDA support requested but CUDA Toolkit not found."
         return 1
     fi
 
@@ -71,8 +96,7 @@ build_opencv_logic() {
         [[ -z "${gpu_arch}" ]] && gpu_arch="7.5"
     fi
 
-    # 1. 의존성 설치
-    echo "[INFO] Installing build dependencies for OpenCV ${version}..."
+    log_info "Installing build dependencies for OpenCV ${version}..."
     ensure_packages_installed "SYSTEM_TOOLS" "OpenCV Build Dependencies" \
         "build-essential" "cmake" "git" "pkg-config" "unzip" "wget" \
         "libjpeg-dev" "libpng-dev" "libtiff-dev" \
@@ -80,11 +104,10 @@ build_opencv_logic() {
         "libxvidcore-dev" "libx264-dev" \
         "libgtk-3-dev" "libatlas-base-dev" "gfortran" "python3-dev" "python3-numpy" || return 1
 
-    # 2. 소스 다운로드
     mkdir -p "${work_dir}"
     cd "${work_dir}" || return 1
 
-    echo "[INFO] Downloading OpenCV ${version} into ${work_dir}..."
+    log_info "Downloading OpenCV ${version} into ${work_dir}..."
     for repo in "opencv" "opencv_contrib"; do
         if [[ ! -d "${repo}-${version}" ]]; then
             wget -O "${repo}.zip" "https://github.com/opencv/${repo}/archive/${version}.zip" || return 1
@@ -92,8 +115,7 @@ build_opencv_logic() {
         fi
     done
 
-    # 3. 빌드 설정 및 실행
-    echo "[INFO] Configuring CMake for OpenCV ${version}..."
+    log_info "Configuring CMake for OpenCV ${version}..."
     cd "opencv-${version}" || return 1
     mkdir -p build && cd build || return 1
 
@@ -123,10 +145,10 @@ build_opencv_logic() {
 
     cmake "${cmake_opts[@]}" .. || return 1
 
-    echo "[INFO] Building OpenCV ${version} (Jobs: ${jobs})..."
+    log_info "Building OpenCV ${version} (Jobs: ${jobs})..."
     make -j"${jobs}" || return 1
 
-    echo "[SUCCESS] OpenCV ${version} build completed in $(pwd)"
+    log_success "OpenCV ${version} build completed."
     return 0
 }
 
@@ -145,26 +167,25 @@ install_opencv_logic() {
     local work_dir="${6:-/tmp/opencv_build}"
     local build_dir="${work_dir}/opencv-${version}/build"
 
-    # 빌드 결과물이 없는 경우 빌드 먼저 수행
     if [[ ! -f "${build_dir}/Makefile" ]]; then
-        echo "[INFO] Build artifacts not found at ${build_dir}. Starting build first..."
+        log_info "Build artifacts not found at ${build_dir}. Starting build first..."
         build_opencv_logic "$@" || return 1
     fi
 
-    echo "[INFO] Installing OpenCV ${version} from ${build_dir} to ${prefix}..."
+    log_info "Installing OpenCV ${version} from ${build_dir} to ${prefix}..."
     cd "${build_dir}" || return 1
     
     if ! ${G_SUDO_PREFIX} make install; then
-        echo "[ERROR] OpenCV installation failed." >&2
+        log_error "OpenCV installation failed."
         return 1
     fi
 
     ${G_SUDO_PREFIX} ldconfig
 
-    # 완료 기록
     local timestamp=$(date "+%Y-%m-%dT%H:%M:%S")
-    set_config_value "${CONFIG_FILE}" "APPLICATION_LIST" "opencv" "${version} (${timestamp})"
+    add_config_section "${G_STATE_FILE}" "APPLICATION_LIST"
+    set_config_value "${G_STATE_FILE}" "APPLICATION_LIST" "opencv" "${version} (${timestamp})"
 
-    echo "[SUCCESS] OpenCV ${version} installed successfully."
+    log_success "OpenCV ${version} installed successfully."
     return 0
 }

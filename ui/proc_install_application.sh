@@ -8,10 +8,8 @@
 
 ##
 # @description NVIDIA 드라이버 설치를 위한 전용 UI.
-#           - 동적 메뉴에서 'NVIDIA Driver' 선택 시 호출됩니다.
 #
 _ui_install_nvidia_driver() {
-    # 이 함수는 복잡한 드라이버 버전 선택 로직을 포함하므로 별도로 유지됩니다.
     ui_message_box "Searching for available NVIDIA drivers..." "NVIDIA Driver Installation" 5 70
     
     local driver_list_raw
@@ -36,7 +34,7 @@ _ui_install_nvidia_driver() {
         "${dialog_options[@]}")
 
     if [[ "${selected_driver}" == "CANCEL" ]]; then
-        ui_message_box "No driver was selected." "Canceled"; return
+        return
     fi
 
     local confirm_prompt="You have selected '${selected_driver}'.\n\nThis will automatically remove any other NVIDIA drivers and may require a system reboot. Continue?"
@@ -45,14 +43,7 @@ _ui_install_nvidia_driver() {
     fi
 
     clear
-    if install_nvidia_driver_logic "${selected_driver}"; then
-        # [Config 연동] 설치 성공 시 DRIVER_LIST에 기록
-        local timestamp; timestamp=$(date "+%Y-%m-%dT%H:%M:%S")
-        set_config_value "${CONFIG_FILE}" "DRIVER_LIST" "nvidia-driver" "${selected_driver} (${timestamp})"
-        ui_message_box "Driver '${selected_driver}' installed.\nA reboot is highly recommended." "Installation Successful"
-    else
-        ui_message_box "Failed to install '${selected_driver}'. Check the terminal for logs." "Installation Failed"
-    fi
+    install_nvidia_driver_logic "${selected_driver}"
     read -rp $'\nCompleted. Press Enter to continue...'
 }
 
@@ -61,21 +52,16 @@ _ui_install_nvidia_driver() {
 # @description OpenCV 설치를 위한 전용 UI.
 #
 _ui_install_opencv() {
-    # 1. 버전 선택
     local version
     version=$(ui_input_box "Enter OpenCV version to install:" "OpenCV Setup" "4.10.0")
     [[ -z "$version" || "$version" == "CANCEL" ]] && return 1
 
-    # 2. CUDA 지원 여부
     local with_cuda="OFF"
     local gpu_arch=""
     
-    # 01_install_package.sh의 _detect_cuda_toolkit을 활용할 수 없으므로 직접 체크하거나 
-    # 로직 내부의 자동 감지 기능을 믿고 질문만 던짐
     if ui_confirm "Do you want to build OpenCV with CUDA acceleration?\n(CUDA Toolkit must be installed)" "CUDA Support"; then
         with_cuda="ON"
         
-        # GPU 아키텍처 입력
         local detected_arch=""
         if command -v nvidia-smi &>/dev/null; then
             detected_arch=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader,nounits | head -n 1)
@@ -84,24 +70,12 @@ _ui_install_opencv() {
         [[ -z "$gpu_arch" ]] && gpu_arch="${detected_arch}"
     fi
 
-    # 3. 병렬 빌드 수
     local jobs
     jobs=$(ui_input_box "Enter number of parallel build jobs:" "Build Speed" "$(nproc)")
     [[ -z "$jobs" ]] && jobs="$(nproc)"
 
-    # 4. 설치 실행
     clear
-    echo "========================================================"
-    echo " Starting OpenCV ${version} Build & Installation"
-    echo " CUDA: ${with_cuda} (Arch: ${gpu_arch:-N/A})"
-    echo " Jobs: ${jobs}"
-    echo "========================================================"
-    
-    if install_opencv_logic "${version}" "${with_cuda}" "${gpu_arch}" "${jobs}"; then
-        ui_message_box "OpenCV ${version} installation completed successfully." "Success"
-    else
-        ui_message_box "OpenCV installation failed. Check terminal logs." "Error"
-    fi
+    install_opencv_logic "${version}" "${with_cuda}" "${gpu_arch}" "${jobs}"
 }
 
 
@@ -184,11 +158,9 @@ _ui_install_cudnn_library() {
         return 1
     fi
 
-    # 1. 현재 CUDA 버전 감지
     local cuda_major
     cuda_major=$(_get_active_cuda_major_version)
 
-    # 2. 버전 목록 조회
     local version_list_raw
     version_list_raw=$(_get_available_cudnn_versions "${cuda_major}")
     
@@ -209,18 +181,12 @@ _ui_install_cudnn_library() {
     local prompt="Detected active CUDA major version: ${cuda_major}\n\nPlease select a compatible cuDNN version:"
     [[ "$cuda_major" == "unknown" ]] && prompt="Could not detect active CUDA version.\nPlease select a cuDNN version:"
 
-    # 3. 버전 선택
     local choice
     choice=$(ui_create_menu "cuDNN Installation" "Select Version" "${prompt}" 18 80 10 "${menu_options[@]}")
     [[ "$choice" == "CANCEL" ]] && return 1
 
-    # 4. 설치 실행
     clear
-    if install_cudnn_library_logic "${choice}"; then
-        ui_message_box "cuDNN Library installed successfully." "Success"
-    else
-        ui_message_box "cuDNN installation failed." "Error"
-    fi
+    install_cudnn_library_logic "${choice}"
 }
 
 
@@ -231,125 +197,50 @@ ui_install_application() {
     # --- 1. 설정 및 스크립트 스캔 ---
     local install_dir="${SCRIPT_DIR}/script/install"
     
-    # 스크립트 파일명 => "UI 표시 이름|설정 파일 키|설정 파일 섹션|설치 권한 유형" 매핑
-    # 권한 유형: System (강제 시스템 설치), Selectable (설치 시 User/System 선택 가능)
-    declare -A SCRIPT_MAP=(
-        ["conda.sh"]="Conda|conda|APPLICATION_LIST|Selectable"
-        ["vscode.sh"]="VS Code|code|APPLICATION_LIST|System"
-        ["nvidia_driver.sh"]="NVIDIA Driver|nvidia-driver|DRIVER_LIST|System"
-        ["cuda_toolkit.sh"]="CUDA Toolkit|cuda-toolkit|APPLICATION_LIST|System"
-        ["cudnn_library.sh"]="cuDNN Library|cudnn-library|APPLICATION_LIST|System"
-        ["docker.sh"]="Docker|docker|APPLICATION_LIST|System"
-        ["ros2.sh"]="ROS 2|ros2|APPLICATION_LIST|System"
-        ["opencv.sh"]="OpenCV|opencv|APPLICATION_LIST|System"
+    # UI 표시 이름 => [설정 섹션, 설치 권한 유형, 로직 함수, 체크 함수]
+    declare -A APP_DATA=(
+        ["Conda"]="APPLICATION_LIST|Selectable|install_conda_logic|is_installed_conda"
+        ["VS Code"]="APPLICATION_LIST|System|install_vscode_logic|is_installed_vscode"
+        ["NVIDIA Driver"]="DRIVER_LIST|System|_ui_install_nvidia_driver|is_installed_nvidia_driver"
+        ["CUDA Toolkit"]="APPLICATION_LIST|System|_ui_install_cuda_toolkit|is_installed_cuda_toolkit"
+        ["cuDNN Library"]="APPLICATION_LIST|System|_ui_install_cudnn_library|is_installed_cudnn_library"
+        ["Docker"]="APPLICATION_LIST|System|install_docker_logic|is_installed_docker"
+        ["ROS 2"]="APPLICATION_LIST|System|install_ros2_logic|is_installed_ros2"
+        ["OpenCV"]="APPLICATION_LIST|System|_ui_install_opencv|is_installed_opencv"
     )
-    # UI 표시 이름 => 실제 실행할 함수 이름 매핑
-    declare -A NAME_TO_LOGIC=(
-        ["Conda"]="install_conda_logic"
-        ["VS Code"]="install_vscode_logic"
-        ["NVIDIA Driver"]="_ui_install_nvidia_driver"
-        ["CUDA Toolkit"]="_ui_install_cuda_toolkit"
-        ["cuDNN Library"]="_ui_install_cudnn_library"
-        ["Docker"]="install_docker_logic"
-        ["ROS 2"]="install_ros2_logic"
-        ["OpenCV"]="_ui_install_opencv"
-    )
-    # UI 표시 이름 => 설치 확인 함수 매핑
-    declare -A NAME_TO_CHECK=(
-        ["Conda"]="is_installed_conda"
-        ["VS Code"]="is_installed_vscode"
-        ["NVIDIA Driver"]="is_installed_nvidia_driver"
-        ["CUDA Toolkit"]="is_installed_cuda_toolkit"
-        ["cuDNN Library"]="is_installed_cudnn_library"
-        ["Docker"]="is_installed_docker"
-        ["ROS 2"]="is_installed_ros2"
-        ["OpenCV"]="is_installed_opencv"
-    )
-    # UI 표시 이름 => 스크립트 파일명 역매핑 (설치 시 정보 조회를 위해 필요)
-    declare -A NAME_TO_FILENAME
 
-    local available_scripts
-    mapfile -t available_scripts < <(find "${install_dir}" -maxdepth 1 -name "*.sh" -printf "%f\n" | sort)
+    local app_order=("Conda" "VS Code" "NVIDIA Driver" "CUDA Toolkit" "cuDNN Library" "Docker" "ROS 2" "OpenCV")
 
     # --- 2. 체크리스트 옵션 생성 ---
     local dialog_options=()
     declare -A initial_states
     
-    for script_file in "${available_scripts[@]}"; do
-        if [[ -z "${SCRIPT_MAP[$script_file]}" ]]; then continue; fi
-
-        IFS='|' read -r name key section install_type <<< "${SCRIPT_MAP[$script_file]}"
-        NAME_TO_FILENAME["$name"]="$script_file"
+    for name in "${app_order[@]}"; do
+        IFS='|' read -r section install_type logic_func check_func <<< "${APP_DATA[$name]}"
 
         local is_checked="off"
         local status_desc="Not Installed"
 
-        # [개선된 로직] 설치 확인 함수 우선 사용
-        local check_func="${NAME_TO_CHECK[$name]}"
-        local installed=false
-        local is_verified_externally=false # 상태 검증 여부
-
+        # 백엔드 함수를 호출하여 상태 감지 및 설정 동기화
         if [[ -n "$check_func" ]] && command -v "$check_func" &>/dev/null; then
             if "$check_func"; then
-                installed=true
-            fi
-            is_verified_externally=true
-        else
-            # Fallback: 기존 Config/DPKG 확인 방식
-            if [[ "$section" == "DRIVER_LIST" && "$key" == "nvidia-driver" ]]; then
-                if dpkg-query -W -f='${Status}' nvidia-driver-* 2>/dev/null | grep -q 'install ok installed'; then
-                    installed=true
-                fi
-                is_verified_externally=true
-            elif [[ -n "$(get_config_value "${CONFIG_FILE}" "$section" "$key")" ]]; then
-                installed=true
-            fi
-        fi
+                is_checked="on"
+                status_desc="(Installed)"
 
-        if [[ "$installed" == "true" ]]; then
-            is_checked="on"
-            status_desc="(Installed)"
-
-            # [SPECIAL] CUDA Toolkit: Always force OFF to allow entering Management Menu
-            if [[ "$name" == "CUDA Toolkit" ]]; then
-                is_checked="off"
-                status_desc="(Installed - Check to Manage)"
-            fi
-        fi
-        
-        # [Sync Config] 실제 설치 상태와 설정 파일 동기화
-        if [[ "$is_verified_externally" == "true" ]]; then
-            # [SPECIAL] CUDA Toolkit과 cuDNN Library는 버전별 개별 키를 사용하므로 범용 키 동기화 제외
-            if [[ "$name" != "CUDA Toolkit" && "$name" != "cuDNN Library" ]]; then
-                local current_conf_val
-                current_conf_val=$(get_config_value "${CONFIG_FILE}" "$section" "$key")
-
-                if [[ "$installed" == "true" ]]; then
-                    if [[ -z "$current_conf_val" ]]; then
-                        local timestamp; timestamp=$(date "+%Y-%m-%dT%H:%M:%S")
-                        set_config_value "${CONFIG_FILE}" "$section" "$key" "${timestamp}"
-                    fi
-                else
-                    if [[ -n "$current_conf_val" ]]; then
-                        delete_config_value "${CONFIG_FILE}" "$section" "$key"
-                    fi
+                # [SPECIAL] CUDA Toolkit: 매니지먼트 메뉴 진입을 위해 항상 OFF로 표시
+                if [[ "$name" == "CUDA Toolkit" ]]; then
+                    is_checked="off"
+                    status_desc="(Installed - Check to Manage)"
                 fi
             fi
         fi
         
         initial_states["$name"]=$is_checked
         
-        # UI 항목 이름에 설치 유형 표시
         local type_label="[System]"
         [[ "$install_type" == "Selectable" ]] && type_label="[User/System]"
-        
-        local display_name="${name} ${type_label}"
-        dialog_options+=("${display_name}" "$status_desc" "$is_checked")
+        dialog_options+=("${name} ${type_label}" "$status_desc" "$is_checked")
     done
-
-    if [[ ${#dialog_options[@]} -eq 0 ]]; then
-        ui_message_box "No configurable installation scripts found." "Info"; return
-    fi
 
     # --- 3. UI 표시 및 사용자 선택 처리 ---
     local selections_str
@@ -358,7 +249,6 @@ ui_install_application() {
 
     if [[ "$selections_str" == "CANCEL" ]]; then return; fi
 
-    # --- 4. 선택된 항목 순차 처리 (설치/삭제) ---
     local -a selections
     eval "selections=($selections_str)"
 
@@ -366,64 +256,60 @@ ui_install_application() {
     clear
     echo "--- Processing software setup changes ---"
 
-    # 모든 스크립트에 대해 상태 변화 감지
-    for script_file in "${available_scripts[@]}"; do
-        if [[ -z "${SCRIPT_MAP[$script_file]}" ]]; then continue; fi
-
-        IFS='|' read -r name key section install_type <<< "${SCRIPT_MAP[$script_file]}"
+    for name in "${app_order[@]}"; do
+        IFS='|' read -r section install_type logic_func check_func <<< "${APP_DATA[$name]}"
         
         local is_selected=false
         for sel in "${selections[@]}"; do
             if [[ "$sel" == "$name "* ]]; then
-                is_selected=true
-                break
+                is_selected=true; break
             fi
         done
 
         local initial_state="${initial_states[$name]}"
-        local logic_func="${NAME_TO_LOGIC[$name]}"
         
-        # [Case 1] 신규 설치: 초기 OFF -> 현재 ON
+        # [Case 1] 신규 설치
         if [[ "$initial_state" == "off" && "$is_selected" == "true" ]]; then
             any_action_performed=true
             echo "----------------------------------------"
             echo "[ACTION] Installing: ${name}"
             
             local mode_arg=""
-            local conda_type="miniconda" 
-
             if [[ "$name" == "Conda" ]]; then
+                local conda_type
                 conda_type=$(ui_create_menu "Conda Distribution" "Select Distribution" \
                     "Which distribution do you want to install?" 15 60 5 \
                     "miniconda" "Miniconda (Lightweight, Recommended)" \
                     "anaconda" "Anaconda (Full, Large)")
-                if [[ "$conda_type" == "CANCEL" ]]; then continue; fi
-            fi
+                [[ "$conda_type" == "CANCEL" ]] && continue
 
-            if [[ "$install_type" == "Selectable" ]]; then
                 mode_arg=$(ui_create_menu "Installation Mode" "Select Mode for ${name}" \
                     "How should ${name} be installed?" 15 60 5 \
                     "user" "User Mode" "system" "System Mode")
                 [[ "$mode_arg" == "CANCEL" ]] && continue
-            fi
-
-            if [[ -n "$logic_func" ]] && command -v "$logic_func" &>/dev/null; then
-                if [[ "$name" == "Conda" ]]; then
-                    "$logic_func" "$mode_arg" "$conda_type"
-                else
-                    "$logic_func" "$mode_arg"
+                
+                "$logic_func" "$mode_arg" "$conda_type"
+            else
+                if [[ "$install_type" == "Selectable" ]]; then
+                    mode_arg=$(ui_create_menu "Installation Mode" "Select Mode for ${name}" \
+                        "How should ${name} be installed?" 15 60 5 \
+                        "user" "User Mode" "system" "System Mode")
+                    [[ "$mode_arg" == "CANCEL" ]] && continue
                 fi
+                "$logic_func" "$mode_arg"
             fi
 
-        # [Case 2] 삭제: 초기 ON -> 현재 OFF
+        # [Case 2] 삭제
         elif [[ "$initial_state" == "on" && "$is_selected" == "false" ]]; then
             any_action_performed=true
             echo "----------------------------------------"
             echo "[ACTION] Uninstalling: ${name}"
+            # TODO: uninstall_..._logic 백엔드 함수 보강 필요
             local uninstall_func="${logic_func/install/uninstall}"
             if [[ -n "$uninstall_func" ]] && command -v "$uninstall_func" &>/dev/null; then
                 "$uninstall_func"
-                delete_config_value "${CONFIG_FILE}" "$section" "$key"
+            else
+                echo "[WARN] Automatic uninstallation not supported for ${name}."
             fi
         fi
     done

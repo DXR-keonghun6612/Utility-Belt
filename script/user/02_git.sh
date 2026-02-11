@@ -2,7 +2,7 @@
 
 _initialize_git_utils() {
     ensure_packages_installed "PACKAGES_LIST" "git" || return $?
-    echo "[INFO] Git utility initialized successfully." >&2
+    log_success "Git utility initialized successfully."
     return 0
 }
 
@@ -25,7 +25,7 @@ manage_git_config() {
 
     # 권한 확인 로직
     if [[ "${scope}" == "--system" && "${G_IS_ROOT}" == "false" ]]; then
-        echo "[ERROR] System-wide git config requires root privileges." >&2
+        log_error "System-wide git config requires root privileges."
         return 1
     fi
 
@@ -33,16 +33,16 @@ manage_git_config() {
 
     # --- 읽기/쓰기/삭제/목록 분기 ---
     if [[ -z "${key}" ]]; then
-        # **목록 모드**
+        # 목록 모드
         git_cmd_array+=("--list")
     elif [[ "${value}" == "__DELETE__" ]]; then
-        # **삭제 모드**
+        # 삭제 모드
         git_cmd_array+=("--unset" "${key}")
     elif [[ -n "${value}" ]]; then
-        # **쓰기 모드**
+        # 쓰기 모드
         git_cmd_array+=("${key}" "${value}")
     else
-        # **읽기 모드**
+        # 읽기 모드
         git_cmd_array+=("${key}")
     fi
     
@@ -61,7 +61,7 @@ get_git_config() {
 set_git_config() {
     # 쓰기 함수는 key, scope, value가 모두 필요
     if [[ "$#" -lt 3 ]]; then
-        echo "[ERROR] Usage: set_git_config <key> <scope> <value>" >&2
+        log_error "Usage: set_git_config <key> <scope> <value>"
         return 1
     fi
     manage_git_config "$1" "$2" "$3"
@@ -99,6 +99,6 @@ https://${username}:${token}@${host}
 EOF
     )
     
-    echo "[INFO] Git credentials updated for ${host}" >&2
+    log_info "Git credentials updated for ${host}"
     return 0
 }

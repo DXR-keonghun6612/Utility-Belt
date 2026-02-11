@@ -47,7 +47,7 @@ _initialize_script() {
 
     # --- 2. System 모듈 로드 ---
     # 각 기능별 백엔드 로직을 로드합니다.
-    local system_scripts=("02_account.sh" "02_samba.sh" "02_network.sh" "02_storage.sh" "02_system_moniter.sh")
+    local system_scripts=("02_account.sh" "02_samba.sh" "02_network.sh" "02_storage.sh" "02_system_monitor.sh")
     for script in "${system_scripts[@]}"; do
         if [[ -f "${SYSTEM_DIR}/${script}" ]]; then
             source "${SYSTEM_DIR}/${script}"
@@ -82,7 +82,7 @@ _initialize_script() {
         "proc_account.sh" "proc_storage.sh" "proc_samba.sh" 
         "proc_network.sh" "proc_install_package.sh" 
         "proc_install_application.sh" "proc_custom_service.sh" 
-        "proc_system_moniter.sh" 
+        "proc_system_monitor.sh" 
         "proc_git.sh" "proc_ssh.sh"
     )
     for script in "${ui_scripts[@]}"; do
@@ -158,7 +158,7 @@ ui_menu_configuration() {
 main() {
     export G_INTERACTIVE="true"
 
-    # Check permissions using G_IS_ROOT defined in 00_conf.sh
+    # Check permissions using G_IS_ROOT defined in base/init.sh
     if [[ "${G_IS_ROOT}" == "true" ]]; then
         # ==============================================================================
         # [Administrator Mode]

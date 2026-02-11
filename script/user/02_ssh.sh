@@ -32,7 +32,7 @@ _initialize_ssh_utils() {
             ssh_packages=("openssh")
             ;;
         *)
-            echo "[WARN] Unsupported package manager. Skipping automatic package check for SSH." >&2
+            log_warn "Unsupported package manager. Skipping automatic package check for SSH."
             return 0
             ;;
     esac
@@ -43,13 +43,13 @@ _initialize_ssh_utils() {
 
     if [[ "${G_IS_ROOT}" == "true" ]]; then
         if [[ "${G_IS_SUDO}" == "true" ]]; then
-            echo "[INFO] Running with sudo privileges (Original user: ${G_ACTUAL_USER})." >&2
+            log_info "Running with sudo privileges (Original user: ${G_ACTUAL_USER})."
         else
-            echo "[INFO] Running as root user." >&2
+            log_info "Running as root user."
         fi
     fi
 
-    echo "[INFO] SSH utility initialized successfully." >&2
+    log_success "SSH utility initialized successfully."
     return 0
 }
 
@@ -72,7 +72,7 @@ _package_key_for_linux() {
     local private_key_path="${HOME}/.ssh/${key_filename}"
     local package_path="${output_dir}/client_package_linux_${key_filename}.tar.gz"
 
-    local work_dir; work_dir=$(mktemp -d) || { echo "Error: Failed to create temp dir." >&2; return 1; }
+    local work_dir; work_dir=$(mktemp -d) || { log_error "Failed to create temp dir."; return 1; }
     trap 'rm -rf "${work_dir}"' RETURN
 
     cp "${private_key_path}" "${work_dir}/${key_filename}"
@@ -94,7 +94,7 @@ EOF
     chmod +x "${work_dir}/install_key.sh"
     tar -czf "${package_path}" -C "${work_dir}" .
     
-    echo "Linux client package created at ${package_path}" >&2
+    log_info "Linux client package created at ${package_path}"
     return 0
 }
 
@@ -112,7 +112,7 @@ _package_key_for_windows() {
     local package_path="${output_dir}/client_package_windows_${key_filename}.zip"
 
 
-    local work_dir; work_dir=$(mktemp -d) || { echo "Error: Failed to create temp dir." >&2; return 1; }
+    local work_dir; work_dir=$(mktemp -d) || { log_error "Failed to create temp dir."; return 1; }
     trap 'rm -rf "${work_dir}"' RETURN
 
     cp "${private_key_path}" "${work_dir}/${key_filename}"
@@ -131,7 +131,7 @@ EOF
 
     (cd "${work_dir}" && zip -r "${package_path}" ./*)
 
-    echo "Windows client package created at ${package_path}" >&2
+    log_info "Windows client package created at ${package_path}"
     return 0
 }
 
@@ -156,7 +156,7 @@ backend_generate_ssh_key() {
 
     # --- 1. 경로 및 파일 유효성 검사 ---
     if [[ -z "${key_filename}" ]]; then
-        echo "[ERROR] SSH key filename cannot be empty." >&2
+        log_error "SSH key filename cannot be empty."
         return 1
     fi
 
@@ -169,7 +169,7 @@ backend_generate_ssh_key() {
     local public_key_path="${private_key_path}.pub"
 
     if [[ -f "${private_key_path}" ]]; then
-        echo "[ERROR] Private key file already exists: ${private_key_path}" >&2
+        log_error "Private key file already exists: ${private_key_path}"
         return 1
     fi
 
@@ -179,9 +179,9 @@ backend_generate_ssh_key() {
         ssh_keygen_cmd_array+=("-b" "${key_bits}")
     fi
 
-    echo "Generating SSH key at ${private_key_path}..."
+    log_info "Generating SSH key at ${private_key_path}..."
     if ! "${ssh_keygen_cmd_array[@]}"; then
-        echo "[ERROR] Failed to generate SSH key." >&2
+        log_error "Failed to generate SSH key."
         return 1
     fi
 
@@ -193,19 +193,19 @@ backend_generate_ssh_key() {
     # 생성된 공개키 내용을 읽어와 authorized_keys 파일에 추가합니다.
     local pub_key_content; pub_key_content=$(cat "${public_key_path}")
     echo "${pub_key_content}" >> "${authorized_keys_path}"
-    echo "Public key has been added to ${authorized_keys_path}."
+    log_info "Public key has been added to ${authorized_keys_path}."
 
     # --- 4. 공개키(.pub) 파일 삭제 ---
     rm -f "${public_key_path}"
-    echo "Public key file (${public_key_path}) has been removed."
+    log_info "Public key file (${public_key_path}) has been removed."
 
     # --- 5. 소유권 복구 (sudo 실행 시) ---
     if [[ "${G_IS_SUDO}" == "true" ]]; then
-        echo "Restoring ownership to ${G_ACTUAL_USER}..."
+        log_info "Restoring ownership to ${G_ACTUAL_USER}..."
         chown -R "${G_ACTUAL_USER}:${G_ACTUAL_GROUP}" "${ssh_dir}"
     fi
 
-    echo "[SUCCESS] SSH private key is ready at ${private_key_path}"
+    log_success "SSH private key is ready at ${private_key_path}"
     return 0
 }
 
@@ -228,41 +228,40 @@ generate_and_package_client_keys() {
     shift 5
     local target_os_list=("$@")
     
-    echo "--- Step 1: Generating and registering SSH key ---"
+    log_info "Step 1: Generating and registering SSH key"
     if ! backend_generate_ssh_key "${key_filename}" "${key_type}" "${key_bits}" "${comment}"; then
-        echo "[FATAL] Failed to generate the base SSH key. Aborting." >&2
+        log_error "Failed to generate the base SSH key. Aborting."
         return 1
     fi
 
     mkdir -p "${output_dir}"
 
-    echo "--- Step 2: Creating client packages for specified OS list ---"
+    log_info "Step 2: Creating client packages for specified OS list"
     for os in "${target_os_list[@]}"; do
-        echo "Processing package for ${os}..."
+        log_info "Processing package for ${os}..."
 
         case "${os}" in
             "linux")
                 # FINAL: 이제 private_key_path 대신 key_filename을 전달
                 if ! _package_key_for_linux "${key_filename}" "${output_dir}"; then
-                    echo "[ERROR] Failed to create package for ${os}." >&2
+                    log_error "Failed to create package for ${os}."
                     return 1
                 fi
                 ;;
             "windows")
                 # FINAL: 이제 private_key_path 대신 key_filename을 전달
                 if ! _package_key_for_windows "${key_filename}" "${output_dir}"; then
-                    echo "[ERROR] Failed to create package for ${os}." >&2
+                    log_error "Failed to create package for ${os}."
                     return 1
                 fi
                 ;;
             *)
-                echo "[WARN] Skipping unsupported OS type: ${os}" >&2
+                log_warn "Skipping unsupported OS type: ${os}"
                 continue
                 ;;
         esac
     done
 
-    echo "----------------------------------------------------"
-    echo "[SUCCESS] All client packages have been successfully created in: ${output_dir}"
+    log_success "All client packages have been successfully created in: ${output_dir}"
     return 0
 }

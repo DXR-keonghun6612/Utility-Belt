@@ -23,6 +23,7 @@ temp/
 *.json
 *.log
 *.tmp
+*.state
 
 # Exceptions (Do not ignore)
 !template/*.conf

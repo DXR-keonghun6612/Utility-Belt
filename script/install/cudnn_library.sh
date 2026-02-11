@@ -5,7 +5,7 @@
 # ==============================================================================
 
 # -----------------------------------------------------------------------------
-# @description cuDNN 설치 여부 확인
+# @description cuDNN 설치 여부 확인 및 설정 동기화
 # @return 0: 설치됨, 1: 설치 안 됨
 # -----------------------------------------------------------------------------
 is_installed_cudnn_library() {
@@ -30,9 +30,10 @@ _sync_local_cudnn_to_config() {
             [[ -z "$clean_ver" ]] && continue
             
             local conf_key="cudnn-library-${clean_ver}"
-            if [[ -z "$(get_config_value "${CONFIG_FILE}" "APPLICATION_LIST" "${conf_key}")" ]]; then
+            if [[ -z "$(get_config_value "${G_STATE_FILE}" "APPLICATION_LIST" "${conf_key}")" ]]; then
                 local timestamp; timestamp=$(date "+%Y-%m-%dT%H:%M:%S")
-                set_config_value "${CONFIG_FILE}" "APPLICATION_LIST" "${conf_key}" "${timestamp}"
+                add_config_section "${G_STATE_FILE}" "APPLICATION_LIST"
+                set_config_value "${G_STATE_FILE}" "APPLICATION_LIST" "${conf_key}" "${timestamp}"
             fi
         done <<< "$installed_pkgs"
     fi
@@ -73,11 +74,9 @@ _get_available_cudnn_versions() {
     local base_pkgs
     
     if [[ "$cuda_major" != "unknown" && -n "$cuda_major" ]]; then
-        # 현재 CUDA 버전에 맞는 패키지 우선 검색 (예: libcudnn9-cuda-12)
         base_pkgs=$(apt-cache pkgnames "libcudnn" | grep -E "^libcudnn[0-9]-cuda-${cuda_major}$")
     fi
     
-    # 만약 전용 패키지가 없거나 버전이 지정되지 않은 경우 전체 검색
     if [[ -z "$base_pkgs" ]]; then
         base_pkgs=$(apt-cache pkgnames "libcudnn" | grep -E "^libcudnn[0-9](-cuda-[0-9]+)?$")
     fi
@@ -89,7 +88,6 @@ _get_available_cudnn_versions() {
         full_ver=$2; gsub(/ /, "", full_ver);
         clean_ver=full_ver; gsub(/-.*$/, "", clean_ver);
         
-        # 가독성을 위해 CUDA 호환 정보 표시
         cuda_info=""
         if (pkg ~ /cuda-/) {
             split(pkg, parts, "-cuda-");
@@ -108,22 +106,19 @@ install_cudnn_library_logic() {
     local target_choice="$1"
 
     if ! apt-cache pkgnames "libcudnn" | grep -q "."; then
-        echo "[ERROR] NVIDIA repository not found. Please install CUDA Toolkit first." >&2
+        log_error "NVIDIA repository not found. Please install CUDA Toolkit first."
         return 1
     fi
 
-    # 1. 인자가 없으면 에러 (무인 설치 시 버전 명시 필수)
     if [[ -z "${target_choice}" ]]; then
-        echo "[ERROR] No cuDNN version specified for installation." >&2
+        log_error "No cuDNN version specified for installation."
         return 1
     fi
 
-    # 2. 설치 수행
     local pkg_name="${target_choice%%=*}"
     local full_ver="${target_choice#*=}"
     local clean_ver="${full_ver%%-*}"
 
-    # 개발용 패키지명 결정
     local dev_pkg=""
     if [[ "$pkg_name" =~ -cuda- ]]; then
         dev_pkg="${pkg_name/-cuda/-dev-cuda}"
@@ -132,24 +127,19 @@ install_cudnn_library_logic() {
     fi
     local dev_target="${dev_pkg}=${full_ver}"
 
-    echo "========================================================"
-    echo " Installing ${pkg_name} version ${full_ver}"
-    echo "========================================================"
+    log_info "Installing ${pkg_name} version ${full_ver}..."
 
     if ${G_SUDO_PREFIX} apt-get install --allow-downgrades -y "${target_choice}" "${dev_target}"; then
         local conf_key="cudnn-library-${clean_ver}"
         local timestamp=$(date "+%Y-%m-%dT%H:%M:%S")
         
-        if command -v _record_state &>/dev/null; then
-             _record_state "${CONFIG_FILE}" "APPLICATION_LIST" "cuDNN Library" "${timestamp}" "${conf_key}"
-        else
-             set_config_value "${CONFIG_FILE}" "APPLICATION_LIST" "${conf_key}" "${timestamp}"
-        fi
+        add_config_section "${G_STATE_FILE}" "APPLICATION_LIST"
+        set_config_value "${G_STATE_FILE}" "APPLICATION_LIST" "${conf_key}" "${timestamp}"
         
-        echo "[SUCCESS] cuDNN Library ${clean_ver} installed successfully."
+        log_success "cuDNN Library ${clean_ver} installed successfully."
         return 0
     else
-        echo "[ERROR] Failed to install cuDNN packages." >&2
+        log_error "Failed to install cuDNN packages."
         return 1
     fi
 }

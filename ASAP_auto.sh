@@ -12,6 +12,7 @@ export G_INTERACTIVE="false"
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
 CORE_DIR="${SCRIPT_DIR}/script/core"
 INSTALL_DIR="${SCRIPT_DIR}/script/install"
+SYSTEM_DIR="${SCRIPT_DIR}/script/system"
 
 if [[ -f "${CORE_DIR}/core.sh" ]]; then
     source "${CORE_DIR}/core.sh"
@@ -29,152 +30,184 @@ if ! load_core_libraries "${SCRIPT_DIR}" "${CONFIG_PATH}" "${TEMPLATE_PATH}" "fa
     exit 1
 fi
 
-# 설치 로직 및 확인 함수 스크립트 로드
-install_scripts=("conda.sh" "nvidia_driver.sh" "cuda_toolkit.sh" "cudnn_library.sh" "vscode.sh" "docker.sh" "ros2.sh" "opencv.sh")
-for script in "${install_scripts[@]}"; do
-    [[ -f "${INSTALL_DIR}/${script}" ]] && source "${INSTALL_DIR}/${script}"
+# 백엔드 로직 스크립트 로드
+scripts_to_load=(
+    "install/conda.sh" "install/nvidia_driver.sh" "install/cuda_toolkit.sh"
+    "install/cudnn_library.sh" "install/vscode.sh" "install/docker.sh"
+    "install/ros2.sh" "install/opencv.sh"
+    "system/02_storage.sh" "system/02_network.sh" "system/02_account.sh"
+)
+for script in "${scripts_to_load[@]}"; do
+    [[ -f "${SCRIPT_DIR}/script/${script}" ]] && source "${SCRIPT_DIR}/script/${script}"
 done
 
 # -----------------------------------------------------------------------------
 # @description 프로필 기반 자동 설치 엔진
 # -----------------------------------------------------------------------------
 run_provisioning() {
-    echo "========================================================================"
-    echo " Starting ASAP Automatic Provisioning (Profile-Based)"
-    echo " Config: $CONFIG_FILE"
-    echo "========================================================================"
+    log_info "========================================================================"
+    log_info " Starting ASAP Automatic Provisioning (Profile-Based)"
+    log_info " Config Source: $CONFIG_FILE"
+    log_info " State Target : $G_STATE_FILE"
+    log_info "========================================================================"
 
-    # --- 1. 일반 패키지 설치 ([PACKAGES_LIST] 섹션) ---
-    echo ">>> Checking [PACKAGES_LIST] for standard packages..."
-    local pkg_section="PACKAGES_LIST"
+    # --- 1. 표준 패키지 설치 ([PACKAGES_LIST]) ---
+    log_info ">>> Processing [PACKAGES_LIST]..."
     local pkgs_to_install=()
+    local pkg_keys; pkg_keys=$(get_config_keys "PACKAGES_LIST" "$CONFIG_FILE")
     
-    local pkg_keys_output
-    if pkg_keys_output=$(get_config_keys "$pkg_section" "$CONFIG_FILE"); then
+    if [[ -n "$pkg_keys" ]]; then
         while read -r pkg; do
-            [[ -n "$pkg" ]] && pkgs_to_install+=("$pkg")
-        done <<< "$pkg_keys_output"
+            [[ -z "$pkg" ]] && continue
+            local ver; ver=$(get_config_value "$CONFIG_FILE" "PACKAGES_LIST" "$pkg")
+            if [[ -n "$ver" ]]; then
+                pkgs_to_install+=("${pkg}=${ver}")
+            else
+                pkgs_to_install+=("${pkg}")
+            fi
+        done <<< "$pkg_keys"
     fi
 
     if [[ ${#pkgs_to_install[@]} -gt 0 ]]; then
-        echo "[PROVISION] Syncing ${#pkgs_to_install[@]} packages from $pkg_section..."
-        sync_package "$pkg_section" "Auto Provisioning" "${pkgs_to_install[@]}"
+        log_info "Syncing ${#pkgs_to_install[@]} standard packages..."
+        sync_package "PACKAGES_LIST" "Auto Provisioning" "${pkgs_to_install[@]}"
     fi
 
-    # --- 2. 애플리케이션 프로필 처리 ---
-    echo -e "\n>>> Checking Application Profiles..."
+    # --- 2. 드라이버 설치 ([DRIVER_LIST]) ---
+    log_info ">>> Processing [DRIVER_LIST]..."
+    local driver_keys; driver_keys=$(get_config_keys "DRIVER_LIST" "$CONFIG_FILE")
+    if [[ -n "$driver_keys" ]]; then
+        while read -r driver; do
+            [[ -z "$driver" ]] && continue
+            local ver; ver=$(get_config_value "$CONFIG_FILE" "DRIVER_LIST" "$driver")
+            local full_driver_pkg="${driver}"
+            [[ -n "$ver" ]] && full_driver_pkg="${driver}-${ver}"
+            
+            if ! is_installed_nvidia_driver; then
+                log_info "Installing driver: ${full_driver_pkg}"
+                install_nvidia_driver_logic "${full_driver_pkg}"
+            else
+                log_info "Driver '${driver}' is already satisfied. Skipping."
+            fi
+        done <<< "$driver_keys"
+    fi
 
-    # -------------------------------------------------------------------------
+    # --- 3. 애플리케이션 프로필 처리 ---
+    log_info ">>> Processing Application Profiles..."
+
     # [CONDA_PROFILE]
-    # -------------------------------------------------------------------------
     if grep -q "\[CONDA_PROFILE\]" "$CONFIG_FILE"; then
         if is_installed_conda; then
-            echo "[INFO] Conda is already installed. Skipping."
+            log_info "Conda is already installed. Skipping."
         else
-            echo "[PROVISION] Processing [CONDA_PROFILE]..."
-            local mode=$(get_config_value "$CONFIG_FILE" "CONDA_PROFILE" "mode")
-            local type=$(get_config_value "$CONFIG_FILE" "CONDA_PROFILE" "type")
+            log_info "[PROVISION] Applying [CONDA_PROFILE]..."
+            local mode; mode=$(get_config_value "$CONFIG_FILE" "CONDA_PROFILE" "mode")
+            local type; type=$(get_config_value "$CONFIG_FILE" "CONDA_PROFILE" "type")
             install_conda_logic "${mode:-user}" "${type:-miniconda}"
         fi
     fi
 
-    # -------------------------------------------------------------------------
     # [VSCODE_PROFILE]
-    # -------------------------------------------------------------------------
     if grep -q "\[VSCODE_PROFILE\]" "$CONFIG_FILE"; then
         if is_installed_vscode; then
-            echo "[INFO] Visual Studio Code is already installed. Skipping."
+            log_info "Visual Studio Code is already installed. Skipping."
         else
-            echo "[PROVISION] Processing [VSCODE_PROFILE]..."
+            log_info "[PROVISION] Applying [VSCODE_PROFILE]..."
             install_vscode_logic
         fi
     fi
 
-    # -------------------------------------------------------------------------
-    # [NVIDIA_DRIVER_PROFILE]
-    # -------------------------------------------------------------------------
-    if grep -q "\[NVIDIA_DRIVER_PROFILE\]" "$CONFIG_FILE"; then
-        if is_installed_nvidia_driver; then
-            echo "[INFO] NVIDIA Driver is already installed. Skipping."
-        else
-            echo "[PROVISION] Processing [NVIDIA_DRIVER_PROFILE]..."
-            local driver=$(get_config_value "$CONFIG_FILE" "NVIDIA_DRIVER_PROFILE" "driver_version")
-            [[ -n "$driver" ]] && install_nvidia_driver_logic "$driver"
-        fi
-    fi
-
-    # -------------------------------------------------------------------------
     # [CUDA_TOOLKIT_PROFILE]
-    # -------------------------------------------------------------------------
     if grep -q "\[CUDA_TOOLKIT_PROFILE\]" "$CONFIG_FILE"; then
-        echo "[PROVISION] Processing [CUDA_TOOLKIT_PROFILE]..."
-        local ver=$(get_config_value "$CONFIG_FILE" "CUDA_TOOLKIT_PROFILE" "version")
-        local arch=$(get_config_value "$CONFIG_FILE" "CUDA_TOOLKIT_PROFILE" "arch")
-        
-        # CUDA는 여러 버전이 있을 수 있으므로 logic 내부의 switch/install 로직에 맡김
+        local ver; ver=$(get_config_value "$CONFIG_FILE" "CUDA_TOOLKIT_PROFILE" "version")
+        local arch; arch=$(get_config_value "$CONFIG_FILE" "CUDA_TOOLKIT_PROFILE" "arch")
         if [[ -n "$ver" ]]; then
+            log_info "[PROVISION] Applying [CUDA_TOOLKIT_PROFILE] (Version: $ver)..."
             install_cuda_toolkit_logic "INSTALL" "$ver" "$arch"
         fi
     fi
 
-    # -------------------------------------------------------------------------
     # [CUDNN_LIBRARY_PROFILE]
-    # -------------------------------------------------------------------------
     if grep -q "\[CUDNN_LIBRARY_PROFILE\]" "$CONFIG_FILE"; then
         if is_installed_cudnn_library; then
-            echo "[INFO] cuDNN Library is already installed. Skipping."
+            log_info "cuDNN Library is already installed. Skipping."
         else
-            echo "[PROVISION] Processing [CUDNN_LIBRARY_PROFILE]..."
-            local ver=$(get_config_value "$CONFIG_FILE" "CUDNN_LIBRARY_PROFILE" "version")
+            log_info "[PROVISION] Applying [CUDNN_LIBRARY_PROFILE]..."
+            local ver; ver=$(get_config_value "$CONFIG_FILE" "CUDNN_LIBRARY_PROFILE" "version")
             [[ -n "$ver" ]] && install_cudnn_library_logic "$ver"
         fi
     fi
 
-    # -------------------------------------------------------------------------
     # [DOCKER_PROFILE]
-    # -------------------------------------------------------------------------
     if grep -q "\[DOCKER_PROFILE\]" "$CONFIG_FILE"; then
         if is_installed_docker; then
-            echo "[INFO] Docker is already installed. Skipping."
+            log_info "Docker is already installed. Skipping."
         else
-            echo "[PROVISION] Processing [DOCKER_PROFILE]..."
+            log_info "[PROVISION] Applying [DOCKER_PROFILE]..."
             install_docker_logic
         fi
     fi
 
-    # -------------------------------------------------------------------------
     # [ROS2_PROFILE]
-    # -------------------------------------------------------------------------
     if grep -q "\[ROS2_PROFILE\]" "$CONFIG_FILE"; then
         if is_installed_ros2; then
-            echo "[INFO] ROS2 is already installed. Skipping."
+            log_info "ROS2 is already installed. Skipping."
         else
-            echo "[PROVISION] Processing [ROS2_PROFILE]..."
+            log_info "[PROVISION] Applying [ROS2_PROFILE]..."
             install_ros2_logic
         fi
     fi
 
-    # -------------------------------------------------------------------------
     # [OPENCV_PROFILE]
-    # -------------------------------------------------------------------------
     if grep -q "\[OPENCV_PROFILE\]" "$CONFIG_FILE"; then
-        # OpenCV는 시스템 설치 여부(pkg-config)와 상관없이 
-        # 사용자가 프로필을 명시했다면 빌드 경로를 체크하여 설치 로직을 태움 (reinstall/update 대응)
-        echo "[PROVISION] Processing [OPENCV_PROFILE]..."
-        local ver=$(get_config_value "$CONFIG_FILE" "OPENCV_PROFILE" "version")
-        local cuda=$(get_config_value "$CONFIG_FILE" "OPENCV_PROFILE" "with_cuda")
-        local arch=$(get_config_value "$CONFIG_FILE" "OPENCV_PROFILE" "gpu_arch")
-        local jobs=$(get_config_value "$CONFIG_FILE" "OPENCV_PROFILE" "jobs")
-        local prefix=$(get_config_value "$CONFIG_FILE" "OPENCV_PROFILE" "prefix")
-        local bpath=$(get_config_value "$CONFIG_FILE" "OPENCV_PROFILE" "build_path")
+        log_info "[PROVISION] Applying [OPENCV_PROFILE]..."
+        local ver; ver=$(get_config_value "$CONFIG_FILE" "OPENCV_PROFILE" "version")
+        local cuda; cuda=$(get_config_value "$CONFIG_FILE" "OPENCV_PROFILE" "with_cuda")
+        local arch; arch=$(get_config_value "$CONFIG_FILE" "OPENCV_PROFILE" "gpu_arch")
+        local jobs; jobs=$(get_config_value "$CONFIG_FILE" "OPENCV_PROFILE" "jobs")
+        local prefix; prefix=$(get_config_value "$CONFIG_FILE" "OPENCV_PROFILE" "prefix")
+        local bpath; bpath=$(get_config_value "$CONFIG_FILE" "OPENCV_PROFILE" "build_path")
         
         install_opencv_logic "${ver:-4.10.0}" "${cuda:-OFF}" "${arch}" "${jobs}" "${prefix}" "${bpath:-/tmp/opencv_build}"
     fi
 
-    echo "========================================================================"
-    echo " Provisioning Completed"
-    echo "========================================================================"
+    # --- 4. 저장소 프로필 처리 (STORAGE_PROFILE_*) ---
+    log_info ">>> Processing Storage Profiles..."
+    local storage_profiles; storage_keys=$(get_profile_list "$CONFIG_FILE" "STORAGE_PROFILE_")
+    if [[ -n "$storage_keys" ]]; then
+        while read -r profile; do
+            [[ -z "$profile" ]] && continue
+            log_info "[PROVISION] Applying storage profile: $profile"
+            
+            declare -A profile_data
+            parse_config_to_array "profile_data" < <(get_config_section "$CONFIG_FILE" "$profile")
+            profile_data["_CONF_FILE"]="$CONFIG_FILE"
+            
+            apply_storage_profile "$profile" "profile_data"
+        done <<< "$storage_keys"
+    fi
+
+    # --- 5. 네트워크 프로필 처리 (NETWORK_PROFILE_*) ---
+    log_info ">>> Processing Network Profiles..."
+    local network_profiles; network_keys=$(get_profile_list "$CONFIG_FILE" "NETWORK_PROFILE_")
+    if [[ -n "$network_keys" ]]; then
+        while read -r profile; do
+            [[ -z "$profile" ]] && continue
+            log_info "[PROVISION] Applying network profile: $profile"
+            # TODO: 백엔드에 network_profile_logic 추가 필요
+        done <<< "$network_keys"
+    fi
+
+    log_info "========================================================================"
+    log_success " ASAP Provisioning Completed Successfully."
+    log_info "========================================================================"
 }
+
+# 루트 권한 확인
+if [[ $EUID -ne 0 ]]; then
+   log_error "This script must be run as root (or with sudo)."
+   exit 1
+fi
 
 # 실행
 run_provisioning
