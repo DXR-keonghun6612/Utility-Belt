@@ -45,64 +45,31 @@ _initialize_script() {
         exit 1
     fi
 
-    # --- 2. System 모듈 로드 ---
-    # 각 기능별 백엔드 로직을 로드합니다.
-    local system_scripts=("02_account.sh" "02_samba.sh" "02_network.sh" "02_storage.sh" "02_system_monitor.sh")
-    for script in "${system_scripts[@]}"; do
-        if [[ -f "${SYSTEM_DIR}/${script}" ]]; then
-            source "${SYSTEM_DIR}/${script}"
-        else
-            echo "[WARN] System script '${script}' not found in ${SYSTEM_DIR}."
-        fi
-    done
+    # --- 2. 모듈 초기화 (System, User, Install, UI) ---
+    # 각 디렉토리의 init.sh를 로드하고 초기화 함수를 호출합니다.
+    
+    # System 모듈 로드
+    if [[ -f "${SYSTEM_DIR}/init.sh" ]]; then
+        source "${SYSTEM_DIR}/init.sh"
+        initialize_system_modules
+    fi
 
-    # --- 2-1. User 모듈 로드 ---
-    # 사용자 관련 유틸리티(Git, SSH 등)를 로드합니다.
-    local user_scripts=("02_git.sh" "02_ssh.sh")
-    for script in "${user_scripts[@]}"; do
-        if [[ -f "${USER_MODULE_DIR}/${script}" ]]; then
-            source "${USER_MODULE_DIR}/${script}"
-        else
-            echo "[WARN] User script '${script}' not found in ${USER_MODULE_DIR}."
-        fi
-    done
+    # User 모듈 로드
+    if [[ -f "${USER_MODULE_DIR}/init.sh" ]]; then
+        source "${USER_MODULE_DIR}/init.sh"
+        initialize_user_modules
+    fi
 
-    # --- 3. Install 모듈 로드 ---
-    # 설치 관련 로직을 로드합니다.
-    local install_scripts=("conda.sh" "nvidia_driver.sh" "cuda_toolkit.sh" "cudnn_library.sh" "vscode.sh" "docker.sh" "ros2.sh" "opencv.sh")
-    for script in "${install_scripts[@]}"; do
-        if [[ -f "${INSTALL_DIR}/${script}" ]]; then
-            source "${INSTALL_DIR}/${script}"
-        fi
-    done
+    # Install 모듈 로드
+    if [[ -f "${INSTALL_DIR}/init.sh" ]]; then
+        source "${INSTALL_DIR}/init.sh"
+        initialize_install_modules
+    fi
 
-    # --- 4. UI 모듈 로드 ---
-    # 사용자 인터페이스 스크립트를 로드합니다.
-    local ui_scripts=(
-        "proc_account.sh" "proc_storage.sh" "proc_samba.sh" 
-        "proc_network.sh" "proc_install_package.sh" 
-        "proc_install_application.sh" "proc_custom_service.sh" 
-        "proc_system_monitor.sh" 
-        "proc_git.sh" "proc_ssh.sh"
-    )
-    for script in "${ui_scripts[@]}"; do
-        if [[ -f "${UI_DIR}/${script}" ]]; then
-            source "${UI_DIR}/${script}"
-        else
-            echo "[WARN] UI script '${script}' not found in ${UI_DIR}."
-        fi
-    done
-
-    # --- 설정값 확인 ---
-    USER_HOME_BASE=$(get_config_value "${CONFIG_FILE}" "USER" "USER_HOME_BASE")
-    if [[ -z "${USER_HOME_BASE}" ]]; then
-        # Dialog가 로드되었으므로 UI 메시지 박스 사용 가능
-        if command -v ui_message_box &> /dev/null; then
-            ui_message_box "Error: USER_HOME_BASE not found in ${CONFIG_FILE}. Please check the configuration." "Configuration Error" 8 70
-        else
-            echo "[ERROR] USER_HOME_BASE not found in ${CONFIG_FILE}."
-        fi
-        exit 1
+    # UI 프로세스 로드
+    if [[ -f "${UI_DIR}/init.sh" ]]; then
+        source "${UI_DIR}/init.sh"
+        initialize_ui_processes
     fi
 }
 
@@ -144,7 +111,7 @@ ui_menu_configuration() {
             "0" "Back to Main Menu")
 
         case "${choice}" in
-            1) ui_account_management "${USER_HOME_BASE}" ;; 
+            1) ui_account_management ;; 
             2) ui_network_management ;; 
             3) ui_samba_management ;; 
             0 | CANCEL) break ;;
