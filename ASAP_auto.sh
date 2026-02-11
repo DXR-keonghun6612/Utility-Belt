@@ -9,37 +9,40 @@
 export G_INTERACTIVE="false"
 
 # 2. 초기화 로직
-SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
-CORE_DIR="${SCRIPT_DIR}/script/core"
-INSTALL_DIR="${SCRIPT_DIR}/script/install"
-SYSTEM_DIR="${SCRIPT_DIR}/script/system"
+_initialize_script() {
+    local custom_conf="$1"
 
-if [[ -f "${CORE_DIR}/core.sh" ]]; then
-    source "${CORE_DIR}/core.sh"
-else
-    echo "[FATAL] Core loader not found."
-    exit 1
-fi
+    SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
+    CORE_DIR="${SCRIPT_DIR}/script/core"
+    INSTALL_DIR="${SCRIPT_DIR}/script/install"
+    SYSTEM_DIR="${SCRIPT_DIR}/script/system"
+    USER_MODULE_DIR="${SCRIPT_DIR}/script/user"
 
-# 설정 파일 경로 결정 및 초기화 (is_interactive=false 전달)
-CONFIG_PATH="${1:-${SCRIPT_DIR}/conf/config.conf}"
-TEMPLATE_PATH="${SCRIPT_DIR}/template/config.conf"
+    # Core 라이브러리 로드
+    if [[ -f "${CORE_DIR}/core.sh" ]]; then
+        source "${CORE_DIR}/core.sh"
+    else
+        echo "[FATAL] Core loader not found."
+        exit 1
+    fi
 
-if ! load_core_libraries "${SCRIPT_DIR}" "${CONFIG_PATH}" "${TEMPLATE_PATH}" "false"; then
-    echo "[FATAL] Library initialization failed."
-    exit 1
-fi
+    # 설정 파일 초기화 (is_interactive=false 전달)
+    local config_path="${custom_conf:-${SCRIPT_DIR}/conf/config.conf}"
+    local template_path="${SCRIPT_DIR}/template/config.conf"
 
-# 백엔드 로직 스크립트 로드
-scripts_to_load=(
-    "install/conda.sh" "install/nvidia_driver.sh" "install/cuda_toolkit.sh"
-    "install/cudnn_library.sh" "install/vscode.sh" "install/docker.sh"
-    "install/ros2.sh" "install/opencv.sh"
-    "system/02_storage.sh" "system/02_network.sh" "system/02_account.sh"
-)
-for script in "${scripts_to_load[@]}"; do
-    [[ -f "${SCRIPT_DIR}/script/${script}" ]] && source "${SCRIPT_DIR}/script/${script}"
-done
+    if ! load_core_libraries "${SCRIPT_DIR}" "${config_path}" "${template_path}" "false"; then
+        echo "[FATAL] Library initialization failed."
+        exit 1
+    fi
+
+    # 백엔드 모듈 초기화 (System, User, Install)
+    [[ -f "${SYSTEM_DIR}/init.sh" ]] && source "${SYSTEM_DIR}/init.sh" && initialize_system_modules
+    [[ -f "${USER_MODULE_DIR}/init.sh" ]] && source "${USER_MODULE_DIR}/init.sh" && initialize_user_modules
+    [[ -f "${INSTALL_DIR}/init.sh" ]] && source "${INSTALL_DIR}/init.sh" && initialize_install_modules
+}
+
+# 초기화 실행
+_initialize_script "$1"
 
 # -----------------------------------------------------------------------------
 # @description 프로필 기반 자동 설치 엔진
