@@ -93,7 +93,7 @@ _setup_nvidia_toolkit_repo() {
 # @return 0: 성공, 1: 실패
 # -----------------------------------------------------------------------------
 install_docker_logic() {
-    ensure_packages_installed "SYSTEM_TOOLS" "Docker Installation Dependencies" "ca-certificates" "curl" "gnupg" || return 1
+    ensure_packages_installed "PACKAGES_LIST" "Docker Installation Dependencies" "ca-certificates" "curl" "gnupg" || return 1
 
     if [[ $(get_package_manager_type) != "dpkg" ]]; then
         log_error "Docker installation script currently supports Debian/Ubuntu-based systems only."

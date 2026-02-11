@@ -62,7 +62,7 @@ get_available_nvidia_drivers() {
     fi
 
     # 2. 필수 패키지 확인 및 설치 보장
-    ensure_packages_installed "SYSTEM_TOOLS" "ubuntu-drivers-common" || return $?
+    ensure_packages_installed "PACKAGES_LIST" "ubuntu-drivers-common" || return $?
 
     # 3. 드라이버 목록 추출 및 정렬
     local drivers
@@ -96,7 +96,7 @@ install_nvidia_driver_logic() {
     fi
 
     # 0. 필수 의존성 확인
-    ensure_packages_installed "SYSTEM_TOOLS" "NVIDIA Driver Utils" "ubuntu-drivers-common" || return 1
+    ensure_packages_installed "PACKAGES_LIST" "NVIDIA Driver Utils" "ubuntu-drivers-common" || return 1
 
     # 1. 배포판 의존성 확인
     if [[ $(get_package_manager_type) != "dpkg" ]]; then

@@ -80,7 +80,7 @@ install_ros2_logic() {
     fi
 
     log_info "Setting up locales and essential dependencies..."
-    ensure_packages_installed "SYSTEM_TOOLS" "ROS 2 Dependencies" "locales" "curl" "gnupg2" "lsb-release" "software-properties-common" || return 1
+    ensure_packages_installed "PACKAGES_LIST" "ROS 2 Dependencies" "locales" "curl" "gnupg2" "lsb-release" "software-properties-common" || return 1
     
     ${G_SUDO_PREFIX} locale-gen en_US en_US.UTF-8 > /dev/null
     ${G_SUDO_PREFIX} update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 > /dev/null

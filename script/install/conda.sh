@@ -100,7 +100,7 @@ install_conda_logic() {
     local target_dir_name=""
 
     # --- 0. 필수 의존성 확인 ---
-    ensure_packages_installed "SYSTEM_TOOLS" "Conda Dependencies" "wget" || return 1
+    ensure_packages_installed "PACKAGES_LIST" "Conda Dependencies" "wget" || return 1
 
     # --- 1. 타입별 설정 ---
     if [[ "${conda_type}" == "anaconda" ]]; then

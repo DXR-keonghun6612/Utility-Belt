@@ -59,7 +59,7 @@ _setup_vscode_repo() {
 # @return 0: 성공, 1: 실패
 # -----------------------------------------------------------------------------
 install_vscode_logic() {
-    ensure_packages_installed "SYSTEM_TOOLS" "VS Code Installation Dependencies" "curl" "gpg" "apt-transport-https" || return 1
+    ensure_packages_installed "PACKAGES_LIST" "VS Code Installation Dependencies" "curl" "gpg" "apt-transport-https" || return 1
 
     if is_package_installed "code"; then
         log_info "Visual Studio Code is already installed."

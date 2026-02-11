@@ -97,7 +97,7 @@ build_opencv_logic() {
     fi
 
     log_info "Installing build dependencies for OpenCV ${version}..."
-    ensure_packages_installed "SYSTEM_TOOLS" "OpenCV Build Dependencies" \
+    ensure_packages_installed "PACKAGES_LIST" "OpenCV Build Dependencies" \
         "build-essential" "cmake" "git" "pkg-config" "unzip" "wget" \
         "libjpeg-dev" "libpng-dev" "libtiff-dev" \
         "libavcodec-dev" "libavformat-dev" "libswscale-dev" "libv4l-dev" \
