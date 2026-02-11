@@ -83,16 +83,20 @@ ui_menu_installation() {
     while true; do
         local choice
         choice=$(ui_create_menu "Main Menu > Software Installation" "Software Installation" "Select a task:" \
-            "18" "60" "10" \
+            "20" "60" "12" \
             "1" "Manage APT Packages" \
-            "2" "Install Additional Applications" \
-            "3" "Manage Custom Services" \
+            "2" "Install General Applications" \
+            "3" "Install NVIDIA GPU Stack" \
+            "4" "Install OpenCV" \
+            "5" "Manage Custom Services" \
             "0" "Back to Main Menu")
 
         case "${choice}" in
             1) ui_package_management "${CONFIG_FILE}" ;;
             2) ui_install_application ;; 
-            3) ui_manage_custom_services ;; 
+            3) ui_install_gpu_stack ;;
+            4) ui_install_opencv ;;
+            5) ui_manage_custom_services ;; 
             0 | CANCEL) break ;;
         esac
     done

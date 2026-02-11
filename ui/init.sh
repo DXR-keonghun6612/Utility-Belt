@@ -8,11 +8,11 @@ initialize_ui_processes() {
     local current_dir
     current_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-    # proc_*.sh 패턴의 모든 UI 프로세스 스크립트를 로드
-    for script in "${current_dir}"/proc_*.sh; do
-        if [[ -f "${script}" ]]; then
+    # 서브디렉토리 내의 모든 .sh 파일을 재귀적으로 찾아 로드
+    while read -r script; do
+        if [[ -f "${script}" && "${script}" != "${current_dir}/init.sh" ]]; then
             # shellcheck source=/dev/null
             source "${script}"
         fi
-    done
+    done < <(find "${current_dir}" -mindepth 2 -name "*.sh")
 }
