@@ -11,11 +11,11 @@
 ui_install_gpu_stack() {
     while true; do
         local choice
-        choice=$(ui_create_menu "GPU Stack Installation" "NVIDIA GPU Stack" "Select a component to manage:" 
-            20 70 10 
-            "DRIVER"  "Install NVIDIA Driver" 
-            "CUDA"    "Install/Manage CUDA Toolkit" 
-            "CUDNN"   "Install cuDNN Library" 
+        choice=$(ui_create_menu "GPU Stack Installation" "NVIDIA GPU Stack" "Select a component to manage:" \
+            20 70 10 \
+            "DRIVER"  "Install NVIDIA Driver" \
+            "CUDA"    "Install/Manage CUDA Toolkit" \
+            "CUDNN"   "Install cuDNN Library" \
             "BACK"    "Return to Previous Menu")
 
         case "${choice}" in
@@ -50,8 +50,8 @@ _ui_install_nvidia_driver() {
     done
 
     local selected_driver
-    selected_driver=$(ui_create_menu "NVIDIA Driver Installation" "Select NVIDIA Driver" 
-        "Use SPACE to select the driver. '(recommended)' is the best choice." 20 70 15 -- 
+    selected_driver=$(ui_create_menu "NVIDIA Driver Installation" "Select NVIDIA Driver" \
+        "Use SPACE to select the driver. '(recommended)' is the best choice." 20 70 15 -- \
         "${dialog_options[@]}")
 
     if [[ "${selected_driver}" == "CANCEL" ]]; then
@@ -77,14 +77,14 @@ Completed. Press Enter to continue...'
 #
 _ui_install_cuda_toolkit() {
     while true; do
-        local local_versions=$(_get_local_cuda_versions)
+        local local_versions; local_versions=$(get_local_cuda_versions)
         
         # 1. 설치된 버전이 없는 경우 즉시 설치 UI로 이동
         if [[ -z "${local_versions}" ]]; then
             local target_arch=""
             if [[ $(uname -m) == "aarch64" ]]; then
-                target_arch=$(ui_create_menu "CUDA Architecture" "Select ARM Variant" 
-                    "Choose the repository target:" 15 70 2 
+                target_arch=$(ui_create_menu "CUDA Architecture" "Select ARM Variant" \
+                    "Choose the repository target:" 15 70 2 \
                     "sbsa" "Server Base (Standard)" "arm64" "Generic ARM64")
                 [[ "${target_arch}" == "CANCEL" ]] && return 1
             fi
@@ -115,9 +115,9 @@ _ui_install_cuda_toolkit() {
         done
 
         local action
-        action=$(ui_create_menu "CUDA Version Manager" "Manage CUDA" "${menu_desc}" 20 80 6 
-            "INSTALL" "Install a NEW version" 
-            "SWITCH"  "Switch active version" 
+        action=$(ui_create_menu "CUDA Version Manager" "Manage CUDA" "${menu_desc}" 20 80 6 \
+            "INSTALL" "Install a NEW version" \
+            "SWITCH"  "Switch active version" \
             "EXIT"    "Return")
 
         case "$action" in
@@ -154,11 +154,9 @@ Please install 'CUDA Toolkit' first." "Repository Missing"
         return 1
     fi
 
-    local cuda_major
-    cuda_major=$(_get_active_cuda_major_version)
+    local cuda_major; cuda_major=$(_get_active_cuda_major_version)
 
-    local version_list_raw
-    version_list_raw=$(_get_available_cudnn_versions "${cuda_major}")
+    local version_list_raw; version_list_raw=$(_get_available_cudnn_versions "${cuda_major}")
     
     if [[ -z "${version_list_raw}" ]]; then
         ui_message_box "No compatible cuDNN packages found for CUDA ${cuda_major}.

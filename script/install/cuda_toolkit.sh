@@ -5,16 +5,64 @@
 # ==============================================================================
 
 # -----------------------------------------------------------------------------
+# @description CUDA Toolkit 설치 여부 및 경로 감지
+# -----------------------------------------------------------------------------
+detect_cuda_toolkit() {
+    local default_cuda_path="/usr/local/cuda"
+    
+    if [[ -d "${default_cuda_path}" ]]; then
+        echo "${default_cuda_path}"
+    elif command -v nvcc &>/dev/null; then
+        local nvcc_path; nvcc_path=$(which nvcc)
+        echo "${nvcc_path%/bin/nvcc}"
+    else
+        echo ""
+    fi
+}
+
+# -----------------------------------------------------------------------------
+# @description CUDA 상세 버전 감지
+# @param $1 cuda_path (optional)
+# -----------------------------------------------------------------------------
+detect_cuda_version() {
+    local cuda_path="$1"
+    local nvcc_bin="nvcc"
+    [[ -z "${cuda_path}" ]] && cuda_path=$(detect_cuda_toolkit)
+    [[ -n "${cuda_path}" && -x "${cuda_path}/bin/nvcc" ]] && nvcc_bin="${cuda_path}/bin/nvcc"
+    
+    if command -v "${nvcc_bin}" &>/dev/null; then
+        "${nvcc_bin}" --version | grep "release" | sed 's/.*release \([^,]*\),.*/\1/'
+    else
+        echo ""
+    fi
+}
+
+# -----------------------------------------------------------------------------
+# @description 로컬에 설치된 CUDA 버전 목록을 확인합니다.
+# -----------------------------------------------------------------------------
+get_local_cuda_versions() {
+    find /usr/local -maxdepth 1 -type d -name "cuda-*" ! -name "cuda" 2>/dev/null | \
+        sed 's|/usr/local/cuda-||' | sort -Vr
+}
+
+# -----------------------------------------------------------------------------
+# @description CUDA Toolkit 지원 여부 확인
+# -----------------------------------------------------------------------------
+is_supported_cuda_toolkit() {
+    # 현재는 dpkg(Ubuntu/Debian) 시스템만 지원
+    [[ $(_get_package_manager_type) == "dpkg" ]]
+}
+
+# -----------------------------------------------------------------------------
 # @description CUDA Toolkit 설치 여부 확인 및 로컬 버전 동기화
 # -----------------------------------------------------------------------------
 is_installed_cuda_toolkit() {
     local installed=1
-    if command -v nvcc &> /dev/null || [[ -x "/usr/local/cuda/bin/nvcc" ]]; then
+    if [[ -n "$(detect_cuda_toolkit)" ]]; then
         installed=0
     fi
 
-    local local_vers
-    local_vers=$(_get_local_cuda_versions)
+    local local_vers; local_vers=$(get_local_cuda_versions)
     
     # [Cleanup] 삭제된 버전 정리
     if command -v get_config_keys &>/dev/null; then
@@ -114,14 +162,6 @@ _get_available_cuda_versions() {
         clean_ver=full_ver; gsub(/-.*$/, "", clean_ver);
         print pkg "=" full_ver " CUDA_Toolkit_" clean_ver
     }'
-}
-
-# -----------------------------------------------------------------------------
-# @description 로컬에 설치된 CUDA 버전 목록을 확인합니다.
-# -----------------------------------------------------------------------------
-_get_local_cuda_versions() {
-    find /usr/local -maxdepth 1 -type d -name "cuda-*" ! -name "cuda" 2>/dev/null | \
-        sed 's|/usr/local/cuda-||' | sort -Vr
 }
 
 # -----------------------------------------------------------------------------

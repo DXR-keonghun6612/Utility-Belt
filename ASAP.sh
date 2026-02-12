@@ -78,25 +78,63 @@ _initialize_script() {
 # ==============================================================================
 
 ## @description '소프트웨어 설치' 관련 서브 메뉴를 표시합니다.
-#  (기존 Provisioning에서 모니터링 제외, Custom Service 포함)
 ui_menu_installation() {
     while true; do
+        local menu_options=()
+        local idx=1
+
+        # 1. 시스템 패키지 (항상 노출, 내부에서 OS별 처리)
+        menu_options+=("${idx}" "System Packages & Libraries (Native/Build)")
+        local cmd_1="ui_menu_system_packages"
+        ((idx++))
+
+        # 2. 하드웨어 스택 (지원 여부 확인)
+        local cmd_2=""
+        if is_supported_nvidia_driver || is_supported_cuda_toolkit; then
+            menu_options+=("${idx}" "Hardware Stacks & Drivers (NVIDIA/GPU)")
+            cmd_2="ui_install_gpu_stack"
+            ((idx++))
+        fi
+
+        # 3. 일반 애플리케이션 (항상 노출)
+        menu_options+=("${idx}" "General Applications (Docker/Conda/etc)")
+        local cmd_3="ui_install_application"
+        ((idx++))
+
+        # 4. 커스텀 서비스
+        menu_options+=("${idx}" "Manage Custom Services")
+        local cmd_4="ui_manage_custom_services"
+        ((idx++))
+
+        menu_options+=("0" "Back to Main Menu")
+
         local choice
-        choice=$(ui_create_menu "Main Menu > Software Installation" "Software Installation" "Select a task:" \
-            "20" "60" "12" \
-            "1" "Manage APT Packages" \
-            "2" "Install General Applications" \
-            "3" "Install NVIDIA GPU Stack" \
-            "4" "Install OpenCV" \
-            "5" "Manage Custom Services" \
-            "0" "Back to Main Menu")
+        choice=$(ui_create_menu "Main Menu > Software Installation" "Software Installation" "Select a category:" \
+            "18" "65" "10" "${menu_options[@]}")
+
+        case "${choice}" in
+            1) ${cmd_1} ;;
+            2) [[ -n "${cmd_2}" ]] && ${cmd_2} || ${cmd_3} ;;
+            3) [[ -n "${cmd_2}" ]] && ${cmd_3} || ${cmd_4} ;;
+            4) [[ -n "${cmd_2}" ]] && ${cmd_4} ;;
+            0 | CANCEL) break ;;
+        esac
+    done
+}
+
+## @description 시스템 패키지 및 빌드 라이브러리 설치 서브 메뉴
+ui_menu_system_packages() {
+    while true; do
+        local choice
+        choice=$(ui_create_menu "Software Installation > System Packages" "Packages & Libraries" "Select a task:" \
+            "15" "60" "5" \
+            "1" "Manage System Packages (Native)" \
+            "2" "Install OpenCV (Build-based)" \
+            "0" "Return to Category Selection")
 
         case "${choice}" in
             1) ui_package_management "${CONFIG_FILE}" ;;
-            2) ui_install_application ;; 
-            3) ui_install_gpu_stack ;;
-            4) ui_install_opencv ;;
-            5) ui_manage_custom_services ;; 
+            2) ui_install_opencv ;;
             0 | CANCEL) break ;;
         esac
     done

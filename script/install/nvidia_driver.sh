@@ -5,6 +5,14 @@
 # ==============================================================================
 
 # -----------------------------------------------------------------------------
+# @description NVIDIA 드라이버 지원 여부 확인
+# -----------------------------------------------------------------------------
+is_supported_nvidia_driver() {
+    # 현재는 dpkg 시스템의 ubuntu-drivers 유틸리티를 사용하는 방식만 지원
+    [[ $(_get_package_manager_type) == "dpkg" ]]
+}
+
+# -----------------------------------------------------------------------------
 # @description NVIDIA 드라이버 설치 여부 확인 및 설정 동기화
 # @return 0: 설치됨, 1: 설치 안 됨
 # -----------------------------------------------------------------------------
@@ -56,7 +64,7 @@ is_installed_nvidia_driver() {
 # -----------------------------------------------------------------------------
 get_available_nvidia_drivers() {
     # 1. 배포판 의존성 확인
-    if [[ $(get_package_manager_type) != "dpkg" ]]; then
+    if [[ $(_get_package_manager_type) != "dpkg" ]]; then
         log_error "'ubuntu-drivers' utility is only supported on Debian/Ubuntu-based systems."
         return 1
     fi
@@ -66,19 +74,25 @@ get_available_nvidia_drivers() {
 
     # 3. 드라이버 목록 추출 및 정렬
     local drivers
-    drivers=$(ubuntu-drivers list 2>/dev/null | awk \
-        '/nvidia-driver-[0-9]+/ {
-            sub(/,$/, "", $1);
-            rec = ($3 == "(recommended)") ? "(recommended)" : "";
-            print $1, rec;
-        }
-    ' | sort -Vr)
+    # ubuntu-drivers list 결과가 없는 경우 apt-cache로 대체 시도
+    drivers=$(ubuntu-drivers list 2>/dev/null | grep "nvidia-driver-")
+    
+    if [[ -z "$drivers" ]]; then
+        log_warn "No drivers found via 'ubuntu-drivers'. Searching via 'apt-cache'..."
+        drivers=$(apt-cache search "^nvidia-driver-[0-9]+$" | awk '{print $1}')
+    fi
 
     if [[ -z "$drivers" ]]; then
         return 1
     fi
 
-    echo "$drivers"
+    # 정규화된 목록 생성 (이름 추천여부)
+    echo "$drivers" | awk '/nvidia-driver-[0-9]+/ {
+        sub(/,$/, "", $1);
+        rec = ($0 ~ /\(recommended\)/ || $3 == "(recommended)") ? "(recommended)" : "";
+        print $1, rec;
+    }' | sort -Vr | uniq
+    
     return 0
 }
 
@@ -99,7 +113,7 @@ install_nvidia_driver_logic() {
     ensure_packages_installed "PACKAGES_LIST" "NVIDIA Driver Utils" "ubuntu-drivers-common" || return 1
 
     # 1. 배포판 의존성 확인
-    if [[ $(get_package_manager_type) != "dpkg" ]]; then
+    if [[ $(_get_package_manager_type) != "dpkg" ]]; then
         log_error "NVIDIA driver cleanup logic is currently only supported on Debian/Ubuntu-based systems."
         return 1
     fi

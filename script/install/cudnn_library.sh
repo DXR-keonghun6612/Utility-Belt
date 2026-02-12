@@ -5,11 +5,23 @@
 # ==============================================================================
 
 # -----------------------------------------------------------------------------
+# @description cuDNN 버전 감지
+# -----------------------------------------------------------------------------
+detect_cudnn_version() {
+    if command -v dpkg &>/dev/null; then
+        # libcudnn8, libcudnn9, libcudnn9-cuda-12 등을 모두 포괄적으로 검색
+        local ver; ver=$(dpkg-query -W -f='${Status} ${Version}\n' "libcudnn*" 2>/dev/null | \
+            grep "install ok installed" | awk '{print $4}' | head -n 1 | cut -d'-' -f1)
+        echo "${ver}"
+    fi
+}
+
+# -----------------------------------------------------------------------------
 # @description cuDNN 설치 여부 확인 및 설정 동기화
 # @return 0: 설치됨, 1: 설치 안 됨
 # -----------------------------------------------------------------------------
 is_installed_cudnn_library() {
-    if dpkg-query -W -f='${Status}' "libcudnn*" 2>/dev/null | grep -q "install ok installed"; then
+    if [[ -n "$(detect_cudnn_version)" ]]; then
         _sync_local_cudnn_to_config
         return 0
     fi
@@ -44,24 +56,12 @@ _sync_local_cudnn_to_config() {
 # @return CUDA 메이저 버전 (예: 12, 11) 또는 "unknown"
 # -----------------------------------------------------------------------------
 _get_active_cuda_major_version() {
-    local cuda_path="/usr/local/cuda"
-    if [[ -L "${cuda_path}" ]]; then
-        local target
-        target=$(readlink -f "${cuda_path}")
-        if [[ "$target" =~ cuda-([0-9]+) ]]; then
-            echo "${BASH_REMATCH[1]}"
-            return
-        fi
+    local cuda_ver; cuda_ver=$(detect_cuda_version)
+    if [[ -n "${cuda_ver}" ]]; then
+        echo "${cuda_ver%%.*}"
+    else
+        echo "unknown"
     fi
-    
-    if command -v nvcc &>/dev/null; then
-        local ver
-        ver=$(nvcc --version | grep -oP 'release \K[0-9]+')
-        echo "${ver%%.*}"
-        return
-    fi
-    
-    echo "unknown"
 }
 
 # -----------------------------------------------------------------------------

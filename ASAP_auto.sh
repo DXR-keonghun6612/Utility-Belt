@@ -168,10 +168,12 @@ run_provisioning() {
         local cuda; cuda=$(get_config_value "$CONFIG_FILE" "OPENCV_PROFILE" "with_cuda")
         local arch; arch=$(get_config_value "$CONFIG_FILE" "OPENCV_PROFILE" "gpu_arch")
         local jobs; jobs=$(get_config_value "$CONFIG_FILE" "OPENCV_PROFILE" "jobs")
-        local prefix; prefix=$(get_config_value "$CONFIG_FILE" "OPENCV_PROFILE" "prefix")
-        local bpath; bpath=$(get_config_value "$CONFIG_FILE" "OPENCV_PROFILE" "build_path")
+        local install_prefix; install_prefix=$(get_config_value "$CONFIG_FILE" "OPENCV_PROFILE" "install_prefix")
+        local work_dir; work_dir=$(get_config_value "$CONFIG_FILE" "OPENCV_PROFILE" "work_dir")
+        local python_path; python_path=$(get_config_value "$CONFIG_FILE" "OPENCV_PROFILE" "python_path")
+        local cpp_std; cpp_std=$(get_config_value "$CONFIG_FILE" "OPENCV_PROFILE" "cpp_std")
         
-        install_opencv_logic "${ver:-4.10.0}" "${cuda:-OFF}" "${arch}" "${jobs}" "${prefix}" "${bpath:-/tmp/opencv_build}"
+        install_opencv_logic "${ver:-4.11.0}" "${cuda:-OFF}" "${arch}" "${jobs}" "${install_prefix}" "${work_dir:-/tmp/opencv_build}" "${python_path}" "${cpp_std}"
     fi
 
     # --- 4. 저장소 프로필 처리 (STORAGE_PROFILE_*) ---
