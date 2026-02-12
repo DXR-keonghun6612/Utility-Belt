@@ -93,48 +93,61 @@ _setup_nvidia_toolkit_repo() {
 # @return 0: 성공, 1: 실패
 # -----------------------------------------------------------------------------
 install_docker_logic() {
-    ensure_packages_installed "PACKAGES_LIST" "Docker Installation Dependencies" "ca-certificates" "curl" "gnupg" || return 1
-
-    if [[ $(get_package_manager_type) != "dpkg" ]]; then
-        log_error "Docker installation script currently supports Debian/Ubuntu-based systems only."
-        return 1
-    fi
-
-    if ! _setup_docker_repo; then
-        return 1
-    fi
-
-    log_info "Installing Docker Engine packages..."
-    local docker_pkgs=("docker-ce" "docker-ce-cli" "containerd.io" "docker-buildx-plugin" "docker-compose-plugin")
-    if ! sync_package "APPLICATION_LIST" "docker" "${docker_pkgs[@]}"; then
-        log_error "Failed to install Docker packages."
-        return 1
-    fi
-
-    if ! _setup_nvidia_toolkit_repo; then
-        log_warn "Failed to setup NVIDIA repository. Skipping NVIDIA Toolkit installation."
+    local already_installed=1
+    if is_installed_docker; then
+        already_installed=0
+        log_info "Docker is already installed. Skipping package installation..."
     else
-        log_info "Installing NVIDIA Container Toolkit..."
-        if sync_package "APPLICATION_LIST" "nvidia-docker" "nvidia-container-toolkit"; then
-            log_info "Configuring Docker to use NVIDIA runtime..."
-            if ${G_SUDO_PREFIX} nvidia-ctk runtime configure --runtime=docker; then
-                log_info "Restarting Docker daemon..."
-                ${G_SUDO_PREFIX} systemctl restart docker
-            else
-                log_error "Failed to configure NVIDIA runtime."
-            fi
+        ensure_packages_installed "PACKAGES_LIST" "Docker Installation Dependencies" "ca-certificates" "curl" "gnupg" || return 1
+
+        if [[ $(get_package_manager_type) != "dpkg" ]]; then
+            log_error "Docker installation script currently supports Debian/Ubuntu-based systems only."
+            return 1
+        fi
+
+        if ! _setup_docker_repo; then
+            return 1
+        fi
+
+        log_info "Installing Docker Engine packages..."
+        local docker_pkgs=("docker-ce" "docker-ce-cli" "containerd.io" "docker-buildx-plugin" "docker-compose-plugin")
+        if ! sync_package "APPLICATION_LIST" "docker" "${docker_pkgs[@]}"; then
+            log_error "Failed to install Docker packages."
+            return 1
+        fi
+
+        if ! _setup_nvidia_toolkit_repo; then
+            log_warn "Failed to setup NVIDIA repository. Skipping NVIDIA Toolkit installation."
         else
-            log_error "Failed to install NVIDIA Container Toolkit."
+            log_info "Installing NVIDIA Container Toolkit..."
+            if sync_package "APPLICATION_LIST" "nvidia-docker" "nvidia-container-toolkit"; then
+                log_info "Configuring Docker to use NVIDIA runtime..."
+                if ${G_SUDO_PREFIX} nvidia-ctk runtime configure --runtime=docker; then
+                    log_info "Restarting Docker daemon..."
+                    ${G_SUDO_PREFIX} systemctl restart docker
+                else
+                    log_error "Failed to configure NVIDIA runtime."
+                fi
+            else
+                log_error "Failed to install NVIDIA Container Toolkit."
+            fi
         fi
     fi
 
+    # 사용자 그룹 추가 (설치 여부와 관계없이 항상 수행하여 현재 계정 권한 보장)
     if [[ -n "${SUDO_USER}" ]] || [[ "${EUID}" -ne 0 ]]; then
         local target_user="${SUDO_USER:-$USER}"
-        log_info "Adding user '${target_user}' to 'docker' group..."
-        if ${G_SUDO_PREFIX} usermod -aG docker "${target_user}"; then
-            log_info "User added to docker group. You may need to log out and back in for this to take effect."
+        
+        # 이미 그룹에 속해 있는지 확인
+        if groups "${target_user}" | grep -q "\bdocker\b"; then
+            log_info "User '${target_user}' is already in 'docker' group."
         else
-            log_warn "Failed to add user to docker group."
+            log_info "Adding user '${target_user}' to 'docker' group..."
+            if ${G_SUDO_PREFIX} usermod -aG docker "${target_user}"; then
+                log_info "User added to docker group."
+            else
+                log_warn "Failed to add user to docker group."
+            fi
         fi
     fi
 

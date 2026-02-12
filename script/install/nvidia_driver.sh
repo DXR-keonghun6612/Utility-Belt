@@ -69,8 +69,10 @@ get_available_nvidia_drivers() {
         return 1
     fi
 
-    # 2. 필수 패키지 확인 및 설치 보장
-    ensure_packages_installed "PACKAGES_LIST" "ubuntu-drivers-common" || return $?
+    # 2. 필수 패키지 확인 (이미 있으면 apt 호출 건너뜀)
+    if ! command -v ubuntu-drivers &> /dev/null; then
+        ensure_packages_installed "PACKAGES_LIST" "ubuntu-drivers-common" || return $?
+    fi
 
     # 3. 드라이버 목록 추출 및 정렬
     local drivers
@@ -78,7 +80,7 @@ get_available_nvidia_drivers() {
     drivers=$(ubuntu-drivers list 2>/dev/null | grep "nvidia-driver-")
     
     if [[ -z "$drivers" ]]; then
-        log_warn "No drivers found via 'ubuntu-drivers'. Searching via 'apt-cache'..."
+        log_warn "No drivers found via 'ubuntu-drivers'. Searching via 'apt-cache' (Faster but less hardware-aware)..."
         drivers=$(apt-cache search "^nvidia-driver-[0-9]+$" | awk '{print $1}')
     fi
 
