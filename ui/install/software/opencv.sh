@@ -127,7 +127,7 @@ ui_install_opencv() {
         jobs="${jobs:-$(nproc)}"
 
         # 백엔드 함수를 사용하여 실제 생성될 경로 미리 계산 (CUDA/cuDNN 버전 감지 포함)
-        local cuda_path; cuda_path=$(detect_cuda_toolkit)
+        local cuda_path; cuda_path=$(detect_cuda_toolkit_path)
         local detected_cuda_v; detected_cuda_v=$(detect_cuda_version "${cuda_path}")
         local detected_cudnn_v; detected_cudnn_v=$(detect_cudnn_version)
 
@@ -178,7 +178,7 @@ ui_install_opencv() {
 
     # 7. 종료 결과 표시
     # 실제 생성된 경로를 다시 한번 계산하여 메타데이터 파일 확인
-    local cuda_path; cuda_path=$(detect_cuda_toolkit)
+    local cuda_path; cuda_path=$(detect_cuda_toolkit_path)
     local cuda_ver=""; [[ "${with_cuda}" == "ON" ]] && cuda_ver=$(detect_cuda_version "${cuda_path}")
     local cudnn_ver=""; [[ "${with_cuda}" == "ON" ]] && cudnn_ver=$(detect_cudnn_version)
     local paths; paths=$(_resolve_opencv_paths "${version}" "${with_cuda}" "${gpu_arch}" "${cpp_std}" "${base_work_dir}" "${cuda_ver}" "${cudnn_ver}")
