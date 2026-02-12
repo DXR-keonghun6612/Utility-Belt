@@ -19,7 +19,7 @@ ui_install_cuda_toolkit() {
             fi
 
             local version_list
-            mapfile -t version_list < <(_get_available_cuda_versions)
+            mapfile -t version_list < <(get_available_cuda_versions)
             [[ ${#version_list[@]} -eq 0 ]] && { ui_message_box "No CUDA packages found." "Error"; return 1; }
 
             local choice
@@ -27,7 +27,7 @@ ui_install_cuda_toolkit() {
             [[ "${choice}" == "CANCEL" ]] && return 1
 
             clear
-            install_cuda_toolkit_logic "INSTALL" "${choice}" "${target_arch}"
+            install_cuda_toolkit "${choice}" "${target_arch}"
             return $?
         fi
 
@@ -55,17 +55,17 @@ ui_install_cuda_toolkit() {
                 [[ $(uname -m) == "aarch64" ]] && target_arch=$(ui_create_menu "Arch" "Select" "" 10 50 2 "sbsa" "SBSA" "arm64" "ARM64")
                 
                 local version_list
-                mapfile -t version_list < <(_get_available_cuda_versions)
+                mapfile -t version_list < <(get_available_cuda_versions)
                 local choice
                 choice=$(ui_create_menu "Install" "Select Version" "" 18 80 10 "${version_list[@]}")
-                [[ "${choice}" != "CANCEL" ]] && { clear; install_cuda_toolkit_logic "INSTALL" "${choice}" "${target_arch}"; }
+                [[ "${choice}" != "CANCEL" ]] && { clear; install_cuda_toolkit "${choice}" "${target_arch}"; }
                 ;;
             "SWITCH")
                 local opts=()
                 for ver in $local_versions; do opts+=("$ver" "Set as active"); done
                 local choice
                 choice=$(ui_create_menu "Switch" "Select Version" "" 15 70 5 "${opts[@]}")
-                [[ "${choice}" != "CANCEL" ]] && install_cuda_toolkit_logic "SWITCH" "${choice}"
+                [[ "${choice}" != "CANCEL" ]] && switch_cuda_toolkit_version "${choice}"
                 ;;
             *) break ;;
         esac

@@ -102,12 +102,12 @@ build_opencv_logic() {
     local cpp_std="${8:-17}"
 
     # 1. 환경 정보 감지 (Standardized Utilities 사용)
-    local detected_cuda_path; detected_cuda_path=$(detect_cuda_toolkit)
+    local cuda_path; cuda_path=$(detect_cuda_toolkit_path)
     local cuda_ver=""
     local cudnn_ver=""
     
     if [[ "${with_cuda}" == "ON" ]]; then
-        cuda_ver=$(detect_cuda_version "${detected_cuda_path}")
+        cuda_ver=$(detect_cuda_version "${cuda_path}")
         cudnn_ver=$(detect_cudnn_version)
         if [[ -z "${gpu_arch}" ]]; then
             if command -v nvidia-smi &>/dev/null; then
@@ -123,7 +123,7 @@ build_opencv_logic() {
     local build_dir="${paths#*|}"
 
     if [[ "${with_cuda}" == "ON" ]]; then
-        if [[ -z "${detected_cuda_path}" ]]; then
+        if [[ -z "${cuda_path}" ]]; then
             log_error "CUDA support requested but CUDA Toolkit not found."
             return 1
         fi
@@ -187,7 +187,7 @@ build_opencv_logic() {
             "-D WITH_CUDA=ON"
             "-D WITH_CUDNN=ON"
             "-D OPENCV_DNN_CUDA=ON"
-            "-D CUDA_TOOLKIT_ROOT_DIR=${detected_cuda_path}"
+            "-D CUDA_TOOLKIT_ROOT_DIR=${cuda_path}"
             "-D CUDA_ARCH_BIN=${cmake_gpu_arch}"
             "-D WITH_CUBLAS=1"
             "-D CUDA_FAST_MATH=1"
@@ -248,12 +248,12 @@ install_opencv_logic() {
     local cpp_std="${8:-17}"
 
     # 1. 환경 정보 감지 (Standardized Utilities 사용)
-    local detected_cuda_path; detected_cuda_path=$(detect_cuda_toolkit)
+    local cuda_path; cuda_path=$(detect_cuda_toolkit_path)
     local cuda_ver=""
     local cudnn_ver=""
     
     if [[ "${with_cuda}" == "ON" ]]; then
-        cuda_ver=$(detect_cuda_version "${detected_cuda_path}")
+        cuda_ver=$(detect_cuda_version "${cuda_path}")
         cudnn_ver=$(detect_cudnn_version)
         if [[ -z "${gpu_arch}" ]]; then
             if command -v nvidia-smi &>/dev/null; then

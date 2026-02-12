@@ -126,7 +126,7 @@ run_provisioning() {
         local arch; arch=$(get_config_value "$CONFIG_FILE" "CUDA_TOOLKIT_PROFILE" "arch")
         if [[ -n "$ver" ]]; then
             log_info "[PROVISION] Applying [CUDA_TOOLKIT_PROFILE] (Version: $ver)..."
-            install_cuda_toolkit_logic "INSTALL" "$ver" "$arch"
+            install_cuda_toolkit "$ver" "$arch"
         fi
     fi
 
@@ -137,7 +137,7 @@ run_provisioning() {
         else
             log_info "[PROVISION] Applying [CUDNN_LIBRARY_PROFILE]..."
             local ver; ver=$(get_config_value "$CONFIG_FILE" "CUDNN_LIBRARY_PROFILE" "version")
-            [[ -n "$ver" ]] && install_cudnn_library_logic "$ver"
+            [[ -n "$ver" ]] && install_cudnn_library "$ver"
         fi
     fi
 
