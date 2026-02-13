@@ -85,12 +85,24 @@ _resolve_opencv_paths() {
 # -----------------------------------------------------------------------------
 _ensure_opencv_dependencies() {
     log_info "Installing build dependencies for OpenCV..."
+    
+    # 1. 필수 빌드 도구 및 기초 라이브러리
+    local base_deps=("build-essential" "cmake" "git" "pkg-config" "unzip" "wget")
+    
+    # 2. 이미지 코덱
+    local img_deps=("libjpeg-dev" "libpng-dev" "libtiff-dev" "libwebp-dev" "libopenexr-dev")
+    
+    # 3. 비디오 코덱 및 GStreamer 지원
+    local vid_deps=("libavcodec-dev" "libavformat-dev" "libswscale-dev" "libv4l-dev" "libxvidcore-dev" "libx264-dev" "libgstreamer1.0-dev" "libgstreamer-plugins-base1.0-dev")
+    
+    # 4. GUI 및 수학/병렬화 라이브러리 (OpenGL 포함)
+    local ui_math_deps=("libgtk-3-dev" "libatlas-base-dev" "gfortran" "libtbb-dev" "libgl1-mesa-dev" "libglu1-mesa-dev")
+    
+    # 5. Python 3 바인딩용
+    local py_deps=("python3-dev" "python3-numpy")
+
     ensure_packages_installed "PACKAGES_LIST" "OpenCV Build Dependencies" \
-        "build-essential" "cmake" "git" "pkg-config" "unzip" "wget" \
-        "libjpeg-dev" "libpng-dev" "libtiff-dev" \
-        "libavcodec-dev" "libavformat-dev" "libswscale-dev" "libv4l-dev" \
-        "libxvidcore-dev" "libx264-dev" \
-        "libgtk-3-dev" "libatlas-base-dev" "gfortran" "python3-dev" "python3-numpy" || return 1
+        "${base_deps[@]}" "${img_deps[@]}" "${vid_deps[@]}" "${ui_math_deps[@]}" "${py_deps[@]}" || return 1
 }
 
 # -----------------------------------------------------------------------------
