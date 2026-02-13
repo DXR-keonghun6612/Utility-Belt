@@ -99,3 +99,9 @@ bash -x ./ASAP.sh 2> debug_trace.log
 
 - [x] Driver 설치 결과의 Config 파일 연동성 강화
 - [x] 원격 마운트 시 Credential 저장 위치 선택 옵션 추가
+- [ ] 소프트웨어 설치 표준 구조 적용 (4-Stage Pipeline)
+  - [ ] 1단계: 소스코드 확인 및 환경 검증 (Source Verification)
+  - [ ] 2단계: OS/배포판/버전별 의존성 파악 및 해결 (Dependency Resolution)
+  - [ ] 3단계: 컴파일 및 빌드 프로세스 수행 (Build)
+  - [ ] 4단계: 시스템 설치 및 상태 동기화 (Installation)
+- [ ] 기존 설치 스크립트(OpenCV, CUDA, Docker 등)의 표준 구조 준수 여부 검토 및 리팩토링

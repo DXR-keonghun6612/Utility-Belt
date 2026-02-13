@@ -182,7 +182,9 @@ ui_install_opencv() {
     local cudnn_ver=""; [[ "${with_cuda}" == "ON" ]] && cudnn_ver=$(detect_cudnn_version)
     local paths; paths=$(_resolve_opencv_paths "${version}" "${with_cuda}" "${gpu_arch}" "${cpp_std}" "${base_work_dir}" "${cuda_ver}" "${cudnn_ver}")
     local work_dir="${paths%|*}"
-    local meta_file="${work_dir}/asap_build_info.ini"
+    local build_dir="${paths#*|}"
+    local build_tag; build_tag=$(basename "${build_dir}")
+    local meta_file="${work_dir}/build_${version}_${build_tag}.ini"
 
     if [[ -f "${meta_file}" ]]; then
         ui_show_textbox "${meta_file}" "Process Complete: Build Metadata" 20 80
