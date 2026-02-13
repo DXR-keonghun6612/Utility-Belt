@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==============================================================================
 # 파일명: opencv.sh
-# 설명: OpenCV 빌드 및 설치 로직
+# 설명: OpenCV 빌드 및 설치 로직 (4-Stage Pipeline 준수)
 # ==============================================================================
 
 # -----------------------------------------------------------------------------
@@ -28,17 +28,20 @@ is_installed_opencv() {
         if [[ $installed -eq 0 ]]; then
             local current_val
             current_val=$(get_config_value "${G_STATE_FILE}" "APPLICATION_LIST" "opencv")
+
             if [[ -z "${current_val}" ]]; then
                 local timestamp; timestamp=$(date "+%Y-%m-%dT%H:%M:%S")
                 local ver="detected"
+
                 # pkg-config로 버전 추출 시도
                 if pkg-config --exists opencv4 2>/dev/null; then
                     ver=$(pkg-config --modversion opencv4)
                 elif pkg-config --exists opencv 2>/dev/null; then
                     ver=$(pkg-config --modversion opencv)
                 fi
+
                 add_config_section "${G_STATE_FILE}" "APPLICATION_LIST"
-                set_config_value "${G_STATE_FILE}" "APPLICATION_LIST" "opencv" "${ver} (${timestamp})"
+                set_config_value   "${G_STATE_FILE}" "APPLICATION_LIST" "opencv" "${ver} (${timestamp})"
             fi
         else
             delete_config_value "${G_STATE_FILE}" "APPLICATION_LIST" "opencv"
@@ -65,15 +68,15 @@ _resolve_opencv_paths() {
     local suffix="cpu"
     if [[ "${with_cuda}" == "ON" ]]; then
         suffix="cuda"
-        [[ -n "${cuda_ver}" ]] && suffix+="-v${cuda_ver}"
+        [[ -n "${cuda_ver}" ]]  && suffix+="-v${cuda_ver}"
         [[ -n "${cudnn_ver}" ]] && suffix+="-dn${cudnn_ver}"
         
         # 멀티 아키텍처 문자열 정제 (공백/세미콜론을 언더바로 변경)
         local arch_clean; arch_clean=$(echo "${gpu_arch:-unknown}" | tr ' ;' '__' | sed 's/__*/_/g' | sed 's/^_//;s/_$//')
         suffix+="-${arch_clean}"
     fi
+
     local specific_dir="opencv-${version}"
-    
     local work_dir="${base_work_dir%/}/${specific_dir}"
     local build_dir="${work_dir}/build-${suffix}-cpp${cpp_std}"
     
@@ -87,22 +90,39 @@ _ensure_opencv_dependencies() {
     log_info "Installing build dependencies for OpenCV..."
     
     # 1. 필수 빌드 도구 및 기초 라이브러리
-    local base_deps=("build-essential" "cmake" "git" "pkg-config" "unzip" "wget")
+    local base_deps=(
+        "build-essential" "cmake" "git" "pkg-config" "unzip" "wget"
+    )
     
     # 2. 이미지 코덱
-    local img_deps=("libjpeg-dev" "libpng-dev" "libtiff-dev" "libwebp-dev" "libopenexr-dev")
+    local img_deps=(
+        "libjpeg-dev" "libpng-dev" "libtiff-dev" "libwebp-dev" "libopenexr-dev"
+    )
     
     # 3. 비디오 코덱 및 GStreamer 지원
-    local vid_deps=("libavcodec-dev" "libavformat-dev" "libswscale-dev" "libv4l-dev" "libxvidcore-dev" "libx264-dev" "libgstreamer1.0-dev" "libgstreamer-plugins-base1.0-dev")
+    local vid_deps=(
+        "libavcodec-dev" "libavformat-dev" "libswscale-dev" 
+        "libv4l-dev" "libxvidcore-dev" "libx264-dev" 
+        "libgstreamer1.0-dev" "libgstreamer-plugins-base1.0-dev"
+    )
     
     # 4. GUI 및 수학/병렬화 라이브러리 (OpenGL 포함)
-    local ui_math_deps=("libgtk-3-dev" "libatlas-base-dev" "gfortran" "libtbb-dev" "libgl1-mesa-dev" "libglu1-mesa-dev")
+    local ui_math_deps=(
+        "libgtk-3-dev" "libatlas-base-dev" "gfortran" 
+        "libtbb-dev" "libgl1-mesa-dev" "libglu1-mesa-dev"
+    )
     
     # 5. Python 3 바인딩용
-    local py_deps=("python3-dev" "python3-numpy")
+    local py_deps=(
+        "python3-dev" "python3-numpy"
+    )
 
     ensure_packages_installed "PACKAGES_LIST" "OpenCV Build Dependencies" \
-        "${base_deps[@]}" "${img_deps[@]}" "${vid_deps[@]}" "${ui_math_deps[@]}" "${py_deps[@]}" || return 1
+        "${base_deps[@]}" \
+        "${img_deps[@]}" \
+        "${vid_deps[@]}" \
+        "${ui_math_deps[@]}" \
+        "${py_deps[@]}" || return 1
 }
 
 # -----------------------------------------------------------------------------
@@ -127,6 +147,7 @@ _build_opencv_logic() {
     if [[ "${with_cuda}" == "ON" ]]; then
         cuda_ver=$(detect_cuda_version "${cuda_path}")
         cudnn_ver=$(detect_cudnn_version)
+
         if [[ -z "${gpu_arch}" ]]; then
             if command -v nvidia-smi &>/dev/null; then
                 gpu_arch=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader,nounits | head -n 1)
@@ -136,7 +157,7 @@ _build_opencv_logic() {
     fi
 
     # 2. 빌드 경로 결정
-    local paths; paths=$(_resolve_opencv_paths "${version}" "${with_cuda}" "${gpu_arch}" "${cpp_std}" "${base_work_dir}" "${cuda_ver}" "${cudnn_ver}")
+    local paths;     paths=$(_resolve_opencv_paths "${version}" "${with_cuda}" "${gpu_arch}" "${cpp_std}" "${base_work_dir}" "${cuda_ver}" "${cudnn_ver}")
     local work_dir="${paths%|*}"
     local build_dir="${paths#*|}"
 
@@ -147,20 +168,19 @@ _build_opencv_logic() {
         fi
         if [[ -z "${cudnn_ver}" ]]; then
             log_error "CUDA support requested but cuDNN Library not found."
-            log_info "Please install cuDNN first using: Software Installation > Install NVIDIA GPU Stack"
+            log_info  "Please install cuDNN first using: Software Installation > Install NVIDIA GPU Stack"
             return 1
         fi
     fi
 
+    # 3. 작업 디렉토리 준비
     mkdir -p "${work_dir}"
     cd "${work_dir}" || return 1
 
+    # 4. 소스 다운로드
     log_info "Downloading OpenCV ${version} into ${work_dir}..."
     local wget_opts=()
-    if [[ "${G_INTERACTIVE}" != "true" ]]; then
-        # 비대화식(Docker/CI) 환경: 간결한 로그 출력
-        wget_opts=("-nv" "--show-progress" "--progress=dot:giga")
-    fi
+    [[ "${G_INTERACTIVE}" != "true" ]] && wget_opts=("-nv" "--show-progress" "--progress=dot:giga")
 
     for repo in "opencv" "opencv_contrib"; do
         if [[ ! -d "${repo}-${version}" ]]; then
@@ -169,8 +189,8 @@ _build_opencv_logic() {
         fi
     done
 
+    # 5. CMake 설정
     log_info "Configuring CMake for OpenCV ${version} (C++${cpp_std})..."
-    # 소스 폴더 내부가 아닌 work_dir/build 에서 빌드 (Out-of-source)
     mkdir -p "${build_dir}" && cd "${build_dir}" || return 1
 
     local cmake_opts=(
@@ -182,10 +202,8 @@ _build_opencv_logic() {
         "-D WITH_QT=OFF"
         "-D OPENCV_GENERATE_PKGCONFIG=ON"
         "-D ENABLE_FAST_MATH=1"
-        # Python 3 Settings
         "-D BUILD_opencv_python3=ON"
         "-D PYTHON3_EXECUTABLE=${python_executable}"
-        # Hard Disable Python 2
         "-D BUILD_opencv_python2=OFF"
         "-D WITH_PYTHON=OFF"
     )
@@ -205,12 +223,14 @@ _build_opencv_logic() {
 
     cmake "${cmake_opts[@]}" "../opencv-${version}" || return 1
 
+    # 6. 컴파일 실행
     log_info "Building OpenCV ${version} (Jobs: ${jobs})..."
     make -j"${jobs}" || return 1
 
-    # 빌드 결과 폴더에 메타데이터 저장
+    # 7. 빌드 메타데이터 저장
     local build_tag; build_tag=$(basename "${build_dir}")
     local meta_file="${work_dir}/build_${version}_${build_tag}.ini"
+    
     log_info "Saving build metadata to ${meta_file}..."
     {
         echo "[OPENCV_BUILD_METADATA]"
@@ -263,16 +283,16 @@ _perform_opencv_install() {
 
     local timestamp=$(date "+%Y-%m-%dT%H:%M:%S")
     add_config_section "${G_STATE_FILE}" "OPENCV_INFO"
-    set_config_value "${G_STATE_FILE}" "OPENCV_INFO" "version" "${version}"
-    set_config_value "${G_STATE_FILE}" "OPENCV_INFO" "cuda" "${with_cuda}"
-    set_config_value "${G_STATE_FILE}" "OPENCV_INFO" "cuda_version" "${cuda_ver}"
+    set_config_value "${G_STATE_FILE}" "OPENCV_INFO" "version"        "${version}"
+    set_config_value "${G_STATE_FILE}" "OPENCV_INFO" "cuda"           "${with_cuda}"
+    set_config_value "${G_STATE_FILE}" "OPENCV_INFO" "cuda_version"  "${cuda_ver}"
     set_config_value "${G_STATE_FILE}" "OPENCV_INFO" "cudnn_version" "${cudnn_ver}"
-    set_config_value "${G_STATE_FILE}" "OPENCV_INFO" "arch" "${gpu_arch}"
-    set_config_value "${G_STATE_FILE}" "OPENCV_INFO" "cpp_std" "${cpp_std}"
-    set_config_value "${G_STATE_FILE}" "OPENCV_INFO" "python" "${python_path}"
-    set_config_value "${G_STATE_FILE}" "OPENCV_INFO" "prefix" "${prefix}"
-    set_config_value "${G_STATE_FILE}" "OPENCV_INFO" "work_dir" "${work_dir}"
-    set_config_value "${G_STATE_FILE}" "OPENCV_INFO" "installed_at" "${timestamp}"
+    set_config_value "${G_STATE_FILE}" "OPENCV_INFO" "arch"          "${gpu_arch}"
+    set_config_value "${G_STATE_FILE}" "OPENCV_INFO" "cpp_std"       "${cpp_std}"
+    set_config_value "${G_STATE_FILE}" "OPENCV_INFO" "python"        "${python_path}"
+    set_config_value "${G_STATE_FILE}" "OPENCV_INFO" "prefix"        "${prefix}"
+    set_config_value "${G_STATE_FILE}" "OPENCV_INFO" "work_dir"      "${work_dir}"
+    set_config_value "${G_STATE_FILE}" "OPENCV_INFO" "installed_at"  "${timestamp}"
 
     log_success "OpenCV ${version} installed successfully."
     return 0
@@ -304,6 +324,7 @@ process_opencv_logic() {
     if [[ "${with_cuda}" == "ON" ]]; then
         cuda_ver=$(detect_cuda_version "${cuda_path}")
         cudnn_ver=$(detect_cudnn_version)
+
         if [[ -z "${gpu_arch}" ]]; then
             if command -v nvidia-smi &>/dev/null; then
                 gpu_arch=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader,nounits | head -n 1)
@@ -312,57 +333,60 @@ process_opencv_logic() {
         fi
     fi
 
-    local paths; paths=$(_resolve_opencv_paths "${version}" "${with_cuda}" "${gpu_arch}" "${cpp_std}" "${base_work_dir}" "${cuda_ver}" "${cudnn_ver}")
+    local paths;     paths=$(_resolve_opencv_paths "${version}" "${with_cuda}" "${gpu_arch}" "${cpp_std}" "${base_work_dir}" "${cuda_ver}" "${cudnn_ver}")
     local work_dir="${paths%|*}"
     local build_dir="${paths#*|}"
     local build_tag; build_tag=$(basename "${build_dir}")
     local meta_file="${work_dir}/build_${version}_${build_tag}.ini"
 
-    # 3. 빌드 유효성 검사 및 보정
+    # 3. 빌드 유효성 검사 및 보정 로직
     local need_fresh_build=false
+
     if [[ -f "${build_dir}/Makefile" ]]; then
         log_info "Existing build detected at ${build_dir}."
         
         if [[ -f "${meta_file}" ]]; then
             # 메타데이터에서 중요 환경 정보 추출
-            local old_os; old_os=$(get_config_value "${meta_file}" "OPENCV_BUILD_METADATA" "os_info")
-            local old_cuda; old_os=$(get_config_value "${meta_file}" "OPENCV_BUILD_METADATA" "cuda_version")
-            local old_cudnn; old_os=$(get_config_value "${meta_file}" "OPENCV_BUILD_METADATA" "cudnn_version")
-            local old_path; old_path=$(get_config_value "${meta_file}" "OPENCV_BUILD_METADATA" "actual_work_dir")
+            local old_os;    old_os=$(get_config_value "${meta_file}" "OPENCV_BUILD_METADATA" "os_info")
+            local old_cuda;  old_cuda=$(get_config_value "${meta_file}" "OPENCV_BUILD_METADATA" "cuda_version")
+            local old_cudnn; old_cudnn=$(get_config_value "${meta_file}" "OPENCV_BUILD_METADATA" "cudnn_version")
+            local old_path;  old_path=$(get_config_value "${meta_file}" "OPENCV_BUILD_METADATA" "actual_work_dir")
             
-            # 현재 환경 정보 (비교용)
+            # 현재 OS 정보 확인
             local current_os; current_os=$(grep PRETTY_NAME /etc/os-release | cut -d'=' -f2 | tr -d '\"')
             
-            # [Critical Check] OS나 라이브러리 버전이 바뀌었다면 재사용 불가
+            # [Case A] 환경 변화 감지 (OS/CUDA/cuDNN) -> 전체 재빌드 필요
             if [[ "${old_os}" != "${current_os}" ]] || [[ "${old_cuda}" != "${cuda_ver}" ]] || [[ "${old_cudnn}" != "${cudnn_ver}" ]]; then
                 log_warn "System environment has changed (OS/CUDA/cuDNN). Existing build is invalid."
                 need_fresh_build=true
-            # [Path Check] 경로만 바뀌었다면 보정 후 재사용
+
+            # [Case B] 경로 불일치 감지 -> CMake 재구성으로 경로 보정
             elif [[ "${old_path}" != "${work_dir}" ]]; then
-                log_warn "Path mismatch detected. Re-configuring CMake..."
+                log_warn "Path mismatch detected. Re-configuring CMake to fix absolute paths..."
                 _build_opencv_logic "${version}" "${with_cuda}" "${gpu_arch}" "${jobs}" "${prefix}" "${base_work_dir}" "${python_path}" "${cpp_std}" || return 1
                 (cd "${build_dir}" && make -j"${jobs}" -t > /dev/null 2>&1)
+
+            # [Case C] 환경/경로 모두 일치 -> 타겟 시간만 갱신 (빠른 설치 준비)
             else
-                log_info "Environment matches. Updating timestamps only..."
+                log_info "Environment and path match. Updating timestamps only..."
                 (cd "${build_dir}" && make -j"${jobs}" -t > /dev/null 2>&1)
             fi
         else
-            log_warn "Metadata file missing. Cannot guarantee build integrity. Forcing fresh build."
+            log_warn "Metadata file missing. Forcing fresh build to ensure integrity."
             need_fresh_build=true
         fi
     else
         need_fresh_build=true
     fi
 
-    # 4. 빌드 수행
+    # 4. 신규 빌드 수행 (필요 시)
     if [[ "${need_fresh_build}" == "true" ]]; then
         log_info "Starting a fresh build of OpenCV ${version}..."
-        # 기존 빌드 폴더가 있다면 삭제 (오염 방지)
         [[ -d "${build_dir}" ]] && ${G_SUDO_PREFIX} rm -rf "${build_dir}"
         _build_opencv_logic "${version}" "${with_cuda}" "${gpu_arch}" "${jobs}" "${prefix}" "${base_work_dir}" "${python_path}" "${cpp_std}" || return 1
     fi
 
-    # 5. 설치 수행 (opt가 "all"일 때만)
+    # 5. 시스템 설치 수행 (opt가 "all"일 때만)
     if [[ "${opt}" == "all" ]]; then
         _perform_opencv_install "${version}" "${with_cuda}" "${gpu_arch}" "${prefix}" "${build_dir}" "${work_dir}" "${python_path}" "${cpp_std}" "${cuda_ver}" "${cudnn_ver}"
     fi
