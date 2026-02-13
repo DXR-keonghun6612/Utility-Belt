@@ -193,8 +193,7 @@ _build_opencv_logic() {
     make -j"${jobs}" || return 1
 
     # 3. 빌드 메타데이터 저장
-    local build_tag; build_tag=$(basename "${build_dir}")
-    local meta_file="${work_dir}/build_${version}_${build_tag}.ini"
+    local meta_file="${build_dir}/asap_build_info.ini"
     
     log_info "Saving build metadata to ${meta_file}..."
     {
