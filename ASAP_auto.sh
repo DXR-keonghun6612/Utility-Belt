@@ -173,7 +173,7 @@ run_provisioning() {
         local python_path; python_path=$(get_config_value "$CONFIG_FILE" "OPENCV_PROFILE" "python_path")
         local cpp_std; cpp_std=$(get_config_value "$CONFIG_FILE" "OPENCV_PROFILE" "cpp_std")
         
-        install_opencv_logic "${ver:-4.11.0}" "${cuda:-OFF}" "${arch}" "${jobs}" "${install_prefix}" "${work_dir:-/tmp/opencv_build}" "${python_path}" "${cpp_std}"
+        process_opencv_logic "all" "${ver:-4.11.0}" "${cuda:-OFF}" "${arch}" "${jobs}" "${install_prefix}" "${work_dir:-/tmp/opencv_build}" "${python_path}" "${cpp_std}"
     fi
 
     # --- 4. 저장소 프로필 처리 (STORAGE_PROFILE_*) ---

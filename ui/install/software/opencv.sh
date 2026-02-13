@@ -170,11 +170,10 @@ ui_install_opencv() {
     [[ "${action}" == "CANCEL" ]] && return 1
 
     clear
-    if [[ "${action}" == "INSTALL" ]]; then
-        install_opencv_logic "${version}" "${with_cuda}" "${gpu_arch}" "${jobs}" "${install_prefix}" "${base_work_dir}" "${python_path}" "${cpp_std}"
-    else
-        build_opencv_logic "${version}" "${with_cuda}" "${gpu_arch}" "${jobs}" "${install_prefix}" "${base_work_dir}" "${python_path}" "${cpp_std}"
-    fi
+    local opt="all"
+    [[ "${action}" == "BUILD" ]] && opt="build"
+
+    process_opencv_logic "${opt}" "${version}" "${with_cuda}" "${gpu_arch}" "${jobs}" "${install_prefix}" "${base_work_dir}" "${python_path}" "${cpp_std}"
 
     # 7. 종료 결과 표시
     # 실제 생성된 경로를 다시 한번 계산하여 메타데이터 파일 확인
