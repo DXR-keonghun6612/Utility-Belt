@@ -105,3 +105,6 @@ bash -x ./ASAP.sh 2> debug_trace.log
   - [ ] 3단계: 컴파일 및 빌드 프로세스 수행 (Build)
   - [ ] 4단계: 시스템 설치 및 상태 동기화 (Installation)
 - [ ] 기존 설치 스크립트(OpenCV, CUDA, Docker 등)의 표준 구조 준수 여부 검토 및 리팩토링
+- [ ] Docker/경량 환경을 위한 최적화
+  - [ ] 설정 파일 프로필에 따른 백엔드 모듈 선택적 초기화 (Selective Initialization) 로직 도입
+  - [ ] 컨테이너 환경 감지 및 시스템 수준 의존성(network-manager 등) 설치 스킵 옵션 추가
