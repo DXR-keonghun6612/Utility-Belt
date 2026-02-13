@@ -322,6 +322,10 @@ process_opencv_logic() {
         _build_opencv_logic "${version}" "${with_cuda}" "${gpu_arch}" "${jobs}" "${prefix}" "${base_work_dir}" "${python_path}" "${cpp_std}" || return 1
     else
         log_info "OpenCV is already built at ${build_dir}."
+        #Freshly installed dependencies might have newer timestamps than our build artifacts.
+        #We use 'make -t' to mark all targets as up-to-date to prevent 'make install' from triggering a rebuild.
+        log_info "Updating timestamps of existing build artifacts to avoid unnecessary recompilation..."
+        (cd "${build_dir}" && make -j"${jobs}" -t > /dev/null 2>&1)
     fi
 
     # 4. 설치 수행 (opt가 "all"일 때만)
