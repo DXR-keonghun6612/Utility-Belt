@@ -63,9 +63,12 @@ _get_ros2_distro() {
 
 # -----------------------------------------------------------------------------
 # @description ROS 2 설치 로직
+# @param $1 variant (선택) 설치 유형: "desktop", "ros-base", "ros-core" (기본값: "desktop")
 # @return 0: 성공, 1: 실패
 # -----------------------------------------------------------------------------
 install_ros2_logic() {
+    local variant="${1:-desktop}"
+    
     source /etc/os-release
     if [[ "${ID}" != "ubuntu" ]]; then
         log_error "ROS 2 installation script currently supports Ubuntu only."
@@ -105,14 +108,14 @@ install_ros2_logic() {
         return 1
     fi
 
-    log_info "Installing ROS 2 ${distro} (desktop version)..."
-    local ros_pkg="ros-${distro}-desktop"
+    log_info "Installing ROS 2 ${distro} (${variant} version)..."
+    local ros_pkg="ros-${distro}-${variant}"
     
     if sync_package "APPLICATION_LIST" "ros2-${distro}" "${ros_pkg}"; then
-        log_success "ROS 2 ${distro} installed successfully."
+        log_success "ROS 2 ${distro} (${variant}) installed successfully."
         return 0
     else
-        log_error "Failed to install ROS 2 ${distro}."
+        log_error "Failed to install ROS 2 ${distro} (${variant})."
         return 1
     fi
 }

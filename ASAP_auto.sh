@@ -157,7 +157,8 @@ run_provisioning() {
             log_info "ROS2 is already installed. Skipping."
         else
             log_info "[PROVISION] Applying [ROS2_PROFILE]..."
-            install_ros2_logic
+            local variant; variant=$(get_config_value "$CONFIG_FILE" "ROS2_PROFILE" "variant")
+            install_ros2_logic "${variant:-desktop}"
         fi
     fi
 
