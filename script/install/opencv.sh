@@ -315,20 +315,54 @@ process_opencv_logic() {
     local paths; paths=$(_resolve_opencv_paths "${version}" "${with_cuda}" "${gpu_arch}" "${cpp_std}" "${base_work_dir}" "${cuda_ver}" "${cudnn_ver}")
     local work_dir="${paths%|*}"
     local build_dir="${paths#*|}"
+    local build_tag; build_tag=$(basename "${build_dir}")
+    local meta_file="${work_dir}/build_${version}_${build_tag}.ini"
 
-    # 3. 빌드 수행 (필요 시)
-    if [[ ! -f "${build_dir}/Makefile" ]]; then
-        log_info "Build artifacts not found at ${build_dir}. Starting build..."
-        _build_opencv_logic "${version}" "${with_cuda}" "${gpu_arch}" "${jobs}" "${prefix}" "${base_work_dir}" "${python_path}" "${cpp_std}" || return 1
+    # 3. 빌드 유효성 검사 및 보정
+    local need_fresh_build=false
+    if [[ -f "${build_dir}/Makefile" ]]; then
+        log_info "Existing build detected at ${build_dir}."
+        
+        if [[ -f "${meta_file}" ]]; then
+            # 메타데이터에서 중요 환경 정보 추출
+            local old_os; old_os=$(get_config_value "${meta_file}" "OPENCV_BUILD_METADATA" "os_info")
+            local old_cuda; old_os=$(get_config_value "${meta_file}" "OPENCV_BUILD_METADATA" "cuda_version")
+            local old_cudnn; old_os=$(get_config_value "${meta_file}" "OPENCV_BUILD_METADATA" "cudnn_version")
+            local old_path; old_path=$(get_config_value "${meta_file}" "OPENCV_BUILD_METADATA" "actual_work_dir")
+            
+            # 현재 환경 정보 (비교용)
+            local current_os; current_os=$(grep PRETTY_NAME /etc/os-release | cut -d'=' -f2 | tr -d '\"')
+            
+            # [Critical Check] OS나 라이브러리 버전이 바뀌었다면 재사용 불가
+            if [[ "${old_os}" != "${current_os}" ]] || [[ "${old_cuda}" != "${cuda_ver}" ]] || [[ "${old_cudnn}" != "${cudnn_ver}" ]]; then
+                log_warn "System environment has changed (OS/CUDA/cuDNN). Existing build is invalid."
+                need_fresh_build=true
+            # [Path Check] 경로만 바뀌었다면 보정 후 재사용
+            elif [[ "${old_path}" != "${work_dir}" ]]; then
+                log_warn "Path mismatch detected. Re-configuring CMake..."
+                _build_opencv_logic "${version}" "${with_cuda}" "${gpu_arch}" "${jobs}" "${prefix}" "${base_work_dir}" "${python_path}" "${cpp_std}" || return 1
+                (cd "${build_dir}" && make -j"${jobs}" -t > /dev/null 2>&1)
+            else
+                log_info "Environment matches. Updating timestamps only..."
+                (cd "${build_dir}" && make -j"${jobs}" -t > /dev/null 2>&1)
+            fi
+        else
+            log_warn "Metadata file missing. Cannot guarantee build integrity. Forcing fresh build."
+            need_fresh_build=true
+        fi
     else
-        log_info "OpenCV is already built at ${build_dir}."
-        #Freshly installed dependencies might have newer timestamps than our build artifacts.
-        #We use 'make -t' to mark all targets as up-to-date to prevent 'make install' from triggering a rebuild.
-        log_info "Updating timestamps of existing build artifacts to avoid unnecessary recompilation..."
-        (cd "${build_dir}" && make -j"${jobs}" -t > /dev/null 2>&1)
+        need_fresh_build=true
     fi
 
-    # 4. 설치 수행 (opt가 "all"일 때만)
+    # 4. 빌드 수행
+    if [[ "${need_fresh_build}" == "true" ]]; then
+        log_info "Starting a fresh build of OpenCV ${version}..."
+        # 기존 빌드 폴더가 있다면 삭제 (오염 방지)
+        [[ -d "${build_dir}" ]] && ${G_SUDO_PREFIX} rm -rf "${build_dir}"
+        _build_opencv_logic "${version}" "${with_cuda}" "${gpu_arch}" "${jobs}" "${prefix}" "${base_work_dir}" "${python_path}" "${cpp_std}" || return 1
+    fi
+
+    # 5. 설치 수행 (opt가 "all"일 때만)
     if [[ "${opt}" == "all" ]]; then
         _perform_opencv_install "${version}" "${with_cuda}" "${gpu_arch}" "${prefix}" "${build_dir}" "${work_dir}" "${python_path}" "${cpp_std}" "${cuda_ver}" "${cudnn_ver}"
     fi
