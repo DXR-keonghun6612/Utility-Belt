@@ -2,7 +2,7 @@
 
 ASAP는 리눅스 서버 초기 설정과 유지보수를 위한 TUI 기반 자동화 플랫폼입니다. `bash`와 `dialog`를 활용해 복잡한 관리 작업을 직관적인 인터페이스로 통합합니다.
 
-## 🚀 프로젝트 개요
+## 프로젝트 개요
 
 - 목표: 서버 인프라 구축의 코드 기반 자동화
 - 설계 원칙:
@@ -11,7 +11,7 @@ ASAP는 리눅스 서버 초기 설정과 유지보수를 위한 TUI 기반 자�
   - 자가 치유(Self-Healing): UUID/PTUUID 추적을 통한 스토리지 경로 보호
 - OS: Ubuntu/Debian 기반 리눅스 지원
 
-## ✨ 주요 기능 (Key Features)
+## 주요 기능 (Key Features)
 
 ### 1. 지능형 권한 제어
 
@@ -32,22 +32,40 @@ ASAP는 리눅스 서버 초기 설정과 유지보수를 위한 TUI 기반 자�
 
 ### 4. 모듈형 소프트웨어 프로비저닝
 
-- 자동 설치 도구: Docker, NVIDIA Driver, Miniconda, VS Code 환경 구성
-- 사용자 도구: Git 전역 설정 및 SSH Key(ed25519/rsa) 생성/관리 자동화
-- 패키지 관리: APT 의존성 자동 확인 및 대량 설치 지원
+- 표준화된 파이프라인: 4단계(검증-의존성-빌드-설치) 표준 구조 기반의 설치 로직 적용
+- 스마트 업그레이드: 시스템 도구(CMake 등) 버전 미달 시 최신 바이너리 자동 확보 및 빌드 환경 최적화
+- 계층형 아키텍처: 인프라 기초(BASE), 실행 환경(PLATFORM), 개발 도구(DEV)로 구분된 단계적 설치
+- 패키지 관리: APT 의존성 자동 확인 및 대량 설치/제거 지원
 
 ### 5. 시스템 텔레메트리
 
 - 하드웨어 감사: CPU, GPU, 메모리, 보드 정보를 심층 스캔
 - 데이터 직렬화: 수집된 자산 정보를 외부 연동용 `JSON`으로 내보내기
 
-## 🛠 요구사항
+## 소프트웨어 설치 표준 (Installation Standard)
+
+ASAP는 유지보수성과 확장성을 위해 모든 소프트웨어 설치에 **4단계 표준 파이프라인**을 적용합니다.
+
+### 1. 4단계 파이프라인 (4-Stage Pipeline)
+
+1. **Stage 1: Verification (환경 검증)** - OS, 아키텍처, 최소 요구 사양 및 기설치 여부 확인
+2. **Stage 2: Dependency (의존성 해결)** - 필수 패키지 설치 및 빌드 도구(CMake 등)의 스마트 업그레이드
+3. **Stage 3: Build (빌드 및 준비)** - 소스 컴파일 또는 바이너리 확보 및 빌드 메타데이터 기록
+4. **Stage 4: Installation (설치 및 동기화)** - 시스템 배치, 환경 변수 설정 및 `state.conf` 상태 기록
+
+### 2. 계층형 구조 (Layered Architecture)
+
+- **Layer 1: BASE** - 인프라 기초 및 공용 빌드 도구 (System Utils, CMake, GCC 등)
+- **Layer 2: PLATFORM** - 하드웨어 가속 및 런타임 (NVIDIA Stack, Docker 등)
+- **Layer 3: DEV_STACK** - 사용자 개발 환경 및 라이브러리 (Conda, ROS 2, OpenCV 등)
+
+## 요구사항
 
 - OS: Ubuntu 20.04+ / Debian 계열
 - Shell: Bash 4.0 이상
 - 의존성: `dialog`, `lvm2`, `parted`, `cifs-utils`, `network-manager`
 
-## 📦 설치 및 실행
+## 설치 및 실행
 
 ### 1. 설치
 
@@ -86,7 +104,7 @@ bash -x ./ASAP.sh
 bash -x ./ASAP.sh 2> debug_trace.log
 ```
 
-## 📂 프로젝트 구조
+## 프로젝트 구조
 
 - `ASAP.sh`: 메인 엔트리포인트 및 권한 분기
 - `script/core/`: 핵심 라이브러리 (파서, 공통 함수)
@@ -95,7 +113,7 @@ bash -x ./ASAP.sh 2> debug_trace.log
 - `ui/`: `dialog` 기반 TUI 인터페이스 모듈
 - `conf/` & `template/`: 설정 파일 및 기본 템플릿
 
-## 📝 TODO
+## TODO
 
 - [x] Driver 설치 결과의 Config 파일 연동성 강화
 - [x] 원격 마운트 시 Credential 저장 위치 선택 옵션 추가
