@@ -59,3 +59,9 @@ class Class_Info:
     docstring: str | None = None
     is_enum: bool = False
     is_dataclass: bool = False
+
+@dataclass
+class Module_Info:
+    """외부 또는 하위 모듈/패키지 정보."""
+    name: str
+    imported_symbols: list[str] = field(default_factory=list)
