@@ -5,7 +5,9 @@ IR 데이터를 바탕으로 Base_Config 기반 템플릿을 생성하고 Draw.i
 from dataclasses import dataclass, field
 from typing import ClassVar, Any
 from python_toolbox.project import Base_Config
-from PyBlueprint.definition import Class_Info
+
+from pychart.definition import Class_Info
+
 
 @dataclass
 class Mx_Geometry(Base_Config):

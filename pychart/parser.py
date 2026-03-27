@@ -4,7 +4,9 @@ AST를 활용하여 파이썬 소스 코드에서 IR 데이터를 추출함.
 """
 import ast
 from pathlib import Path
-from definition import Class_Info, Method_Info, Arg_Info
+
+from pychart.definition import Class_Info, Method_Info, Arg_Info
+
 
 class Project_Analyzer(ast.NodeVisitor):
     """AST 기반 파이썬 코드 정적 분석기.
