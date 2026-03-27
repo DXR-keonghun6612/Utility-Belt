@@ -113,7 +113,7 @@ class Drawio_Graph_Builder:
                 _val += f") -&gt; {_m_rt_type}"
                 _h = 20 + (len(_valid_args) * 16) + 16
                 
-            _data.append((_val, _h, "function"))
+            _data.append((_Brackets_replace(_val), _h, "function"))
         return _data
 
     def _Render_class_node(
