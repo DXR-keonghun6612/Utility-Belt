@@ -1,4 +1,6 @@
 """builder.py: Draw.io 그래프 빌더 엔진."""
+import re
+
 from typing import Any
 from pychart.definition import (
     Arg_Info, Global_Group_Info, Method_Info, Class_Info, Module_Info)
@@ -24,8 +26,7 @@ class Graph_Builder:
         self, name: str, stereotype: str, 
         children_data: list[tuple[str, int, str]], 
         x: int, y: int, theme_colors: dict[str, str]
-    ) -> None:
-        # (기존 코드와 완전히 동일)
+    ) -> str:
         _parent_id = self._Next_id()
         _start_size = 60 if stereotype else 40
         _total_height = _start_size + sum(h for _, h, _ in children_data)
@@ -87,13 +88,61 @@ class Graph_Builder:
             self.cells.append(_node)
             _current_y += _h
 
+        return _parent_id
+
+    def _Render_edge(self, source_id: str, target_id: str, edge_type: str) -> None:
+        """두 노드를 잇는 선(Edge)을 생성함."""
+        _edge_id = self._Next_id()
+        
+        # 타입에 따른 화살표 스타일 분기
+        if edge_type == "inheritance":
+            # 상속: 실선, 빈 삼각형 화살촉, 직각으로 꺾이는 선
+            _style = {
+                "edgeStyle": "orthogonalEdgeStyle",
+                "rounded": "0",
+                "orthogonalLoop": "1",
+                "jettySize": "auto",
+                "html": "1",
+                "endArrow": "block",
+                "endFill": "0"
+            }
+        else:
+            # 의존성(데이터 흐름): 실선, 열린 화살촉
+            _style = {
+                "edgeStyle": "orthogonalEdgeStyle",
+                "rounded": "0",
+                "orthogonalLoop": "1",
+                "jettySize": "auto",
+                "html": "1",
+                "endArrow": "open"
+            }
+
+        # Mx_Geometry의 불필요한 기본값(x=0, y=0 등)을 None으로 덮어써서 XML 출력 방지
+        _geo = Mx_Geometry(
+            x=0, y=0, width=0, height=0, relative="1", as_attr="geometry"
+        )
+
+        _edge_node = Mx_Cell(
+            id=_edge_id,
+            value="",
+            style=_style,
+            vertex=None,  # 선이므로 vertex는 제외
+            edge="1",     # 선 속성 활성화
+            parent="1",
+            source=source_id,
+            target=target_id,
+            geometry=_geo
+        )
+        self.cells.append(_edge_node)
+
     def Build_from_ir(
         self, ir_data: dict[str, Any], is_detailed: bool = False
     ) -> str:
         _x, _y = 40, 40
 
+        _node_ids: dict[str, str] = {}
+
         for _name, _obj in ir_data.items():
-            # [핵심] 모든 객체가 가진 공통 속성(stereotype)을 바로 꺼내 씀
             _stereotype = getattr(_obj, "stereotype", "")
             
             if isinstance(_obj, Class_Info):
@@ -124,30 +173,64 @@ class Graph_Builder:
             else:
                 continue 
 
-            self._Create_swimlane_sector(
+            _parent_id =self._Create_swimlane_sector(
                 _name, _stereotype, _children, _x, _y, _theme)
+            _node_ids[_name] = _parent_id
 
             _x += 400
             if _x > 1200:
                 _x = 40
                 _y += 400
 
+        for _name, _obj in ir_data.items():
+            if isinstance(_obj, Class_Info):
+                _source_id = _node_ids.get(_name)
+                if not _source_id: continue
+
+                # 1. 상속(Inheritance) 화살표 연결
+                for _base in _obj.bases:
+                    _target_id = _node_ids.get(_base)
+                    if _target_id: # 렌더링된 박스 중에 부모 클래스가 있으면
+                        self._Render_edge(_source_id, _target_id, "inheritance")
+
+                # 2. 데이터 흐름(Composition/HAS-A) 화살표 연결
+                for _attr in _obj.attributes:
+                    # 정규식으로 단어(클래스명 등) 추출 (예: list[Base_Config] -> Base_Config)
+                    _words = re.findall(r'\b[A-Za-z_][A-Za-z0-9_]*\b', _attr.type_hint)
+                    
+                    for _word in _words:
+                        # 자기 자신을 가리키는 순환 참조 방지 & 화면에 존재하는 박스인지 확인
+                        if _word != _name and _word in _node_ids:
+                            _target_id = _node_ids[_word]
+                            self._Render_edge(
+                                _source_id, _target_id, "dependency"
+                            )
+                            # Union[A, B] 같은 경우 여러 번 긋게 되므로 정상 작동함
+
+        return self._Generate_xml()
+
         return self._Generate_xml()
 
     def _Generate_xml(self) -> str:
-        # (기존 코드와 완전히 동일)
+        """직렬화된 MxCell 객체를 XML 태그로 조립함."""
         _xml = [
             "<mxGraphModel><root><mxCell id='0'/><mxCell id='1' parent='0'/>"]
+
         for cell in self.cells:
             _data = cell.Serialize()
-            _geo_data: dict[str, Any] = _data.pop("geometry", None)
-            _attrs = " ".join(f'{k}="{v}"' for k, v in _data.items())
-            if _geo_data:
+            _geo: dict[str, Any] | None = _data.pop("geometry", None)
+
+            _attrs = " ".join(
+                f'{k}="{v}"' for k, v in _data.items() if v is not None)
+            
+            if _geo:
+                # Geometry 내부 속성도 None 제외
                 _geo_attrs = " ".join(
-                    f'{k}="{v}"' for k, v in _geo_data.items())
+                    f'{k}="{v}"' for k, v in _geo.items() if v is not None)
                 _xml.append(
                     f"<mxCell {_attrs}><mxGeometry {_geo_attrs}/></mxCell>")
             else:
                 _xml.append(f"<mxCell {_attrs}/>")
+
         _xml.append("</root></mxGraphModel>")
         return "".join(_xml)
