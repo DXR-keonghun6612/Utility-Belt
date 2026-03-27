@@ -6,7 +6,8 @@ import ast
 from pathlib import Path
 from typing import Any
 
-from pychart.definition import Module_Info, Class_Info, Method_Info, Arg_Info
+from pychart.definition import (
+    Module_Info, Class_Info, Method_Info, Arg_Info, Global_Group_Info)
 
 
 class Project_Analyzer(ast.NodeVisitor):
@@ -64,26 +65,84 @@ class Project_Analyzer(ast.NodeVisitor):
             docstring=ast.get_docstring(node)
         )
 
+    def visit_Module(self, node: ast.Module) -> None:
+        """파일 최상단(모듈 레벨)의 전역 변수 및 레지스트리 객체 동적 수집."""
+        for body_item in node.body:
+            # 1. 일반 할당 (예: CFGS = Registry(...) 또는 MAX_VAL = 10)
+            if isinstance(body_item, ast.Assign):
+                for target in body_item.targets:
+                    if isinstance(target, ast.Name):
+                        _name = target.id
+                        _type_hint = "Any"
+                        
+                        # [핵심 로직] 동적 스테레오타입 분류
+                        _group_name = "Globals"
+                        _stereotype = "«constants»"
+
+                        if isinstance(body_item.value, ast.Call):
+                            # 호출된 함수/클래스 이름 추출 (예: 'Registry')
+                            _type_hint = self._Get_type_str(body_item.value.func)
+                            
+                            # Call 힌트를 기반으로 Registry 여부 판단
+                            if "Registry" in _type_hint:
+                                _group_name = "Registries"
+                                _stereotype = "«registry»"
+                        
+                        # 그룹 바구니가 없으면 새로 생성
+                        if _group_name not in self.ir_data:
+                            self.ir_data[_group_name] = Global_Group_Info(
+                                name=_group_name, stereotype=_stereotype
+                            )
+                            
+                        self.ir_data[_group_name].variables.append(
+                            Arg_Info(name=_name, type_hint=_type_hint)
+                        )
+                        
+            # 2. 타입 힌트가 있는 전역 변수 (예: MAX_VAL: int = 10)
+            elif isinstance(body_item, ast.AnnAssign):
+                if isinstance(body_item.target, ast.Name):
+                    _name = body_item.target.id
+                    _type_hint = self._Get_type_str(body_item.annotation)
+                    
+                    _group_name = "Globals"
+                    if _group_name not in self.ir_data:
+                        self.ir_data[_group_name] = Global_Group_Info(
+                            name=_group_name, stereotype="«constants»"
+                        )
+                    self.ir_data[_group_name].variables.append(
+                        Arg_Info(name=_name, type_hint=_type_hint)
+                    )
+
+        self.generic_visit(node)
+
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
         """클래스 정의부 방문 및 정보 추출."""
-        # 1. 클래스 메타데이터 추출
         _bases = [b.id for b in node.bases if isinstance(b, ast.Name)]
         _docstring = ast.get_docstring(node)
-        _is_enum = any("Enum" in b for b in _bases)
         
-        # 데코레이터 파싱 (Dataclass 식별)
-        _dec_names = [ast.unparse(d).split('(')[0].split('.')[-1] for d in node.decorator_list]
-        _is_dataclass = "dataclass" in _dec_names
+        # 1. 상태 판별 (임시 로컬 변수로만 사용)
+        _is_enum_flag = any("Enum" in b for b in _bases)
+        _dec_names = [
+            ast.unparse(d).split('(')[0].split('.')[-1] for d in node.decorator_list]
+        _is_dataclass_flag = "dataclass" in _dec_names
+        
+        # 2. 스테레오타입 확정
+        if _is_enum_flag:
+            _stereotype = "«enumeration»<br>"
+        elif _is_dataclass_flag:
+            _stereotype = "«dataclass»<br>"
+        else:
+            _stereotype = None
 
+        # 3. 모델 생성 (is_enum, is_dataclass 인자 제거됨)
         _cls_info = Class_Info(
             name=node.name, 
             bases=_bases, 
-            docstring=_docstring, 
-            is_enum=_is_enum, 
-            is_dataclass=_is_dataclass
+            docstring=_docstring,
+            stereotype=_stereotype
         )
 
-        # 2. 클래스 내부 속성(Attributes) 추출 (메서드는 여기서 추출 안 함!)
+        # 4. 클래스 내부 속성 추출 (기존과 동일)
         for body_item in node.body:
             if isinstance(body_item, ast.AnnAssign) and isinstance(body_item.target, ast.Name):
                 _cls_info.attributes.append(
@@ -92,32 +151,30 @@ class Project_Analyzer(ast.NodeVisitor):
             elif isinstance(body_item, ast.Assign):
                 for target in body_item.targets:
                     if isinstance(target, ast.Name):
-                        _type_hint = "EnumMember" if _is_enum else "Any"
-                        _cls_info.attributes.append(Arg_Info(name=target.id, type_hint=_type_hint))
+                        # Enum 멤버 판단 시 로컬 변수(_is_enum_flag) 재활용
+                        _type_hint = "EnumMember" if _is_enum_flag else "Any"
+                        _cls_info.attributes.append(
+                            Arg_Info(name=target.id, type_hint=_type_hint))
 
         # 3. 데이터 등록
         self.ir_data[node.name] = _cls_info
         
-        # 4. 컨텍스트 스위칭 및 내부 순회 시작
         _prev_class = self._current_class_name
-        # "지금부터 이 클래스 안쪽을 탐색한다"고 표시
         self._current_class_name = node.name
-        # 이 과정에서 visit_FunctionDef가 호출됨!
         self.generic_visit(node)
-        # 탐색이 끝나면 원래 상태로 복구
         self._current_class_name = _prev_class
 
     def visit_FunctionDef(self, node: ast.FunctionDef | ast.AsyncFunctionDef):
         """함수 정의부 방문. (전역 함수 & 클래스 메서드 동시 처리)"""
         _func_info = self._Parse_function_info(node)
-
+        
         if self._current_class_name:
-            # 클래스 컨텍스트가 켜져 있으면 -> 클래스의 메서드로 등록
             self.ir_data[self._current_class_name].methods.append(_func_info)
         else:
-            # 클래스 밖이면 -> 전역(독립) 함수로 등록
+            # [핵심] 전역 함수일 경우 명찰 달아줌
+            _func_info.stereotype = "«function»<br>"
             self.ir_data[node.name] = _func_info
-            
+
         # 의도적인 생략: self.generic_visit(node)를 호출하지 않음으로써
         # 함수 안에 선언된 중첩 함수(Nested functions)는 다이어그램에서 무시함.
 

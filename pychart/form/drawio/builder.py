@@ -1,10 +1,11 @@
 """builder.py: Draw.io 그래프 빌더 엔진."""
 from typing import Any
-from pychart.definition import Class_Info, Method_Info
+from pychart.definition import (
+    Arg_Info, Global_Group_Info, Method_Info, Class_Info, Module_Info)
 
 from .models import Mx_Cell, Mx_Geometry
 from .formatter import F_attributes, F_methods
-from .utils import replace_brackets
+from .utils import R_brackets
 
 
 class Graph_Builder:
@@ -52,7 +53,7 @@ class Graph_Builder:
 
         _container_node = Mx_Cell(
             id=_parent_id,
-            value=f"{replace_brackets(stereotype)}#{name}",
+            value=f"{R_brackets(stereotype)}#{name}",
             style=_parent_style, vertex="1",
             geometry=Mx_Geometry(x=x, y=y, width=350, height=_total_height)
         )
@@ -92,31 +93,39 @@ class Graph_Builder:
         _x, _y = 40, 40
 
         for _name, _obj in ir_data.items():
+            # [핵심] 모든 객체가 가진 공통 속성(stereotype)을 바로 꺼내 씀
+            _stereotype = getattr(_obj, "stereotype", "")
+            
             if isinstance(_obj, Class_Info):
-                if _obj.is_enum:
-                    _type = "«enumeration»<br>"
-                elif _obj.is_dataclass:
-                    _type = "«dataclass»<br>"
-                else:
-                    _type = ""
-
+                # is_enum, is_dataclass 조건문 완전 삭제됨!
                 _children = F_attributes(
                     _obj.attributes, 20
                 ) + F_methods(
                     _obj.methods, 20, is_detailed
                 )
                 _theme = {"header": "#dae8fc", "stroke": "#6c8ebf"}
-
+                
             elif isinstance(_obj, Method_Info):
-                _type = "«function»<br>"
                 _children = F_methods([_obj], 20, is_detailed)
                 _theme = {"header": "#ffe6cc", "stroke": "#d79b00"}
-
+                
+            elif isinstance(_obj, Global_Group_Info):
+                _children = F_attributes(_obj.variables, 20)
+                _theme = {"header": "#f5f5f5", "stroke": "#666666"}
+                
+            elif isinstance(_obj, Module_Info):
+                _fake_attrs = [
+                    Arg_Info(
+                        name=sym, type_hint="Imported"
+                    ) for sym in _obj.imported_symbols]
+                _children = F_attributes(_fake_attrs, 20)
+                _theme = {"header": "#e1d5e7", "stroke": "#9673a6"}
+                
             else:
                 continue 
 
             self._Create_swimlane_sector(
-                _name, _type, _children, _x, _y, _theme)
+                _name, _stereotype, _children, _x, _y, _theme)
 
             _x += 400
             if _x > 1200:

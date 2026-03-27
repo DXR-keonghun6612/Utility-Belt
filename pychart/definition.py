@@ -2,7 +2,9 @@
 
 정적 코드 분석 결과를 담는 범용 데이터 모델을 정의함.
 """
+from typing import Literal
 from dataclasses import dataclass, field
+
 
 @dataclass
 class Arg_Info:
@@ -14,6 +16,15 @@ class Arg_Info:
     """
     name: str
     type_hint: str = "Any"
+
+
+@dataclass
+class Global_Group_Info:
+    """모듈 레벨의 전역 변수나 레지스트리 객체들을 묶어서 저장하는 모델."""
+    name: str = "Globals"
+    stereotype: str = "«constants»"
+    variables: list[Arg_Info] = field(default_factory=list)
+
 
 @dataclass
 class Method_Info:
@@ -29,6 +40,7 @@ class Method_Info:
     args: list[Arg_Info] = field(default_factory=list)
     return_type: str = "Any"
     docstring: str |  None = None
+    stereotype: str = "" # 전역 함수일 경우 «function» 사용
 
     def To_uml_signature(self) -> str:
         """UML 표준 시그니처 문자열 생성.
@@ -40,6 +52,7 @@ class Method_Info:
         _args_str = ", ".join(
             f"{a.name}: {a.type_hint}" for a in self.args if a.name != "self")
         return f"+ {self.name}({_args_str}) -> {self.return_type}"
+
 
 @dataclass
 class Class_Info:
@@ -57,11 +70,12 @@ class Class_Info:
     attributes: list[Arg_Info] = field(default_factory=list)
     methods: list[Method_Info] = field(default_factory=list)
     docstring: str | None = None
-    is_enum: bool = False
-    is_dataclass: bool = False
+    stereotype: Literal["«dataclass»<br>", "«enumeration»<br>"] | None = None
+
 
 @dataclass
 class Module_Info:
     """외부 또는 하위 모듈/패키지 정보."""
     name: str
     imported_symbols: list[str] = field(default_factory=list)
+    stereotype: str = "«module»"
