@@ -3,7 +3,7 @@ import argparse
 import sys
 
 from pychart.parser import Project_Analyzer
-from pychart.form.draw_io import DrawioGraphBuilder
+from pychart.form.draw_io import Drawio_Graph_Builder
 
 def generate_diagram(target_dir: str, output_file: str) -> None:
     """순수 비즈니스 로직: 파서와 렌더러를 연결하는 파이프라인."""
@@ -13,7 +13,7 @@ def generate_diagram(target_dir: str, output_file: str) -> None:
     ir_data = analyzer.Analyze_directory(target_dir)
 
     # 2. 프레젠테이션 계층: IR 데이터를 XML로 렌더링
-    builder = DrawioGraphBuilder()
+    builder = Drawio_Graph_Builder()
     xml_output = builder.build_from_ir(ir_data)
 
     # 3. 디스크 쓰기

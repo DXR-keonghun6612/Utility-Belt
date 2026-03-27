@@ -28,6 +28,7 @@ class Mx_Geometry(Base_Config):
     
     __custom_keys__: ClassVar[dict[str, str]] = {"as_attr": "as"}
 
+
 @dataclass
 class Mx_Cell(Base_Config):
     """Draw.io 요소 기본 템플릿 모델.
@@ -45,7 +46,7 @@ class Mx_Cell(Base_Config):
     style: dict[str, str] = field(default_factory=dict)
     parent: str = "1"
     vertex: str = "0"
-    geometry: Mx_Geometry = Mx_Geometry()
+    geometry: Mx_Geometry = field(default_factory=Mx_Geometry)
 
     # 스타일 딕셔너리 직렬화 변환
     __custom_serializers__: ClassVar[dict[str, Any]] = {
@@ -53,7 +54,7 @@ class Mx_Cell(Base_Config):
             f"{k}={v}" for k, v in s.items()) + ";" if s else ""
     }
 
-class DrawioGraphBuilder:
+class Drawio_Graph_Builder:
     """IR 모델을 MxCell 트리로 변환하고 XML을 생성함.
     
     Attributes:
