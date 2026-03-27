@@ -30,7 +30,7 @@ class Method_Info:
     return_type: str = "Any"
     docstring: str |  None = None
 
-    def to_uml_signature(self) -> str:
+    def To_uml_signature(self) -> str:
         """UML 표준 시그니처 문자열 생성.
 
         Returns:
@@ -57,3 +57,4 @@ class Class_Info:
     attributes: list[Arg_Info] = field(default_factory=list)
     methods: list[Method_Info] = field(default_factory=list)
     docstring: str | None = None
+    is_enum: bool = False

@@ -66,7 +66,7 @@ class Drawio_Graph_Builder:
         self.cells: list[Mx_Cell] = []
         self._id_counter: int = 2
 
-    def _next_id(self) -> str:
+    def _Next_id(self) -> str:
         """순차적 고유 ID 발급.
 
         Returns:
@@ -76,7 +76,7 @@ class Drawio_Graph_Builder:
         self._id_counter += 1
         return _id
 
-    def build_from_ir(self, ir_data: dict[str, Class_Info]) -> str:
+    def Build_from_ir(self, ir_data: dict[str, Class_Info]) -> str:
         """IR 데이터를 Draw.io 포맷으로 렌더링함.
         
         Args:
@@ -88,34 +88,44 @@ class Drawio_Graph_Builder:
         _x, _y = 40, 40
 
         # 클래스 순회
-        for name, cls_info in ir_data.items():
-            _parent_id = self._next_id()
-            _height = 80 + (
-                len(cls_info.attributes) + len(cls_info.methods)) * 20
+        for _n, _cls_info in ir_data.items():
+            _parent_id = self._Next_id()
+            _height = 60 + (
+                len(_cls_info.attributes) + len(_cls_info.methods)) * 20
 
-            # 부모 컨테이너 노드 생성
+            # Enum 여부에 따른 색상 및 스테레오타입 분기
+            _fill_color = "#d5e8d4" if _cls_info.is_enum else "#dae8fc"
+
+            _stereotype = ""
+            if _cls_info.is_enum:
+                _stereotype = "&lt;&lt;enumeration&gt;&gt;&lt;br&gt;"
+
+            _parent_value = f"{_stereotype}#{_n}"
             _style = {
-                "swimlane": "1",
-                "childLayout": "stackLayout",
-                "horizontal": "1",
-                "startSize": "40",
-                "html": "1"
+                "swimlane": "1", 
+                "childLayout": "stackLayout", 
+                "horizontal": "1", 
+                "startSize": "40" if not _cls_info.is_enum else "50", 
+                "html": "1",
+                "fontStyle": "1",          # 볼드체 네이티브 처리
+                "fillColor": _fill_color,  # 헤더 배경색 (녹색/파란색)
+                "swimlaneFillColor": "#ffffff" # 내부 바디 배경색
             }
             _class_node = Mx_Cell(
                 id=_parent_id,
-                value=f"&lt;b&gt;#{name}&lt;/b&gt;",
+                value=_parent_value,
                 style=_style,
                 vertex="1",
                 geometry=Mx_Geometry(x=_x, y=_y, width=300, height=_height)
             )
             self.cells.append(_class_node)
 
-            _current_y = 40
+            _current_y = 40 if not _cls_info.is_enum else 50
 
             # 속성 자식 노드 생성
-            for attr in cls_info.attributes:
+            for attr in _cls_info.attributes:
                 _attr_node = Mx_Cell(
-                    id=self._next_id(),
+                    id=self._Next_id(),
                     value=f"+ {attr.name}: {attr.type_hint}",
                     style={
                         "text": "1",
@@ -125,16 +135,16 @@ class Drawio_Graph_Builder:
                     },
                     vertex="1",
                     parent=_parent_id,
-                    geometry=Mx_Geometry(y=_current_y, width=300, height=20)
+                    geometry=Mx_Geometry(
+                        y=_current_y, width=300, height=20)
                 )
                 self.cells.append(_attr_node)
                 _current_y += 20
-
-            # 메서드 자식 노드 생성
-            for method in cls_info.methods:
+                
+            for method in _cls_info.methods:
                 _method_node = Mx_Cell(
-                    id=self._next_id(),
-                    value=method.to_uml_signature().replace(
+                    id=self._Next_id(),
+                    value=method.To_uml_signature().replace(
                         "<", "&lt;"
                     ).replace(
                         ">", "&gt;"
@@ -151,16 +161,15 @@ class Drawio_Graph_Builder:
                 )
                 self.cells.append(_method_node)
                 _current_y += 20
-
             # X축 좌표 갱신 및 줄바꿈
             _x += 350
             if _x > 1200:
                 _x = 40
                 _y += 300
 
-        return self._generate_xml()
+        return self._Generate_xml()
 
-    def _generate_xml(self) -> str:
+    def _Generate_xml(self) -> str:
         """직렬화된 MxCell 객체를 XML 태그로 조립함.
 
         Returns:

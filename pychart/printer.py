@@ -14,7 +14,7 @@ def generate_diagram(target_dir: str, output_file: str) -> None:
 
     # 2. 프레젠테이션 계층: IR 데이터를 XML로 렌더링
     builder = Drawio_Graph_Builder()
-    xml_output = builder.build_from_ir(ir_data)
+    xml_output = builder.Build_from_ir(ir_data)
 
     # 3. 디스크 쓰기
     with open(output_file, "w", encoding="utf-8") as f:

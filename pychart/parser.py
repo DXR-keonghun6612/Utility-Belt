@@ -74,6 +74,8 @@ class Project_Analyzer(ast.NodeVisitor):
         _bases = [b.id for b in node.bases if isinstance(b, ast.Name)]
         _docstring = ast.get_docstring(node)
 
+        _is_enum = any("Enum" in b for b in _bases)
+
         _cls_info = Class_Info(
             name=node.name, bases=_bases, docstring=_docstring)
 
@@ -105,6 +107,15 @@ class Project_Analyzer(ast.NodeVisitor):
                             type_hint=self._Get_type_str(body_item.annotation)
                         )
                     )
+
+            # 타입 힌트가 없는 일반 변수 할당 (Enum 멤버 등) 처리
+            elif isinstance(body_item, ast.Assign):
+                for target in body_item.targets:
+                    if isinstance(target, ast.Name):
+                        # Enum 멤버인 경우 타입을 'EnumMember'로, 일반 클래스 변수인 경우 'Any'로 표기
+                        _type_hint = "EnumMember" if _is_enum else "Any"
+                        _cls_info.attributes.append(
+                            Arg_Info(name=target.id, type_hint=_type_hint))
 
         self.classes[node.name] = _cls_info
         self.generic_visit(node)
