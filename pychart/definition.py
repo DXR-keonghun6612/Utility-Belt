@@ -58,3 +58,4 @@ class Class_Info:
     methods: list[Method_Info] = field(default_factory=list)
     docstring: str | None = None
     is_enum: bool = False
+    is_dataclass: bool = False

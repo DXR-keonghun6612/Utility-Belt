@@ -76,8 +76,20 @@ class Project_Analyzer(ast.NodeVisitor):
 
         _is_enum = any("Enum" in b for b in _bases)
 
+        _dec_names = [
+            ast.unparse(
+                d
+            ).split('(')[0].split('.')[-1] for d in node.decorator_list
+        ]
+        _is_dataclass = "dataclass" in _dec_names
+
         _cls_info = Class_Info(
-            name=node.name, bases=_bases, docstring=_docstring)
+            name=node.name, 
+            bases=_bases, 
+            docstring=_docstring, 
+            is_enum=_is_enum, 
+            is_dataclass=_is_dataclass
+        )
 
         # 클래스 내부 순회
         for body_item in node.body:
@@ -86,8 +98,10 @@ class Project_Analyzer(ast.NodeVisitor):
                 _m_doc = ast.get_docstring(body_item)
                 _m_ret = self._Get_type_str(body_item.returns)
                 _m_args = [
-                    Arg_Info(name=arg.arg, type_hint=self._Get_type_str(arg.annotation))
-                    for arg in body_item.args.args
+                    Arg_Info(
+                        name=arg.arg,
+                        type_hint=self._Get_type_str(arg.annotation)
+                    ) for arg in body_item.args.args
                 ]
                 _cls_info.methods.append(
                     Method_Info(

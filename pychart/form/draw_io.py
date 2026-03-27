@@ -96,16 +96,23 @@ class Drawio_Graph_Builder:
             # Enum 여부에 따른 색상 및 스테레오타입 분기
             _fill_color = "#d5e8d4" if _cls_info.is_enum else "#dae8fc"
 
-            _stereotype = ""
+            # 타입별 색상 및 스테레오타입 분기 처리
             if _cls_info.is_enum:
+                _fill_color = "#d5e8d4" # 녹색
                 _stereotype = "&lt;&lt;enumeration&gt;&gt;&lt;br&gt;"
+            elif _cls_info.is_dataclass:
+                _fill_color = "#e1d5e7" # 보라색 (DTO/Data 객체용)
+                _stereotype = "&lt;&lt;dataclass&gt;&gt;&lt;br&gt;"
+            else:
+                _fill_color = "#dae8fc" # 파란색 (일반 클래스)
+                _stereotype = ""
 
             _parent_value = f"{_stereotype}#{_n}"
             _style = {
                 "swimlane": "1", 
                 "childLayout": "stackLayout", 
                 "horizontal": "1", 
-                "startSize": "40" if not _cls_info.is_enum else "50", 
+                "startSize": "40" if not _stereotype else "50", 
                 "html": "1",
                 "fontStyle": "1",          # 볼드체 네이티브 처리
                 "fillColor": _fill_color,  # 헤더 배경색 (녹색/파란색)
