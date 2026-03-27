@@ -79,7 +79,7 @@ class Graph_Builder:
             }
             _node = Mx_Cell(
                 id=self._Next_id(),
-                value=_val,
+                value=R_brackets(_val),
                 style=_child_style,
                 vertex="1",
                 parent=_parent_id,
@@ -206,8 +206,6 @@ class Graph_Builder:
                                 _source_id, _target_id, "dependency"
                             )
                             # Union[A, B] 같은 경우 여러 번 긋게 되므로 정상 작동함
-
-        return self._Generate_xml()
 
         return self._Generate_xml()
 
