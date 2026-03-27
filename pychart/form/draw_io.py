@@ -107,27 +107,41 @@ class Drawio_Graph_Builder:
                 _fill_color = "#dae8fc" # 파란색 (일반 클래스)
                 _stereotype = ""
 
-            _parent_value = f"{_stereotype}#{_n}"
+            # 2. 헤더 크기 및 총 높이 수치 동기화
+            _start_size = 60 if _stereotype else 40
+            _current_y = _start_size
+            _item_count = len(_cls_info.attributes) + len(_cls_info.methods)
+            _total_height = _start_size + (_item_count * 20)
+
+            # 3. 레이아웃 붕괴 방지용 제약 조건 추가 
             _style = {
                 "swimlane": "1", 
                 "childLayout": "stackLayout", 
                 "horizontal": "1", 
-                "startSize": "40" if not _stereotype else "50", 
+                "startSize": str(_start_size), # 동적 헤더 높이 반영
                 "html": "1",
-                "fontStyle": "1",          # 볼드체 네이티브 처리
-                "fillColor": _fill_color,  # 헤더 배경색 (녹색/파란색)
-                "swimlaneFillColor": "#ffffff" # 내부 바디 배경색
+                "fontStyle": "1",          
+                "fillColor": _fill_color,  
+                "swimlaneFillColor": "#ffffff",
+                # --- 리사이즈 깨짐 방지 안전망 ---
+                "resizeParent": "1",
+                "resizeParentMax": "0",
+                "resizeLast": "0",
+                "collapsible": "1",
+                "marginBottom": "0"
             }
+
+            _parent_value = f"{_stereotype}#{_n}"
             _class_node = Mx_Cell(
                 id=_parent_id,
                 value=_parent_value,
                 style=_style,
                 vertex="1",
-                geometry=Mx_Geometry(x=_x, y=_y, width=300, height=_height)
+                geometry=Mx_Geometry(
+                    x=_x, y=_y, width=300, height=_total_height
+                )
             )
             self.cells.append(_class_node)
-
-            _current_y = 40 if not _cls_info.is_enum else 50
 
             # 속성 자식 노드 생성
             for attr in _cls_info.attributes:
