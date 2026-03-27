@@ -1,0 +1,34 @@
+{
+    "settings": {
+        "cmake.showOptionsMovedNotification": false,
+        "cmake.pinnedCommands": [
+            "workbench.action.tasks.configureTaskRunner",
+            "workbench.action.tasks.runTask"
+        ],
+        "[cpp]": {
+            "editor.defaultFormatter": "ms-vscode.cpptools",
+            "editor.formatOnType": true,
+            "editor.rulers": [
+                {
+                    "column": 80,
+                    "color": "#199019"
+                },
+                {
+                    "column": 100,
+                    "color": "#a9a913"
+                },
+                {
+                    "column": 120,
+                    "color": "#9d1010"
+                }
+            ],
+            "editor.wordBasedSuggestions": "off"
+        }
+    },
+    "extensions": [
+        "ms-vscode.cpptools-extension-pack",
+        "ms-vscode.cmake-tools",
+        "ms-vscode.makefile-tools",
+        "nvidia.nsight-vscode-edition"
+    ]
+}

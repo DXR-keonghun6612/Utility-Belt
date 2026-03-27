@@ -20,7 +20,7 @@ temp/
 
 # File extensions to ignore
 *.conf
-*.json
+# *.json
 *.log
 *.tmp
 *.state

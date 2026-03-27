@@ -1,0 +1,12 @@
+{
+    "settings": {
+        "liveServer.settings.donotShowInfoMsg": true,
+        "sqltools.useNodeRuntime": true
+    },
+    "extensions": [
+        "ms-vscode.live-server",
+        "mtxr.sqltools",
+        "mtxr.sqltools-driver-sqlite",
+        "mtxr.sqltools-driver-mysql"
+    ]
+}

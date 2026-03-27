@@ -1,0 +1,26 @@
+{
+    "settings": {
+        "terminal.integrated.defaultProfile.windows": "Git Bash",
+        "terminal.integrated.profiles.windows": {
+            "Windows PowerShell": {
+                "path": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+            },
+            "PowerShell": {
+                "source": "PowerShell",
+                "icon": "terminal-powershell"
+            },
+            "Git Bash": {
+                "source": "Git Bash"
+            },
+            "Command Prompt": {
+                "path": [
+                    "${env:windir}\\Sysnative\\cmd.exe",
+                    "${env:windir}\\System32\\cmd.exe"
+                ],
+                "args": [],
+                "icon": "terminal-cmd"
+            }
+        }
+    },
+    "extensions": []
+}

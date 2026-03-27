@@ -1,0 +1,79 @@
+{
+    "settings": {
+        "workbench.colorTheme": "Monokai Dimmed",
+        "workbench.iconTheme": "material-icon-theme",
+        "workbench.editor.enablePreview": false,
+        "workbench.editorLargeFileConfirmation": 15,
+        "editor.fontFamily": "'D2Coding', Consolas, 'Courier New', monospace",
+        "editor.fontSize": 16,
+        "editor.wordWrap": "on",
+        "editor.minimap.enabled": false,
+        "diffEditor.ignoreTrimWhitespace": false,
+        "explorer.compactFolders": false,
+        "explorer.confirmDelete": false,
+        "explorer.confirmDragAndDrop": false,
+        "files.exclude": {
+            "**/.git": false
+        },
+        "terminal.integrated.fontSize": 17,
+        "terminal.integrated.inheritEnv": false,
+        "git.ignoreRebaseWarning": true,
+        "hediet.vscode-drawio.codeLinkActivated": true,
+        "cSpell.userWords": [
+            "astype", "BGRA", "cfgs", "Debuging", "dtype", "imread", 
+            "imwrite", "linalg", "nbytes", "ndarray", "pixmap", 
+            "relativedelta", "rembg", "TRAJ"
+        ],
+        "cSpell.ignorePaths": [
+            "package-lock.json", "node_modules", "vscode-extension",
+            ".git/{info,lfs,logs,refs,objects}/**", ".git/{index,*refs,*HEAD}",
+            ".vscode", ".vscode-insiders", ".drawio"
+        ],
+        "[json]": {
+            "editor.quickSuggestions": { "strings": true },
+            "editor.suggest.insertMode": "replace"
+        },
+        "[markdown]": {
+            "editor.wordWrap": "on",
+            "editor.rulers": [140],
+            "markdownlint.config": { "MD033": false },
+            "editor.quickSuggestions": { "comments": "off", "strings": "off", "other": "off" }
+        },
+        "[shellscript]": {
+            "editor.defaultFormatter": "foxundermoon.shell-format",
+            "editor.formatOnSave": true,
+            "editor.wordWrap": "on",
+            "editor.rulers": [80]
+        },
+        "shellformat.flag": "-i 4 -ci",
+        "launch": {
+            "version": "0.2.0",
+            "configurations": [
+                {
+                    "name": "C/C++: 현재 파일 빌드 및 디버그 (GDB)",
+                    "type": "cppdbg",
+                    "request": "launch",
+                    "program": "${fileDirname}/${fileBasenameNoExtension}.exe",
+                    "args": [],
+                    "stopAtEntry": false,
+                    "cwd": "${fileDirname}",
+                    "environment": [],
+                    "externalConsole": false,
+                    "MIMode": "gdb"
+                }
+            ]
+        }
+    },
+    "extensions": [
+        "pkief.material-icon-theme",
+        "streetsidesoftware.code-spell-checker",
+        "alefragnani.bookmarks",
+        "shinotatwu-ds.file-tree-generator",
+        "hediet.vscode-drawio",
+        "tomoki1207.pdf",
+        "davidanson.vscode-markdownlint",
+        "timonwong.shellcheck",
+        "mads-hartmann.bash-ide-vscode",
+        "foxundermoon.shell-format"
+    ]
+}
