@@ -127,12 +127,11 @@ class Project_Analyzer(ast.NodeVisitor):
         _is_dataclass_flag = "dataclass" in _dec_names
         
         # 2. 스테레오타입 확정
+        _stereotype = ""
         if _is_enum_flag:
             _stereotype = "«enumeration»<br>"
         elif _is_dataclass_flag:
             _stereotype = "«dataclass»<br>"
-        else:
-            _stereotype = None
 
         # 3. 모델 생성 (is_enum, is_dataclass 인자 제거됨)
         _cls_info = Class_Info(

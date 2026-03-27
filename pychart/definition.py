@@ -70,7 +70,7 @@ class Class_Info:
     attributes: list[Arg_Info] = field(default_factory=list)
     methods: list[Method_Info] = field(default_factory=list)
     docstring: str | None = None
-    stereotype: Literal["«dataclass»<br>", "«enumeration»<br>"] | None = None
+    stereotype: Literal["", "«dataclass»<br>", "«enumeration»<br>"] = ""
 
 
 @dataclass
