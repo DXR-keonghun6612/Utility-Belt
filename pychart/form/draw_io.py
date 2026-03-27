@@ -160,7 +160,7 @@ class Drawio_Graph_Builder:
         }
         _class_node = Mx_Cell(
             id=_parent_id,
-            value=f"{_stereotype}#{name}",
+            value=f"{_Brackets_replace(_stereotype)}#{name}",
             style=_parent_style,
             vertex="1",
             geometry=Mx_Geometry(x=x, y=y, width=350, height=_total_height)
