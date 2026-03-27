@@ -125,9 +125,9 @@ class Drawio_Graph_Builder:
         # 1. 헤더 메타데이터 설정
         _stereotype = ""
         if cls_info.is_enum:
-            _stereotype = "&lt;&lt;enumeration&gt;&gt;&lt;br&gt;"
+            _stereotype = "«enumeration»<br>"
         elif cls_info.is_dataclass:
-            _stereotype = "&lt;&lt;dataclass&gt;&gt;&lt;br&gt;"
+            _stereotype = "«dataclass»<br>"
         _start_size = 60 if _stereotype else 40
         
         # 2. 헬퍼 함수를 통한 자식 데이터 파싱 및 총 높이 계산
@@ -139,20 +139,22 @@ class Drawio_Graph_Builder:
 
         # 3. 부모 컨테이너(헤더) 노드 생성
         _parent_style = {
-            "swimlane": "1",
-            "childLayout": "stackLayout",
+            "shape": "swimlane",
+            "childLayout": "stackLayout", 
             "horizontal": "1", 
-            "horizontalStack": "0",
-            "startSize": str(_start_size),
+            "horizontalStack": "0", 
+            "startSize": str(_start_size), 
             "html": "1",
-            "fontStyle": "1",
-            "fillColor": "#dae8fc",
+            "fontStyle": "1", 
+            "align": "center",
+            "verticalAlign": "top",
+            "fillColor": "#dae8fc", 
             "swimlaneFillColor": "#ffffff",
-            "resizeParent": "1",
-            "resizeParentMax": "0",
+            "resizeParent": "1", 
+            "resizeParentMax": "0", 
             "resizeLast": "0",
-            "collapsible": "1",
-            "marginBottom": "0",
+            "collapsible": "1", 
+            "marginBottom": "0", 
             "whiteSpace": "wrap",
             "strokeColor": "#6c8ebf"
         }
