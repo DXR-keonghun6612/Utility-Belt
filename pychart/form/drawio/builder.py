@@ -1,6 +1,4 @@
 """builder.py: Draw.io 그래프 빌더 엔진."""
-import re
-
 from typing import Any
 from pychart.definition import (
     Arg_Info, Global_Group_Info, Method_Info, Class_Info, Module_Info)

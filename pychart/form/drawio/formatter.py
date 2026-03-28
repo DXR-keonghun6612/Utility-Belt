@@ -1,10 +1,9 @@
 """formatter.py: 텍스트 및 HTML 포맷팅 유틸리티."""
-import re
 from typing import Final
 
 from pychart.definition import Arg_Info, Method_Info
 
-from .utils import R_brackets
+from .utils import R_brackets, Type_highlight
 
 # 내장 파이썬 타입 리스트
 BUILTIN_TYPES: Final[set[str]] = {
@@ -30,14 +29,8 @@ def F_type_ref(type_hint: str) -> str:
     # 꺾쇠(<, >)를 HTML 엔티티로 안전하게 변환
     _clean_type = R_brackets(type_hint)
     
-    def _replacer(match: re.Match) -> str:
-        word = match.group(0)
-        if word in BUILTIN_TYPES:
-            return word
-        # 사용자 정의 타입은 파란색 강조
-        return f"<b><font color='#0066CC'>#{word}</font></b>"
-        
-    return re.sub(r'\b[A-Za-z_][A-Za-z0-9_]*\b', _replacer, _clean_type)
+    # 사용자 정의 타입 강조 처리 (utils의 정규표현식 로직 사용)
+    return Type_highlight(_clean_type, BUILTIN_TYPES)
 
 
 def F_attributes(

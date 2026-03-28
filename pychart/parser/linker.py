@@ -3,7 +3,6 @@
 IR 데이터를 바탕으로 전체 프로젝트 맥락에서의 관계(Graph)를 완성함.
 """
 import re
-from typing import Any
 from dataclasses import dataclass, field
 
 from pychart.definition import Class_Info
