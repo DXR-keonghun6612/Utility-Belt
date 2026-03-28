@@ -13,7 +13,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "pychart=pychart.printer:cli_main",
+            "pychart=pychart.printer:Cli_Main",
         ],
     },
 )
