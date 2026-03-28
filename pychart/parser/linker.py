@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 from pychart.definition import Class_Info
 
-from parsing_type import NODE
+from .parsing_type import NODE
 
 @dataclass
 class Edge_Info:

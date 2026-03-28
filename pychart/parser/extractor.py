@@ -8,7 +8,7 @@ from pathlib import Path
 from pychart.definition import (
     Module_Info, Class_Info, Method_Info, Arg_Info, Global_Group_Info)
 
-from parsing_type import NODE
+from .parsing_type import NODE
 
 
 class Project_Analyzer(ast.NodeVisitor):
