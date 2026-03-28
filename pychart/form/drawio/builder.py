@@ -8,6 +8,11 @@ from pychart.definition import (
 from .models import Mx_Cell, Mx_Geometry
 from .formatter import F_attributes, F_methods
 from .utils import R_brackets
+from .style import (
+    THEME_CLASS, THEME_METHOD, THEME_GLOBAL, THEME_MODULE,
+    BG_VARIABLE, BG_METHOD, DEFAULT_WIDTH, STEP_X, STEP_Y, MAX_X,
+    get_swimlane_style, get_child_style, get_edge_style
+)
 
 
 class Graph_Builder:
@@ -31,59 +36,32 @@ class Graph_Builder:
         _start_size = 60 if stereotype else 40
         _total_height = _start_size + sum(h for _, h, _ in children_data)
 
-        _parent_style = {
-            "shape": "swimlane",
-            "childLayout": "stackLayout",
-            "horizontal": "1",
-            "horizontalStack": "0",
-            "startSize": str(_start_size),
-            "html": "1",
-            "fontStyle": "1",
-            "align": "center",
-            "verticalAlign": "top",
-            "fillColor": theme_colors.get("header", "#dae8fc"), 
-            "swimlaneFillColor": "#ffffff",
-            "resizeParent": "1",
-            "resizeParentMax": "0",
-            "resizeLast": "0",
-            "collapsible": "1",
-            "marginBottom": "0",
-            "whiteSpace": "wrap",
-            "strokeColor": theme_colors.get("stroke", "#6c8ebf")
-        }
+        _parent_style = get_swimlane_style(
+            _start_size,
+            theme_colors.get("header", "#dae8fc"),
+            theme_colors.get("stroke", "#6c8ebf")
+        )
 
         _container_node = Mx_Cell(
             id=_parent_id,
             value=f"{R_brackets(stereotype)}#{name}",
             style=_parent_style, vertex="1",
-            geometry=Mx_Geometry(x=x, y=y, width=350, height=_total_height)
+            geometry=Mx_Geometry(x=x, y=y, width=DEFAULT_WIDTH, height=_total_height)
         )
         self.cells.append(_container_node)
 
         _current_y = _start_size
         for _val, _h, _type in children_data:
-            _bg = "#fff2cc" if _type == "variable" else "#d5e8d4"
-            _child_style = {
-                "text": "1",
-                "html": "1",
-                "align": "left",
-                "verticalAlign": "top",
-                "spacingTop": "2",
-                "spacingLeft": "4",
-                "spacingRight": "4",
-                "strokeColor": "none",
-                "fillColor": _bg,
-                "overflow": "hidden",
-                "whiteSpace": "wrap",
-                "rotatable": "0"
-            }
+            _bg = BG_VARIABLE if _type == "variable" else BG_METHOD
+            _child_style = get_child_style(_bg)
+            
             _node = Mx_Cell(
                 id=self._Next_id(),
                 value=R_brackets(_val),
                 style=_child_style,
                 vertex="1",
                 parent=_parent_id,
-                geometry=Mx_Geometry(y=_current_y, width=350, height=_h)
+                geometry=Mx_Geometry(y=_current_y, width=DEFAULT_WIDTH, height=_h)
             )
             self.cells.append(_node)
             _current_y += _h
@@ -94,28 +72,7 @@ class Graph_Builder:
         """두 노드를 잇는 선(Edge)을 생성함."""
         _edge_id = self._Next_id()
         
-        # 타입에 따른 화살표 스타일 분기
-        if edge_type == "inheritance":
-            # 상속: 실선, 빈 삼각형 화살촉, 직각으로 꺾이는 선
-            _style = {
-                "edgeStyle": "orthogonalEdgeStyle",
-                "rounded": "0",
-                "orthogonalLoop": "1",
-                "jettySize": "auto",
-                "html": "1",
-                "endArrow": "block",
-                "endFill": "0"
-            }
-        else:
-            # 의존성(데이터 흐름): 실선, 열린 화살촉
-            _style = {
-                "edgeStyle": "orthogonalEdgeStyle",
-                "rounded": "0",
-                "orthogonalLoop": "1",
-                "jettySize": "auto",
-                "html": "1",
-                "endArrow": "open"
-            }
+        _style = get_edge_style(edge_type)
 
         # Mx_Geometry의 불필요한 기본값(x=0, y=0 등)을 None으로 덮어써서 XML 출력 방지
         _geo = Mx_Geometry(
@@ -135,14 +92,14 @@ class Graph_Builder:
         )
         self.cells.append(_edge_node)
 
-    def Build_from_ir(
-        self, ir_data: dict[str, Any], is_detailed: bool = False
+    def Build_from_graph(
+        self, graph_data: Any, is_detailed: bool = False
     ) -> str:
         _x, _y = 40, 40
 
         _node_ids: dict[str, str] = {}
 
-        for _name, _obj in ir_data.items():
+        for _name, _obj in graph_data.nodes.items():
             _stereotype = getattr(_obj, "stereotype", "")
             
             if isinstance(_obj, Class_Info):
@@ -152,15 +109,15 @@ class Graph_Builder:
                 ) + F_methods(
                     _obj.methods, 20, is_detailed
                 )
-                _theme = {"header": "#dae8fc", "stroke": "#6c8ebf"}
+                _theme = THEME_CLASS
                 
             elif isinstance(_obj, Method_Info):
                 _children = F_methods([_obj], 20, is_detailed)
-                _theme = {"header": "#ffe6cc", "stroke": "#d79b00"}
+                _theme = THEME_METHOD
                 
             elif isinstance(_obj, Global_Group_Info):
                 _children = F_attributes(_obj.variables, 20)
-                _theme = {"header": "#f5f5f5", "stroke": "#666666"}
+                _theme = THEME_GLOBAL
                 
             elif isinstance(_obj, Module_Info):
                 _fake_attrs = [
@@ -168,7 +125,7 @@ class Graph_Builder:
                         name=sym, type_hint="Imported"
                     ) for sym in _obj.imported_symbols]
                 _children = F_attributes(_fake_attrs, 20)
-                _theme = {"header": "#e1d5e7", "stroke": "#9673a6"}
+                _theme = THEME_MODULE
                 
             else:
                 continue 
@@ -177,35 +134,16 @@ class Graph_Builder:
                 _name, _stereotype, _children, _x, _y, _theme)
             _node_ids[_name] = _parent_id
 
-            _x += 400
-            if _x > 1200:
+            _x += STEP_X
+            if _x > MAX_X:
                 _x = 40
-                _y += 400
+                _y += STEP_Y
 
-        for _name, _obj in ir_data.items():
-            if isinstance(_obj, Class_Info):
-                _source_id = _node_ids.get(_name)
-                if not _source_id: continue
-
-                # 1. 상속(Inheritance) 화살표 연결
-                for _base in _obj.bases:
-                    _target_id = _node_ids.get(_base)
-                    if _target_id: # 렌더링된 박스 중에 부모 클래스가 있으면
-                        self._Render_edge(_source_id, _target_id, "inheritance")
-
-                # 2. 데이터 흐름(Composition/HAS-A) 화살표 연결
-                for _attr in _obj.attributes:
-                    # 정규식으로 단어(클래스명 등) 추출 (예: list[Base_Config] -> Base_Config)
-                    _words = re.findall(r'\b[A-Za-z_][A-Za-z0-9_]*\b', _attr.type_hint)
-                    
-                    for _word in _words:
-                        # 자기 자신을 가리키는 순환 참조 방지 & 화면에 존재하는 박스인지 확인
-                        if _word != _name and _word in _node_ids:
-                            _target_id = _node_ids[_word]
-                            self._Render_edge(
-                                _source_id, _target_id, "dependency"
-                            )
-                            # Union[A, B] 같은 경우 여러 번 긋게 되므로 정상 작동함
+        for _edge in graph_data.edges:
+            _source_id = _node_ids.get(_edge.source_name)
+            _target_id = _node_ids.get(_edge.target_name)
+            if _source_id and _target_id:
+                self._Render_edge(_source_id, _target_id, _edge.edge_type)
 
         return self._Generate_xml()
 

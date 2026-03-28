@@ -20,7 +20,13 @@ class Arg_Info:
 
 @dataclass
 class Global_Group_Info:
-    """모듈 레벨의 전역 변수나 레지스트리 객체들을 묶어서 저장하는 모델."""
+    """모듈 레벨의 전역 변수나 레지스트리 객체들을 묶어서 저장하는 모델.
+    
+    Attributes:
+        name: 그룹명 (기본값 "Globals").
+        stereotype: 스테레오타입 명칭 (기본값 "«constants»").
+        variables: 그룹에 속한 변수 리스트.
+    """
     name: str = "Globals"
     stereotype: str = "«constants»"
     variables: list[Arg_Info] = field(default_factory=list)
@@ -35,12 +41,13 @@ class Method_Info:
         args: 인자 리스트.
         return_type: 반환 타입 문자열.
         docstring: 문서화 문자열.
+        stereotype: 스테레오타입 명칭 (예: 전역 함수일 경우 «function»).
     """
     name: str
     args: list[Arg_Info] = field(default_factory=list)
     return_type: str = "Any"
-    docstring: str |  None = None
-    stereotype: str = "" # 전역 함수일 경우 «function» 사용
+    docstring: str | None = None
+    stereotype: str = ""
 
     def To_uml_signature(self) -> str:
         """UML 표준 시그니처 문자열 생성.
@@ -64,6 +71,7 @@ class Class_Info:
         attributes: 클래스 속성 리스트.
         methods: 클래스 메서드 리스트.
         docstring: 문서화 문자열.
+        stereotype: 클래스 스테레오타입 (예: dataclass, enumeration).
     """
     name: str
     bases: list[str] = field(default_factory=list)
@@ -75,7 +83,13 @@ class Class_Info:
 
 @dataclass
 class Module_Info:
-    """외부 또는 하위 모듈/패키지 정보."""
+    """외부 또는 하위 모듈/패키지 정보.
+    
+    Attributes:
+        name: 모듈명.
+        imported_symbols: 해당 모듈에서 가져온 심볼 리스트.
+        stereotype: 스테레오타입 명칭 (기본값 «module»).
+    """
     name: str
     imported_symbols: list[str] = field(default_factory=list)
-    stereotype: str = "«module»"
+    stereotype: Literal["«module»"] = "«module»"
