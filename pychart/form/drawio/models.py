@@ -38,6 +38,7 @@ class Mx_Cell(Base_Config):
         source: 선의 시작점 ID.
         target: 선의 끝점 ID.
         geometry: 기하학적 정보 객체.
+        link: 하이퍼링크 (앵커 또는 파일 경로).
     """
     id: str
     value: str = ""
@@ -53,6 +54,8 @@ class Mx_Cell(Base_Config):
     target: str | None = None
 
     geometry: Mx_Geometry | None = field(default_factory=Mx_Geometry)
+    link: str | None = None
+
 
     # 스타일 딕셔너리 직렬화 변환
     __custom_serializers__: ClassVar[dict[str, Any]] = {

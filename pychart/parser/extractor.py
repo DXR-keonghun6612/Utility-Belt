@@ -3,67 +3,77 @@
 AST를 활용하여 파이썬 소스 코드에서 IR 데이터를 추출함.
 """
 import ast
+import sys
 from pathlib import Path
 
-from pychart.definition import (
-    Module_Info, Class_Info, Method_Info, Arg_Info, Global_Group_Info)
-
-from .parsing_type import NODE
+from ..definition import Arg_Info, Class_Info, Method_Info, Module_Info
+from .registry import NODE, SYMBOL_TABLE
+from .constants import IGNORED_MODULES
 
 
 class Project_Analyzer(ast.NodeVisitor):
-    """AST 기반 파이썬 코드 정적 분석기.
-    
-    Attributes:
-        ir_data: 분석을 통해 수집된 모델 데이터 바구니 (심볼명: 모델객체).
-    """
+    """AST 기반 파이썬 코드 정적 분석기."""
 
-    def __init__(self) -> None:
-        """초기화."""
+    def __init__(self, project_root: str | None = None) -> None:
         self.ir_data: dict[str, NODE] = {}
-        # 파싱 컨텍스트: 현재 어느 클래스 내부에 있는지 추적
         self._current_class_name: str | None = None
+        self._current_module_info: Module_Info | None = None
+        self._current_package_name: str = ""
+        
+        self.project_root = Path(project_root or ".").resolve()
+        if str(self.project_root) not in sys.path:
+            sys.path.insert(0, str(self.project_root))
 
-    def Analyze_directory(self, target_dir: str) -> dict[str, NODE]:
-        """지정된 디렉토리의 파이썬 코드를 얕게(Shallow) 분석함.
+    def Analyze_from_roots(self, roots: list[str]) -> dict[str, NODE]:
+        """1-Pass 분석: 모든 파일을 독립적으로 파싱하여 전역 심볼 테이블 구축."""
+        all_files: list[Path] = []
+        # 분석에서 제외할 파일명 정의
+        _ignore_files = {"__init__.py", "setup.py", "conftest.py"}
 
-        Args:
-            target_dir: 분석 대상 디렉토리 경로.
+        for r in roots:
+            p = Path(r).resolve()
+            if p.is_file() and p.suffix == '.py':
+                if p.name not in _ignore_files:
+                    all_files.append(p)
+            elif p.is_dir():
+                for f in p.rglob("*.py"):
+                    # 가상환경, 숨김 폴더 및 무시 대상 파일 제외
+                    if not any((part.startswith('.') or part == 'venv') for part in f.parts):
+                        if f.name not in _ignore_files:
+                            all_files.append(f)
 
-        Returns:
-            dict[str, NODE]: 수집된 IR 데이터 맵.
-
-        Raises:
-            NotADirectoryError: 유효하지 않은 디렉토리 경로인 경우 발생.
-        """
-        _target_path = Path(target_dir).resolve()
-
-        if not _target_path.is_dir():
-            raise NotADirectoryError(f"유효하지 않은 디렉토리: {_target_path}")
-
-        for _f in _target_path.glob("*.py"):
-            # 숨김 파일이나 venv 디렉토리는 건너뜀
-            if any((_p.startswith('.') or _p == 'venv') for _p in _f.parts):
+        for target_file in all_files:
+            try:
+                rel_path = target_file.relative_to(self.project_root)
+            except ValueError:
                 continue
+
+            parts = list(rel_path.with_suffix('').parts)
+            if parts and parts[-1] == '__init__':
+                parts.pop()
+            
+            mod_name = ".".join(parts)
+            self._current_package_name = ".".join(parts[:-1]) if parts else ""
+            
+            if mod_name in self.ir_data:
+                continue
+
+            self._current_module_info = Module_Info(name=mod_name)
+            self.ir_data[mod_name] = self._current_module_info
 
             try:
-                with open(_f, "r", encoding="utf-8") as f:
+                with open(target_file, "r", encoding="utf-8") as f:
                     tree = ast.parse(f.read())
                     self.visit(tree)
-            except (SyntaxError, OSError):
-                continue
                 
+                # 전역 레지스트리에 등록
+                SYMBOL_TABLE.Register_instance(mod_name, self._current_module_info)
+            except (SyntaxError, OSError, KeyError):
+                continue
+
         return self.ir_data
 
     def _Get_type_str(self, node: ast.AST | None) -> str:
-        """AST 노드에서 타입 문자열을 추출함.
-
-        Args:
-            node: 타입을 추출할 AST 노드.
-
-        Returns:
-            str: 추출된 타입 문자열 (기본값 "Any").
-        """
         if node is None:
             return "Any"
         try:
@@ -71,100 +81,36 @@ class Project_Analyzer(ast.NodeVisitor):
         except Exception:
             return "Unknown"
 
-    def _Parse_function_info(
-        self, node: ast.FunctionDef | ast.AsyncFunctionDef
-    ) -> Method_Info:
-        """함수/메서드 노드에서 시그니처 정보를 추출함.
-
-        Args:
-            node: 함수 정의 AST 노드.
-
-        Returns:
-            Method_Info: 추출된 메서드 정보 모델.
-        """
+    def _Parse_function_info(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> Method_Info:
         return Method_Info(
             name=node.name,
-            args=[
-                Arg_Info(
-                    name=arg.arg,
-                    type_hint=self._Get_type_str(arg.annotation)
-                ) for arg in node.args.args
-            ],
+            args=[Arg_Info(name=arg.arg, type_hint=self._Get_type_str(arg.annotation)) for arg in node.args.args],
             return_type=self._Get_type_str(node.returns),
             docstring=ast.get_docstring(node)
         )
 
     def visit_Module(self, node: ast.Module) -> None:
-        """모듈 레벨의 전역 변수 및 레지스트리 객체를 수집함.
-
-        Args:
-            node: 모듈 AST 노드.
-        """
         for body_item in node.body:
-            # 1. 일반 할당 (Assign)
             if isinstance(body_item, ast.Assign):
                 for target in body_item.targets:
                     if isinstance(target, ast.Name):
-                        self._Process_global_variable(
-                            target.id, body_item.value)
-                        
-            # 2. 타입 힌트가 있는 할당 (AnnAssign)
+                        self._Process_module_variable(target.id, body_item.value)
             elif isinstance(body_item, ast.AnnAssign):
                 if isinstance(body_item.target, ast.Name):
-                    self._Process_global_variable(
-                        body_item.target.id, 
-                        None, 
-                        self._Get_type_str(body_item.annotation)
-                    )
-
+                    self._Process_module_variable(
+                        body_item.target.id, body_item.value, self._Get_type_str(body_item.annotation))
         self.generic_visit(node)
 
-    def _Process_global_variable(
-        self, name: str, value: ast.AST | None, type_hint: str = "Any"
-    ) -> None:
-        """전역 변수를 분석하여 적절한 그룹에 추가함.
-
-        Args:
-            name: 변수명.
-            value: 할당된 값 노드.
-            type_hint: 명시된 타입 힌트.
-        """
-        _group_name = "Globals"
-        _stereotype = "«constants»"
+    def _Process_module_variable(self, name: str, value: ast.AST | None, type_hint: str = "Any") -> None:
         _final_type = type_hint
-
-        # Registry 호출 여부 판단
-        if isinstance(value, ast.Call):
-            _call_type = self._Get_type_str(value.func)
-            if "Registry" in _call_type:
-                _group_name = "Registries"
-                _stereotype = "«registry»"
-                _final_type = _call_type
-        
-        # 그룹 정보 업데이트 또는 생성
-        _group = self.ir_data.get(_group_name)
-        if not isinstance(_group, Global_Group_Info):
-            _group = Global_Group_Info(name=_group_name, stereotype=_stereotype)
-            self.ir_data[_group_name] = _group
-            
-        _group.variables.append(Arg_Info(name=name, type_hint=_final_type))
+        if _final_type == "Any" and isinstance(value, ast.Call):
+            _final_type = self._Get_type_str(value.func)
+        if self._current_module_info:
+            self._current_module_info.variables.append(Arg_Info(name=name, type_hint=_final_type))
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
-        """클래스 정의부를 방문하여 상속 및 속성 정보를 추출함.
-
-        Args:
-            node: 클래스 정의 AST 노드.
-        """
-        _bases = [
-            ast.unparse(b) for b in node.bases 
-            if isinstance(b, (ast.Name, ast.Attribute))
-        ]
-        
-        # 스테레오타입 판별
-        _dec_names = [
-            ast.unparse(d).split('(')[0].split('.')[-1] 
-            for d in node.decorator_list
-        ]
+        _bases = [ast.unparse(b) for b in node.bases if isinstance(b, (ast.Name, ast.Attribute))]
+        _dec_names = [ast.unparse(d).split('(')[0].split('.')[-1] for d in node.decorator_list]
         _stereotype = ""
         if any("Enum" in b for b in _bases):
             _stereotype = "«enumeration»<br>"
@@ -172,105 +118,83 @@ class Project_Analyzer(ast.NodeVisitor):
             _stereotype = "«dataclass»<br>"
 
         _cls_info = Class_Info(
-            name=node.name, 
-            bases=_bases, 
-            docstring=ast.get_docstring(node),
-            stereotype=_stereotype
-        )
+            name=node.name, bases=_bases, docstring=ast.get_docstring(node), stereotype=_stereotype)
 
-        # 클래스 내부 멤버 추출
         for body_item in node.body:
             if isinstance(body_item, ast.AnnAssign):
                 if isinstance(body_item.target, ast.Name):
-                    _cls_info.attributes.append(Arg_Info(
-                        name=body_item.target.id, 
-                        type_hint=self._Get_type_str(body_item.annotation)
-                    ))
+                    _cls_info.attributes.append(Arg_Info(name=body_item.target.id, type_hint=self._Get_type_str(body_item.annotation)))
             elif isinstance(body_item, ast.Assign):
                 for target in body_item.targets:
                     if isinstance(target, ast.Name):
                         _type = "EnumMember" if "enumeration" in _stereotype else "Any"
-                        _cls_info.attributes.append(
-                            Arg_Info(name=target.id, type_hint=_type)
-                        )
+                        _cls_info.attributes.append(Arg_Info(name=target.id, type_hint=_type))
 
-        self.ir_data[node.name] = _cls_info
+        if self._current_module_info:
+            self._current_module_info.classes.append(_cls_info)
         
-        # 컨텍스트 유지하며 내부 순회
         _prev_class = self._current_class_name
         self._current_class_name = node.name
         self.generic_visit(node)
         self._current_class_name = _prev_class
 
-    def visit_FunctionDef(
-        self, node: ast.FunctionDef | ast.AsyncFunctionDef
-    ) -> None:
-        """함수 정의부를 방문하여 정보를 추출함. (전역 함수 & 메서드)
-
-        Args:
-            node: 함수 정의 AST 노드.
-        """
+    def visit_FunctionDef(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
         _func_info = self._Parse_function_info(node)
-        
         if self._current_class_name:
-            # 클래스 메서드인 경우 해당 클래스 모델에 추가
-            _cls = self.ir_data.get(self._current_class_name)
-            if isinstance(_cls, Class_Info):
-                _cls.methods.append(_func_info)
+            if self._current_module_info:
+                _cls = next((c for c in self._current_module_info.classes if c.name == self._current_class_name), None)
+                if _cls:
+                    _cls.methods.append(_func_info)
+                    self._Analyze_class_instance_attributes(_cls, node)
         else:
-            # 전역 함수인 경우 독립 노드로 등록
-            _func_info.stereotype = "«function»<br>"
-            self.ir_data[node.name] = _func_info
+            if self._current_module_info:
+                _func_info.stereotype = "«function»<br>"
+                self._current_module_info.functions.append(_func_info)
+
+    def _Analyze_class_instance_attributes(
+        self, cls_info: Class_Info, node: ast.FunctionDef | ast.AsyncFunctionDef
+    ) -> None:
+        class _Instance_Attr_Visitor(ast.NodeVisitor):
+            def __init__(self) -> None: self.found_attrs = []
+            def visit_Assign(self, node: ast.Assign) -> None:
+                for target in node.targets:
+                    if isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name) and target.value.id == "self":
+                        _type = self._Infer_type(node.value)
+                        self.found_attrs.append((target.attr, _type))
+                self.generic_visit(node)
+            def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+                if isinstance(node.target, ast.Attribute) and isinstance(node.target.value, ast.Name) and node.target.value.id == "self":
+                    self.found_attrs.append((node.target.attr, ast.unparse(node.annotation)))
+                self.generic_visit(node)
+            def _Infer_type(self, value):
+                if isinstance(value, ast.Call):
+                    return ast.unparse(value.func)
+                return "Any"
+
+        visitor = _Instance_Attr_Visitor()
+        visitor.visit(node)
+        existing_names = {a.name for a in cls_info.attributes}
+        for name, _type in visitor.found_attrs:
+            if name not in existing_names:
+                cls_info.attributes.append(Arg_Info(name=name, type_hint=_type))
+                existing_names.add(name)
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
-        """비동기 함수를 일반 함수와 동일하게 처리함.
-
-        Args:
-            node: 비동기 함수 정의 AST 노드.
-        """
         self.visit_FunctionDef(node)
 
     def visit_Import(self, node: ast.Import) -> None:
-        """'import' 구문을 분석하여 모듈 정보를 수집함.
-
-        Args:
-            node: Import AST 노드.
-        """
         for alias in node.names:
-            _mod_name = alias.name
-            
-            _mod = self.ir_data.get(_mod_name)
-            if not isinstance(_mod, Module_Info):
-                _mod = Module_Info(name=_mod_name)
-                self.ir_data[_mod_name] = _mod
-                
-            if _mod_name not in _mod.imported_symbols:
-                _mod.imported_symbols.append(_mod_name)
-                
-        self.generic_visit(node)
+            if alias.name in IGNORED_MODULES: continue
+            if self._current_module_info and alias.name not in self._current_module_info.imported_symbols:
+                self._current_module_info.imported_symbols.append(alias.name)
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
-        """'from ... import' 구문을 분석하여 모듈 정보를 수집함.
-
-        Args:
-            node: ImportFrom AST 노드.
-        """
-        _prefix = "." * node.level if node.level > 0 else ""
-        _base_module = node.module if node.module else ""
-        _full_mod_name = f"{_prefix}{_base_module}"
-
-        if not _full_mod_name:
-            self.generic_visit(node)
+        mod_name = node.module or ""
+        if node.level > 0 and self._current_package_name:
+            parts = self._current_package_name.split('.')
+            base = ".".join(parts[:len(parts)-node.level+1])
+            mod_name = f"{base}.{mod_name}" if mod_name else base
+        if not mod_name or mod_name in IGNORED_MODULES:
             return
-
-        _mod = self.ir_data.get(_full_mod_name)
-        if not isinstance(_mod, Module_Info):
-            _mod = Module_Info(name=_full_mod_name)
-            self.ir_data[_full_mod_name] = _mod
-
-        for alias in node.names:
-            if alias.name not in _mod.imported_symbols:
-                _mod.imported_symbols.append(alias.name)
-
-        self.generic_visit(node)
-
+        if self._current_module_info and mod_name not in self._current_module_info.imported_symbols:
+            self._current_module_info.imported_symbols.append(mod_name)

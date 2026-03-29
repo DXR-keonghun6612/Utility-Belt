@@ -6,7 +6,7 @@ from typing import Literal
 from dataclasses import dataclass, field
 
 
-@dataclass
+@dataclass(slots=True)
 class Arg_Info:
     """인자 정보 데이터 모델.
     
@@ -18,21 +18,8 @@ class Arg_Info:
     type_hint: str = "Any"
 
 
-@dataclass
-class Global_Group_Info:
-    """모듈 레벨의 전역 변수나 레지스트리 객체들을 묶어서 저장하는 모델.
-    
-    Attributes:
-        name: 그룹명 (기본값 "Globals").
-        stereotype: 스테레오타입 명칭 (기본값 "«constants»").
-        variables: 그룹에 속한 변수 리스트.
-    """
-    name: str = "Globals"
-    stereotype: str = "«constants»"
-    variables: list[Arg_Info] = field(default_factory=list)
 
-
-@dataclass
+@dataclass(slots=True)
 class Method_Info:
     """메서드 및 함수 정보 데이터 모델.
     
@@ -61,7 +48,7 @@ class Method_Info:
         return f"+ {self.name}({_args_str}) -> {self.return_type}"
 
 
-@dataclass
+@dataclass(slots=True)
 class Class_Info:
     """클래스 정보 데이터 모델.
     
@@ -81,15 +68,23 @@ class Class_Info:
     stereotype: Literal["", "«dataclass»<br>", "«enumeration»<br>"] = ""
 
 
-@dataclass
+@dataclass(slots=True)
 class Module_Info:
-    """외부 또는 하위 모듈/패키지 정보.
+    """모듈/패키지 정보.
     
     Attributes:
         name: 모듈명.
         imported_symbols: 해당 모듈에서 가져온 심볼 리스트.
+        classes: 모듈 내에 정의된 클래스 리스트.
+        functions: 모듈 내에 정의된 전역 함수 리스트.
+        variables: 모듈 레벨에서 선언된 변수 리스트.
         stereotype: 스테레오타입 명칭 (기본값 «module»).
+        file_path: 실제 소스 코드 파일의 절대 경로.
     """
     name: str
     imported_symbols: list[str] = field(default_factory=list)
+    variables: list[Arg_Info] = field(default_factory=list)
+    functions: list[Method_Info] = field(default_factory=list)
+    classes: list[Class_Info] = field(default_factory=list)
     stereotype: Literal["«module»"] = "«module»"
+    file_path: str | None = None

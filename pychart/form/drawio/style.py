@@ -12,15 +12,20 @@ BG_METHOD = "#d5e8d4"
 
 # 레이아웃 상수
 DEFAULT_WIDTH = 350
-STEP_X = 400
-STEP_Y = 400
-MAX_X = 1200
+START_X = 40
+START_Y = 40
+MARGIN_Y = 40    # 노드 간 수직 간격
 
-def get_swimlane_style(start_size: int, fill_color: str, stroke_color: str) -> dict[str, str]:
-    """컨테이너(Swimlane) 스타일 반환."""
-    return {
+# 요소 높이 상수
+ROW_HEIGHT = 26           # 속성/메서드 한 줄의 높이
+HEADER_HEIGHT = 40        # 일반 노드(클래스 등) 헤더 높이
+STEREOTYPE_HEADER = 60    # 스테레오타입이 있는 노드 헤더 높이
+MODULE_HEADER_HEIGHT = 60 # 모듈 컨테이너 헤더 높이
+
+def get_swimlane_style(start_size: int, fill_color: str, stroke_color: str, use_stack: bool = True) -> dict[str, str]:
+    """컨테이너(Swimlane) 스타일 반환. 상황에 따라 stackLayout 여부를 결정함."""
+    style = {
         "shape": "swimlane",
-        "childLayout": "stackLayout",
         "horizontal": "1",
         "horizontalStack": "0",
         "startSize": str(start_size),
@@ -38,6 +43,11 @@ def get_swimlane_style(start_size: int, fill_color: str, stroke_color: str) -> d
         "whiteSpace": "wrap",
         "strokeColor": stroke_color
     }
+    
+    if use_stack:
+        style["childLayout"] = "stackLayout"
+        
+    return style
 
 def get_child_style(bg_color: str) -> dict[str, str]:
     """내부 요소(속성/메서드) 스타일 반환."""
@@ -69,10 +79,13 @@ def get_edge_style(edge_type: str) -> dict[str, str]:
     if edge_type == "inheritance":
         base_style.update({
             "endArrow": "block",
-            "endFill": "0"
+            "endFill": "0",
+            "strokeWidth": "1"
         })
     else:
         base_style.update({
-            "endArrow": "open"
+            "endArrow": "open",
+            "dashed": "1",
+            "strokeWidth": "1"
         })
     return base_style
