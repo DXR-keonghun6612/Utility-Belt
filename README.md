@@ -1,85 +1,52 @@
-# 3D 객체 시뮬레이션
+# FOCUS — 3D Simulation
 
-목표: 3D 가상 시뮬레이션 환경을 구축하고, 해당 환경에서 알고리즘의 사전 검증, 로봇 학습 등을 진행.
+3D 가상 시뮬레이션 환경을 구축하고, 알고리즘 사전 검증 및 학습 데이터 생성을 수행함.
 
 ## 진행 사항
 
 - [ ] 정적 편집기
-  - [x] 기본 구조 (데이터 입출력 (*.obj), 공간상에 배치, pose 정보 수정 등)
-  - [ ] 편집 결과 저장 및 읽기 -> *.usd 포멧
+  - [x] 기본 구조 (데이터 입출력, 공간 배치, pose 편집)
+  - [x] 멀티패스 렌더링 파이프라인 (RGB, Depth, Segmentation, Normal)
+  - [ ] 편집 결과 저장 및 읽기 (*.usd)
 
+## 구조
+
+```txt
+FOCUS/
+├── app.py                  # UI 진입점
+├── capture_cli.py          # 헤드리스 데이터 생성 진입점
+├── data/                   # 데이터 모델, I/O, 캐시
+│   ├── scene/              #   Scene_Node, Stage_Controller
+│   ├── model/              #   Camera_Intrinsic
+│   ├── io/                 #   OBJ 파서, 확장자 라우팅
+│   └── registry.py         #   에셋 캐시
+└── graphics/               # 시각화, 렌더링, UI
+    ├── core/               #   공용 드로우 (Draw_mesh, Walk_scene)
+    ├── viewport/           #   편집기 뷰포트 (카메라, 기즈모, 픽킹)
+    ├── render/             #   멀티패스 파이프라인 (데이터셋 생성)
+    └── ui/                 #   PySide6 편집기
+```
+
+의존 방향: `data/ <-- graphics/` (단방향, 순환 없음)
 
 ## 환경
 
-### 공통 기술 스택
+- Python >= 3.11
+- UI: PySide6
+- 3D 시각화: OpenGL (고정 파이프라인)
+- 3D 데이터 처리: numpy, scipy (rotation)
+- 데이터 입출력: trimesh (*.obj)
 
-- 사용 언어: Python( >=3.11 )
-- UI : PySide6
-
-### 구조
-
-```txt
-sim
-├─ README.md
-├─ app.py
-├─ asset
-│  ├─ io
-│  │  ├─ loader.py
-│  │  └─ obj.py
-│  └─ registry.py
-├─ scene
-│  ├─ node.py
-│  └─ stage.py
-├─ test.py
-├─ ui
-│  ├─ panels
-│  │  ├─ asset
-│  │  │  └─ browser.py
-│  │  ├─ engine.py
-│  │  └─ scene
-│  │     ├─ page.py
-│  │     ├─ property.py
-│  │     └─ scene_tree.py
-│  ├─ sidebar.py
-│  └─ viewer.py
-└─ viewport
-   ├─ renderer.py
-   ├─ tool
-   │  ├─ gizmo.py
-   │  └─ selection.py
-   ├─ transform.py
-   └─ view.py
-```
-
-### 설치
-
-  ...
-
-## 기능 별 분류
+## 기능별 분류
 
 ### 정적 편집기
 
-3D 객체 데이터를 배치, 교체, 여러 객체 데이터 사이의 상관 관계를 편집 할 수 있는 정적 편집기.
-
-#### 정적 편집기: Tech Stack
-
-- 3D 시각화: OpenGL
-- 3D 데이터 처리 및 연산: numpy, scipy (rotation)
-- 데이터 입출력
-  - trimesh (*.obj)
+3D 객체 데이터를 배치, 교체, 편집하는 정적 편집기. 멀티패스 렌더링을 통해 학습 데이터셋(RGB, Depth, Segmentation, Normal + 메타데이터)을 생성함.
 
 ### 동적 분석기
 
-3D 객체 모델을 단위시간 간격으로 진행하면서 상황을 시뮬레이션 하고 그 결과를 확인 할 수 있는 분석.
-
-#### 동적 분석기: Tech Stack
-
-...
+3D 객체 모델을 단위시간 간격으로 시뮬레이션하고 결과를 확인하는 분석기. (미구현)
 
 ### AI 모델 학습기
 
-...
-
-#### AI 모델 학습기: Tech Stack
-
-...
+시뮬레이션 환경에서 생성된 데이터를 활용한 모델 학습. (미구현)
