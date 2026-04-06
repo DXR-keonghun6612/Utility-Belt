@@ -13,7 +13,7 @@ from PySide6.QtWidgets import QApplication
 
 from python_toolbox.project import Project_Template, Read_from_file
 
-from data.scene.node import Scene_Node
+from data.scene.node import Scene_Node, walk_nodes
 from data.scene.scene_file import load_scene
 from data.io.loader import load_file
 from graphics.render.config import Render_Config, Sample_delta_matrix
@@ -71,24 +71,14 @@ class Capture_Project(Project_Template):
 
 def _Find_camera_node(root: Scene_Node, label: str) -> Scene_Node | None:
     """장면 트리에서 지정된 라벨의 카메라 노드를 탐색함."""
-    if root.label == label and root.prim_type == "Camera":
-        return root
-    for _child in root.children:
-        _found = _Find_camera_node(_child, label)
-        if _found is not None:
-            return _found
-    return None
+    _is_cam = lambda n: n.label == label and n.prim_type == "Camera"
+    return next(walk_nodes(root, _is_cam), None)
 
 
 def _Find_node_by_label(root: Scene_Node, label: str) -> Scene_Node | None:
     """장면 트리에서 지정된 라벨의 노드를 탐색함."""
-    if root.label == label:
-        return root
-    for _child in root.children:
-        _found = _Find_node_by_label(_child, label)
-        if _found is not None:
-            return _found
-    return None
+    _is_label = lambda n: n.label == label
+    return next(walk_nodes(root, _is_label), None)
 
 
 def _Inject_obj_into_scene(

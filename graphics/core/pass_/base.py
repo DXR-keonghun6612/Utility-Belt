@@ -19,6 +19,7 @@ from data.scene.node import Scene_Node
 from data.scene.node.mesh import Mesh_Node
 from data.scene.node.camera import Camera_Node
 from graphics.core.draw import Draw_mesh
+from graphics.core.resource import GPU_Resource_Manager
 
 
 class Base_Pass(ABC):
@@ -30,6 +31,9 @@ class Base_Pass(ABC):
 
     # 서브클래스에서 오버라이드 가능한 기본 설정
     _clear_color: tuple[float, ...] = (0.0, 0.0, 0.0, 1.0)
+
+    def __init__(self):
+        self.res_manager = GPU_Resource_Manager()
 
     @property
     @abstractmethod
@@ -146,7 +150,7 @@ class Base_Pass(ABC):
         glMultMatrixf(node.local_matrix.T)
 
         if isinstance(node, Mesh_Node) and node.mesh is not None:
-            Draw_mesh(node.mesh)
+            Draw_mesh(node.mesh, self.res_manager)
 
         for _child in node.children:
             self._Draw_scene(_child)

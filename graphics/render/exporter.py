@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 import numpy as np
-from PySide6.QtGui import QImage
+from PIL import Image
 
 from data.scene.node.camera import Camera_Node
 from graphics.render.config import Render_Config
@@ -72,13 +72,7 @@ class Result_Exporter:
             np.save(str(base_path.with_suffix(".npy")), np.ascontiguousarray(data))
         else:
             # uint8 RGB 데이터 → PNG
-            _h, _w = data.shape[:2]
-            _channels = data.shape[2] if data.ndim == 3 else 1
-            _contiguous = np.ascontiguousarray(data)
-            _img = QImage(
-                _contiguous.tobytes(), _w, _h,
-                _w * _channels, QImage.Format.Format_RGB888
-            )
+            _img = Image.fromarray(data)
             _img.save(str(base_path.with_suffix(".png")))
 
     def _Save_metadata(

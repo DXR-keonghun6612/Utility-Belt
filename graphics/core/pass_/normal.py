@@ -64,12 +64,34 @@ class Normal_Pass(Base_Pass):
 
         glPopMatrix()
 
-    @staticmethod
-    def _Draw_normal_mesh(mesh) -> None:
-        """vertex_normals를 glColorPointer로 전달하여 법선 맵을 렌더링함."""
+    def _Draw_normal_mesh(self, mesh) -> None:
+        """vertex_normals를 glColorPointer로 전달하거나 VBO를 사용하여 법선 맵을 렌더링함."""
         if not hasattr(mesh, "vertex_normals") or mesh.vertex_normals is None:
             return
 
+        _vbos = self.res_manager.Sync_mesh(mesh)
+
+        if _vbos is not None and 'normal_colors' in _vbos:
+            glEnableClientState(GL_VERTEX_ARRAY)
+            glEnableClientState(GL_COLOR_ARRAY)
+
+            _vbos['vertices'].bind()
+            glVertexPointer(3, GL_FLOAT, 0, _vbos['vertices'])
+
+            _vbos['normal_colors'].bind()
+            glColorPointer(3, GL_UNSIGNED_BYTE, 0, _vbos['normal_colors'])
+
+            _vbos['faces'].bind()
+            glDrawElements(GL_TRIANGLES, _vbos['face_count'], GL_UNSIGNED_INT, None)
+            _vbos['faces'].unbind()
+
+            glDisableClientState(GL_COLOR_ARRAY)
+            _vbos['normal_colors'].unbind()
+            glDisableClientState(GL_VERTEX_ARRAY)
+            _vbos['vertices'].unbind()
+            return
+
+        # 폴백 (저속)
         _colors = np.ascontiguousarray(
             ((mesh.vertex_normals + 1.0) * 127.5).clip(0, 255).astype(np.uint8)
         )

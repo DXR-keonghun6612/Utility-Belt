@@ -239,17 +239,18 @@ class Property_Panel(QWidget):
 
     def _TRS_from(self, matrix: np.ndarray) -> tuple[list, list, list]:
         """4x4 행렬에서 Location(3), Quaternion(4), Scale(3)을 추출함."""
-        _loc = matrix[0:3, 3].tolist()
+        _slice_xyz = slice(0, 3)
+        _loc = matrix[_slice_xyz, 3].tolist()
 
-        _sx = np.linalg.norm(matrix[0:3, 0])
-        _sy = np.linalg.norm(matrix[0:3, 1])
-        _sz = np.linalg.norm(matrix[0:3, 2])
+        _sx = np.linalg.norm(matrix[_slice_xyz, 0])
+        _sy = np.linalg.norm(matrix[_slice_xyz, 1])
+        _sz = np.linalg.norm(matrix[_slice_xyz, 2])
         _scale = [_sx, _sy, _sz]
 
         _m = np.eye(3)
-        _m[:, 0] = matrix[0:3, 0] / _sx if _sx > 1e-6 else [1, 0, 0]
-        _m[:, 1] = matrix[0:3, 1] / _sy if _sy > 1e-6 else [0, 1, 0]
-        _m[:, 2] = matrix[0:3, 2] / _sz if _sz > 1e-6 else [0, 0, 1]
+        _m[:, 0] = matrix[_slice_xyz, 0] / _sx if _sx > 1e-6 else [1, 0, 0]
+        _m[:, 1] = matrix[_slice_xyz, 1] / _sy if _sy > 1e-6 else [0, 1, 0]
+        _m[:, 2] = matrix[_slice_xyz, 2] / _sz if _sz > 1e-6 else [0, 0, 1]
 
         try:
             _rot = R.from_matrix(_m)
@@ -269,9 +270,10 @@ class Property_Panel(QWidget):
 
         _mat = np.eye(4, dtype=np.float32)
 
-        _mat[0:3, 0] = _rot_mat[:, 0] * scale[0]
-        _mat[0:3, 1] = _rot_mat[:, 1] * scale[1]
-        _mat[0:3, 2] = _rot_mat[:, 2] * scale[2]
-        _mat[0:3, 3] = loc
+        _slice_xyz = slice(0, 3)
+        _mat[_slice_xyz, 0] = _rot_mat[:, 0] * scale[0]
+        _mat[_slice_xyz, 1] = _rot_mat[:, 1] * scale[1]
+        _mat[_slice_xyz, 2] = _rot_mat[:, 2] * scale[2]
+        _mat[_slice_xyz, 3] = loc
 
         return _mat

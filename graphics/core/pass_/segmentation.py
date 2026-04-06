@@ -24,6 +24,7 @@ class Segmentation_Pass(Base_Pass):
     """
 
     def __init__(self):
+        super().__init__()
         self.last_id_map: dict[tuple[int, int, int], Scene_Node] = {}
         self._id_counter: int = 0
 
@@ -65,7 +66,7 @@ class Segmentation_Pass(Base_Pass):
 
             self.last_id_map[(_r, _g, _b)] = node
             glColor3ub(_r, _g, _b)
-            Draw_mesh(node.mesh)
+            Draw_mesh(node.mesh, self.res_manager)
             self._id_counter += 1
 
         for _child in node.children:

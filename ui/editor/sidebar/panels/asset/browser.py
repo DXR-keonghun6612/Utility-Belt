@@ -8,7 +8,7 @@ from data.scene.node import Scene_Node
 
 class Asset_Browser_Panel(QWidget):
     """에셋 라이브러리 목록을 시각화하고 씬으로의 인스턴스화 요청을 담당하는 패널임."""
-    
+
     # 에셋이 씬에 배치되어야 할 때 (예: 뷰포트로 인스턴스화) 방출하는 시그널
     instantiate_requested = Signal(Scene_Node) 
     asset_removed = Signal(str)
@@ -21,7 +21,7 @@ class Asset_Browser_Panel(QWidget):
     def _init_ui(self):
         _layout = QVBoxLayout(self)
         _layout.setContentsMargins(5, 5, 5, 5)
-        
+
         # 1. 제어 버튼 영역
         _btn_layout = QHBoxLayout()
         self.btn_load = QPushButton("Import Asset")
@@ -34,12 +34,12 @@ class Asset_Browser_Panel(QWidget):
         self.table = QTableWidget(0, 2)
         self.table.setHorizontalHeaderLabels(["Name", "Path"])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        
+
         # [UX 최적화] 읽기 전용 및 행 단위 선택 설정
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        
+
         _layout.addWidget(self.table)
 
         # 3. 이벤트 와이어링
@@ -84,13 +84,19 @@ class Asset_Browser_Panel(QWidget):
         _row = _selected[0].row()
         _path_item = self.table.item(_row, 1)
         if not _path_item: return
-            
+
         _path_key = _path_item.text()
 
         if self.res_manager.Remove(_path_key):
             self.table.removeRow(_row)
             self.asset_removed.emit(_path_key)
-            
+
+    @Slot()
+    def Clear_assets(self) -> None:
+        """씬이 초기화될 때 모든 에셋 데이터를 캐시에서 해제하고 UI를 비움."""
+        self.res_manager.Clear_cache()
+        self.table.setRowCount(0)
+
     def _update_table(self, name: str, path: str):
         """성공적으로 로드된 정보를 UI에 반영함."""
         _row = self.table.rowCount()

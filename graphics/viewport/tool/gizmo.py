@@ -104,7 +104,8 @@ class Gizmo_Controller:
         """기즈모의 기하학적 형태(선, 호)를 그리는 핵심 루틴."""
         # 1. 월드 포즈 획득 및 OpenGL 행렬 스택 적용
         _world_mat = node.world_matrix
-        _world_pos = _world_mat[0:3, 3]
+        _slice_xyz = slice(0, 3)
+        _world_pos = _world_mat[_slice_xyz, 3]
         
         glPushMatrix()
         
@@ -114,18 +115,18 @@ class Gizmo_Controller:
         # 2. 다이나믹 스케일링: 카메라 거리에 관계없이 기즈모 크기를 일정하게 유지
         _mv = glGetDoublev(GL_MODELVIEW_MATRIX)
         # 카메라 좌표계 원점(0,0,0)에서 현재 객체(모델뷰 이동량)까지의 거리 계산
-        _distance = np.linalg.norm(_mv[3][:3])
+        _distance = np.linalg.norm(_mv[3][_slice_xyz])
         _scale = max(_distance * self.scale_factor, 0.01)
         glScalef(_scale, _scale, _scale)
         
         # 3. 객체의 월드 회전 상태를 기즈모 축에 적용 (정규화 필수)
         _world_rot_mat = np.eye(4, dtype=np.float32)
-        _world_rot_mat[0:3, 0:3] = _world_mat[0:3, 0:3].copy()
+        _world_rot_mat[_slice_xyz, _slice_xyz] = _world_mat[_slice_xyz, _slice_xyz].copy()
         # 스케일 성분 제거 및 직교 정규화 (Gram-Schmidt 부재 시 최소한의 보정)
         for i in range(3):
-            _col = _world_rot_mat[0:3, i]
+            _col = _world_rot_mat[_slice_xyz, i]
             _norm = np.linalg.norm(_col)
-            if _norm > 1e-6: _world_rot_mat[0:3, i] /= _norm
+            if _norm > 1e-6: _world_rot_mat[_slice_xyz, i] /= _norm
             
         glMultMatrixf(_world_rot_mat.T)
 

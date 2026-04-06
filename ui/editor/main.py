@@ -82,7 +82,8 @@ class Main_Window(QMainWindow):
 
     @Slot()
     def _On_scene_loaded(self):
-        """장면 파일 로드 후 뷰어 선택 상태를 초기화하고 화면을 갱신함."""
+        """장면 파일 로드 후 이전 에셋 캐시 및 뷰어 선택 상태를 초기화하고 화면을 갱신함."""
+        self.sidebar.asset_page.Clear_assets()
         self.viewer.selection.selected_node = None
         self.viewer.update()
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Literal, ClassVar
+from typing import Literal, ClassVar, Callable, Iterator
 import numpy as np
 
 from python_toolbox.project import Base_Config
@@ -9,6 +9,7 @@ from python_toolbox.project import Base_Config
 # ==========================================
 # 변환 행렬 유틸리티
 # ==========================================
+
 
 def Build_transform(
     tx: float = 0.0, ty: float = 0.0, tz: float = 0.0,
@@ -98,11 +99,29 @@ class Scene_Node(Base_Config):
     parent: Scene_Node | None = field(default=None, repr=False)
 
     # 직렬화 규칙: parent는 JSON 변환 불가
-    __exclude_serialize__: ClassVar[set[str]] = {"parent"}
+    __exclude_serialize__: ClassVar[set[str]] = {
+        "parent", "_matrix_cache", "_is_dirty"}
     __custom_serializers__: ClassVar[dict] = {
         "local_matrix": lambda m: m.flatten().tolist(),
         "children": lambda ch: [c.Serialize() for c in ch],
     }
+
+    _matrix_cache: np.ndarray | None = field(
+        default=None, init=False, repr=False)
+    _is_dirty: bool = field(default=True, init=False, repr=False)
+
+    def __setattr__(self, key, value):
+        super().__setattr__(key, value)
+        if key in ("local_matrix", "parent"):
+            self._Mark_dirty()
+
+    def _Mark_dirty(self) -> None:
+        """현재 노드 및 자식 노드의 행렬 캐시를 무효화함."""
+        self._is_dirty = True
+        if hasattr(self, "children"):
+            for _child in self.children:
+                if hasattr(_child, "_Mark_dirty"):
+                    _child._Mark_dirty()
 
     @property
     def is_renderable(self) -> bool:
@@ -124,11 +143,17 @@ class Scene_Node(Base_Config):
         Returns:
             np.ndarray: 4x4 월드 변환 행렬 (Float32).
         """
-        if self.parent is None:
-            return self.local_matrix.copy()
+        if not self._is_dirty and self._matrix_cache is not None:
+            return self._matrix_cache
 
-        # 행렬 곱셈 순서: Parent * Local (부모 좌표계 기준 변환)
-        return self.parent.world_matrix @ self.local_matrix
+        if self.parent is None:
+            self._matrix_cache = self.local_matrix.copy()
+        else:
+            # 행렬 곱셈 순서: Parent * Local (부모 좌표계 기준 변환)
+            self._matrix_cache = self.parent.world_matrix @ self.local_matrix
+            
+        self._is_dirty = False
+        return self._matrix_cache
 
     @property
     def prim_path(self) -> str:
@@ -174,3 +199,23 @@ class Scene_Node(Base_Config):
             _new_node.children.append(_cloned_child)
 
         return _new_node
+
+
+def walk_nodes(
+    root: Scene_Node,
+    predicate: Callable[[Scene_Node], bool]
+) -> Iterator[Scene_Node]:
+    """조건을 만족하는 노드를 재귀적으로 순회하여 반환하는 제너레이터입니다.
+
+    Args:
+        root: 탐색을 시작할 씬 루트 노드.
+        predicate: 노드 필터링용 콜백 함수.
+
+    Yields:
+        Scene_Node: 필터링 조건을 만족하는 노드.
+    """
+    if predicate(root):
+        yield root
+    for _child in root.children:
+        yield from walk_nodes(_child, predicate)
+

@@ -5,6 +5,7 @@ from data.scene.node.camera import Camera_Node
 from .view import Orbit_Camera
 from .tool.camera_gizmo import Draw_camera_gizmo
 from graphics.core.draw import Draw_mesh
+from graphics.core.resource import GPU_Resource_Manager
 
 class Scene_Renderer:
     """OpenGL 고정 파이프라인을 활용하여 씬 검증 및 픽킹용 ID Pass를 렌더링하는 클래스."""
@@ -12,6 +13,7 @@ class Scene_Renderer:
     def __init__(self):
         self.render_mode = "SOLID"
         self._bg_color = (0.15, 0.15, 0.15, 1.0)
+        self.res_manager = GPU_Resource_Manager()
 
     def Initialize(self) -> None:
         """초기 OpenGL 컨텍스트 및 조명 상태를 설정함 (위젯 초기화 시 1회 호출)."""
@@ -68,14 +70,14 @@ class Scene_Renderer:
                 if self.render_mode == "SOLID":
                     glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
                     glDisable(GL_LIGHTING)
-                    Draw_mesh(node.mesh)
+                    Draw_mesh(node.mesh, self.res_manager)
                     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
                     glEnable(GL_LIGHTING)
                 else:
-                    Draw_mesh(node.mesh)
+                    Draw_mesh(node.mesh, self.res_manager)
             else:
                 glColor3f(0.6, 0.6, 0.6)
-                Draw_mesh(node.mesh)
+                Draw_mesh(node.mesh, self.res_manager)
 
         if isinstance(node, Camera_Node):
             _intr = node.intrinsic
@@ -138,7 +140,7 @@ class Scene_Renderer:
             id_map[_color_key] = node
             glColor3ub(_r, _g, _b)
 
-            Draw_mesh(node.mesh)
+            Draw_mesh(node.mesh, self.res_manager)
             self._id_counter += 1
 
         for _child in node.children:
