@@ -4,6 +4,7 @@ from PySide6.QtCore import Qt, Slot
 from .panels.engine import Navigation, Page_Config
 from .panels.scene.page import Scene_Explorer_Page
 from .panels.asset.browser import Asset_Browser_Panel
+from .panels.viewport.camera import Orbit_Camera_Panel
 
 from data.scene.stage import Stage_Controller
 from data.registry import Asset_Registry
@@ -19,10 +20,12 @@ class Main_Sidebar(QWidget):
         # 1. 패널 인스턴스화
         self.scene_page = Scene_Explorer_Page(stage)
         self.asset_page = Asset_Browser_Panel(res_manager)
+        self.camera_page = Orbit_Camera_Panel()
 
         page_config = {
             "scene": Page_Config("🗂", "Scene Explorer", self.scene_page),
-            "asset": Page_Config("📦", "Asset Browser", self.asset_page)
+            "asset": Page_Config("📦", "Asset Browser", self.asset_page),
+            "camera": Page_Config("🎥", "Viewport Camera", self.camera_page)
         }
 
         # 2. 레이아웃 엔진 설정

@@ -55,25 +55,52 @@ class Transform_Math:
     @staticmethod
     def Get_rotation_delta(
         axis_key: str,
-        axis_local: np.ndarray, 
-        dx: float, dy: float, 
-        sensitivity: float
+        axis_local: np.ndarray,
+        dx: float, dy: float,
+        screen_x: float, screen_y: float
     ) -> np.ndarray:
-        """마우스 이동량을 기반으로 4x4 회전 변화량 행렬을 생성함."""
-        _screen_dir = Transform_Math._Get_screen_direction(axis_local)
-        
-        # 기즈모 호(Arc)를 드래그할 때는 축 방향이 아니라 축의 접선(Tangent) 방향으로 움직임
-        # 방향 벡터를 90도 회전시켜 접선 벡터 산출
-        _tangent = np.array([-_screen_dir[1], _screen_dir[0]], dtype=np.float32)
-        _mouse_vec = np.array([dx, -dy], dtype=np.float32)
-        
-        # 축에 따른 회전 부호 보정 (X축 회전 시 시각적 드래그 방향 일치를 위함)
-        _sign = -1.0 if 'X' in axis_key else 1.0
-        _angle = np.dot(_mouse_vec, _tangent) * sensitivity * _sign
-        
+        """객체 중심 기준 각도 변위로 4x4 회전 변화량 행렬을 생성함.
+
+        접선 내적 대신 atan2 기반 각도 산출을 사용하여,
+        마우스 위치에 관계없이 CAD 스타일의 일관된 회전 방향을 보장함.
+
+        Args:
+            axis_key: 회전축 식별자 ('RX', 'RY', 'RZ').
+            axis_local: 로컬 공간 회전축 단위 벡터.
+            dx: 위젯 좌표계 마우스 X 변위 (px).
+            dy: 위젯 좌표계 마우스 Y 변위 (px, 하향 양수).
+            screen_x: 현재 마우스 X (OpenGL 스크린 좌표).
+            screen_y: 현재 마우스 Y (OpenGL 스크린 좌표, 상향 양수).
+        """
+        _mv = glGetDoublev(GL_MODELVIEW_MATRIX)
+        _proj = glGetDoublev(GL_PROJECTION_MATRIX)
+        _vp = glGetIntegerv(GL_VIEWPORT)
+
+        # 객체 원점의 스크린 좌표
+        _center = np.array(gluProject(0.0, 0.0, 0.0, _mv, _proj, _vp)[:2])
+
+        # 현재/이전 마우스 위치 (OpenGL Y축 기준 복원)
+        _curr = np.array([screen_x, screen_y], dtype=np.float32)
+        _prev = np.array([screen_x - dx, screen_y + dy], dtype=np.float32)
+
+        # 중심 → 마우스 벡터 간 각도 산출 (바퀴 회전 원리)
+        _v_curr = _curr - _center
+        _v_prev = _prev - _center
+        _cross = _v_prev[0] * _v_curr[1] - _v_prev[1] * _v_curr[0]
+        _angle = np.arctan2(_cross, np.dot(_v_prev, _v_curr))
+
+        # 회전축의 뷰 스페이스 Z 성분으로 방향 보정
+        # Z > 0: 축이 카메라를 향함 → 스크린 회전 방향 유지
+        # Z < 0: 축이 카메라 반대 → 부호 반전
+        _axis_view_z = (_mv[0][2] * axis_local[0] +
+                        _mv[1][2] * axis_local[1] +
+                        _mv[2][2] * axis_local[2])
+        if _axis_view_z < 0:
+            _angle = -_angle
+
         _cos, _sin = np.cos(_angle), np.sin(_angle)
         _delta_mat = np.eye(4, dtype=np.float32)
-        
+
         if 'X' in axis_key:
             _delta_mat[1:3, 1:3] = [[_cos, -_sin], [_sin, _cos]]
         elif 'Y' in axis_key:
@@ -81,7 +108,7 @@ class Transform_Math:
             _delta_mat[2, 0], _delta_mat[2, 2] = -_sin, _cos
         elif 'Z' in axis_key:
             _delta_mat[0:2, 0:2] = [[_cos, -_sin], [_sin, _cos]]
-            
+
         return _delta_mat
 
     @staticmethod

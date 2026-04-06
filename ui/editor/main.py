@@ -57,6 +57,13 @@ class Main_Window(QMainWindow):
         self.sidebar.scene_page.property_changed.connect(self.viewer.update)
         # 4. 에셋 추가 -> 씬 배치
         self.sidebar.asset_page.instantiate_requested.connect(self._On_asset_instantiated)
+        # 5. 장면 로드 -> 뷰어 갱신
+        self.sidebar.scene_page.scene_loaded.connect(self._On_scene_loaded)
+        # 6. 뷰포트 카메라 패널 바인딩
+        self.sidebar.camera_page.Bind_camera(self.viewer.camera)
+        self.sidebar.camera_page.camera_changed.connect(self._On_camera_changed)
+        # 7. 뷰어 마우스 조작 → 카메라 패널 UI 동기화
+        self.viewer.camera_moved_signal.connect(self.sidebar.camera_page.Refresh)
     # ==========================================
     # 글로벌 중재자 슬롯 (Mediator Slots)
     # ==========================================
@@ -71,6 +78,18 @@ class Main_Window(QMainWindow):
     def _On_sidebar_selection_changed(self, nodes):
         """사이드바에서 선택된 노드를 뷰어의 Selection_Controller에 강제 주입함."""
         self.viewer.selection.selected_node = nodes[0] if len(nodes) == 1 else None
+        self.viewer.update()
+
+    @Slot()
+    def _On_scene_loaded(self):
+        """장면 파일 로드 후 뷰어 선택 상태를 초기화하고 화면을 갱신함."""
+        self.viewer.selection.selected_node = None
+        self.viewer.update()
+
+    @Slot()
+    def _On_camera_changed(self):
+        """카메라 패널에서 값 변경 시 뷰어 projection 갱신 및 리페인트."""
+        self.viewer.camera.Update_projection(self.viewer.width(), self.viewer.height())
         self.viewer.update()
 
     @Slot(object)

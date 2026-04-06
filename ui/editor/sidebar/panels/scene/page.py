@@ -1,8 +1,12 @@
+from pathlib import Path
+
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QSplitter, QHBoxLayout, QLineEdit, QPushButton)
+    QWidget, QVBoxLayout, QSplitter, QHBoxLayout, QLineEdit,
+    QPushButton, QFileDialog)
 from PySide6.QtCore import Qt, Signal, Slot
 
 from data.scene.stage import Stage_Controller
+from data.scene.node import Scene_Node, Camera_Intrinsic, Camera_Node
 
 from .scene_tree import Scene_Tree_Widget
 from .property import Property_Panel
@@ -10,8 +14,9 @@ from .property import Property_Panel
 
 class Outliner_Panel(QWidget):
     """검색창, 조작 버튼, 내부 트리 위젯을 포함하는 전체 래퍼 패널."""
-    
+
     selection_changed = Signal(list)
+    scene_loaded = Signal()
 
     def __init__(self, stage: Stage_Controller, parent=None):
         super().__init__(parent)
@@ -35,13 +40,29 @@ class Outliner_Panel(QWidget):
         toolbar_layout = QHBoxLayout()
         self.btn_add_group = QPushButton("New Group")
         self.btn_add_group.clicked.connect(self._On_add_group_clicked)
-        
+
+        self.btn_add_camera = QPushButton("New Camera")
+        self.btn_add_camera.clicked.connect(self._On_add_camera_clicked)
+
         self.btn_delete = QPushButton("Delete")
         self.btn_delete.clicked.connect(self._On_delete_clicked)
-        
+
         toolbar_layout.addWidget(self.btn_add_group)
+        toolbar_layout.addWidget(self.btn_add_camera)
         toolbar_layout.addWidget(self.btn_delete)
         layout.addLayout(toolbar_layout)
+
+        # 장면 저장/로드 툴바
+        _scene_io_layout = QHBoxLayout()
+        self.btn_save_scene = QPushButton("Save Scene")
+        self.btn_save_scene.clicked.connect(self._On_save_scene_clicked)
+
+        self.btn_load_scene = QPushButton("Load Scene")
+        self.btn_load_scene.clicked.connect(self._On_load_scene_clicked)
+
+        _scene_io_layout.addWidget(self.btn_save_scene)
+        _scene_io_layout.addWidget(self.btn_load_scene)
+        layout.addLayout(_scene_io_layout)
 
     def _On_search_text_changed(self, text: str):
         items = self.tree_widget.findItems(
@@ -55,12 +76,43 @@ class Outliner_Panel(QWidget):
         _parent_node = _selected_nodes[0] if _selected_nodes else self.stage.root
         self.tree_widget._Request_add(None, _parent_node)
 
+    def _On_add_camera_clicked(self):
+        _selected_nodes = self.tree_widget.Get_selected_nodes()
+        _parent_node = _selected_nodes[0] if _selected_nodes else self.stage.root
+
+        _camera_node = Camera_Node(
+            label="new_camera",
+            prim_type="Camera",
+            intrinsic=Camera_Intrinsic()
+        )
+        _camera_node.Set_parent(_parent_node)
+        _parent_node.children.append(_camera_node)
+        self.tree_widget.Refresh_ui()
+
     def _On_delete_clicked(self):
         # 헬퍼 메서드를 호출하여 다중 삭제 트랜잭션 실행
         self.tree_widget._Request_delete()
 
     def Refresh(self):
         self.tree_widget.Refresh_ui()
+
+    def _On_save_scene_clicked(self):
+        _path, _ = QFileDialog.getSaveFileName(
+            self, "Save Scene", "", "Scene Files (*.json)",
+            options=QFileDialog.Option.DontUseNativeDialog)
+        if not _path:
+            return
+        self.stage.Save(Path(_path))
+
+    def _On_load_scene_clicked(self):
+        _path, _ = QFileDialog.getOpenFileName(
+            self, "Load Scene", "", "Scene Files (*.json)",
+            options=QFileDialog.Option.DontUseNativeDialog)
+        if not _path:
+            return
+        self.stage.Load(Path(_path))
+        self.Refresh()
+        self.scene_loaded.emit()
 
 
 class Scene_Explorer_Page(QWidget):
@@ -70,6 +122,8 @@ class Scene_Explorer_Page(QWidget):
     selection_changed = Signal(list)
     # 인스펙터의 속성 변경 사항을 외부(뷰어 렌더링 갱신 등)로 패스스루하기 위한 시그널
     property_changed = Signal()
+    # 장면 파일 로드 완료 시 외부 갱신을 위한 시그널
+    scene_loaded = Signal()
 
     def __init__(self, stage: Stage_Controller, parent=None):
         super().__init__(parent)
@@ -109,6 +163,9 @@ class Scene_Explorer_Page(QWidget):
         # 2. 외부 릴레이: 인스펙터에서 값이 바뀌면 외부로 방송
         self.inspector.property_changed.connect(self.property_changed.emit)
 
+        # 3. 장면 로드 시 인스펙터 초기화 및 외부 릴레이
+        self.outliner.scene_loaded.connect(self._On_scene_loaded)
+
     @Slot(list)
     def _On_outliner_selection_changed(self, nodes: list):
         """아웃라이너에서 선택된 노드 리스트를 분석하여 인스펙터를 제어함."""
@@ -123,6 +180,12 @@ class Scene_Explorer_Page(QWidget):
 
         # 외부(메인 윈도우/뷰어)로도 선택된 리스트를 그대로 전파함
         self.selection_changed.emit(nodes)
+
+    @Slot()
+    def _On_scene_loaded(self):
+        """장면 파일 로드 후 인스펙터를 초기화하고 외부에 알림."""
+        self.inspector.Update_info(None)
+        self.scene_loaded.emit()
 
     def Set_external_selection(self, nodes: list):
         """뷰포트 등 외부에서 객체를 직접 클릭(Picking)했을 때 호출되는 API."""

@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 from PySide6.QtGui import QImage
 
-from data.scene.node import Scene_Node
+from data.scene.node.camera import Camera_Node
 from graphics.render.config import Render_Config
 
 
@@ -15,14 +15,21 @@ class Result_Exporter:
 
     출력 디렉토리 구조:
         <output_dir>/
-            000000/
-                rgb.png
-                depth.npy
-                segmentation.png
-                normal.png
-                metadata.json
-            000001/
-                ...
+            rgb_000000.png
+            rgb_000001.png
+            ...
+            depth_000000.npy
+            depth_000001.npy
+            ...
+            segmentation_000000.png
+            segmentation_000001.png
+            ...
+            normal_000000.png
+            normal_000001.png
+            ...
+            metadata_000000.json
+            metadata_000001.json
+            ...
     """
 
     def __init__(self, output_dir: str | Path):
@@ -33,7 +40,7 @@ class Result_Exporter:
         self,
         frame_id: int,
         results: dict[str, np.ndarray],
-        camera_node: Scene_Node,
+        camera_node: Camera_Node,
         config: Render_Config,
     ) -> Path:
         """프레임별 렌더 결과 및 메타데이터를 저장하고 프레임 디렉토리 경로를 반환함.
@@ -47,15 +54,12 @@ class Result_Exporter:
         Returns:
             Path: 저장된 프레임 디렉토리 경로.
         """
-        _frame_dir = self._output_dir / f"{frame_id:06d}"
-        _frame_dir.mkdir(exist_ok=True)
-
         for _name, _data in results.items():
-            self._Save_array(_frame_dir / _name, _data)
+            self._Save_array(self._output_dir / f"{_name}_{frame_id:06d}", _data)
 
-        self._Save_metadata(_frame_dir, camera_node, config)
+        self._Save_metadata(self._output_dir, frame_id, camera_node, config)
 
-        return _frame_dir
+        return self._output_dir
 
     # ==========================================
     # 내부 저장 로직
@@ -78,7 +82,8 @@ class Result_Exporter:
             _img.save(str(base_path.with_suffix(".png")))
 
     def _Save_metadata(
-        self, frame_dir: Path, camera_node: Scene_Node, config: Render_Config
+        self, output_dir: Path, frame_id: int,
+        camera_node: Camera_Node, config: Render_Config
     ) -> None:
         """카메라 intrinsic/extrinsic 및 렌더 설정을 JSON으로 저장함."""
         _intrinsic = camera_node.intrinsic
@@ -86,11 +91,10 @@ class Result_Exporter:
             "camera": {
                 "label": camera_node.label,
                 "intrinsic": _intrinsic.Serialize() if _intrinsic else {},
-                # world_matrix: 카메라의 월드 좌표계 기준 포즈 (4×4, row-major)
                 "extrinsic": camera_node.world_matrix.tolist(),
             },
             "render": config.Serialize(),
         }
-        (frame_dir / "metadata.json").write_text(
+        (output_dir / f"metadata_{frame_id:06d}.json").write_text(
             json.dumps(_meta, indent=2, ensure_ascii=False), encoding="utf-8"
         )

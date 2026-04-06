@@ -1,8 +1,8 @@
 import numpy as np
 from OpenGL.GL import *
 from data.scene.node import Scene_Node
-from graphics.viewport.view import Orbit_Camera
-from graphics.viewport.transform import Transform_Math
+from ..view import Orbit_Camera
+from ..transform import Transform_Math
 
 class Gizmo_Controller:
     """선택된 객체의 월드 포즈에 맞춰 3D 조작 핸들(Gizmo)을 그리고 아핀 변환을 제어함."""
@@ -177,38 +177,42 @@ class Gizmo_Controller:
     # 상호작용 및 변환 조립 (Interaction)
     # ==========================================
 
-    def Apply_transform_drag(self, node: Scene_Node, dx: float, dy: float):
-        """마우스 드래그 이벤트를 받아 수학 모듈을 호출하고 노드의 포즈를 최종 업데이트함."""
+    def Apply_transform_drag(
+        self, node: Scene_Node,
+        dx: float, dy: float,
+        screen_x: float, screen_y: float
+    ):
+        """마우스 드래그 이벤트를 받아 수학 모듈을 호출하고 노드의 포즈를 최종 업데이트함.
+
+        Args:
+            node: 변환 대상 씬 노드.
+            dx: 위젯 좌표계 마우스 X 변위 (px).
+            dy: 위젯 좌표계 마우스 Y 변위 (px, 하향 양수).
+            screen_x: 현재 마우스 X (OpenGL 스크린 좌표).
+            screen_y: 현재 마우스 Y (OpenGL 스크린 좌표, 상향 양수).
+        """
         if not node or self.active_axis is None: return
 
-        # 1. 수학 모듈 호출 준비 (OpenGL 상태가 정확히 세팅되어야 함)
-        # widget.py가 makeCurrent() 후 이 함수를 호출하므로 glGet...은 안전함.
-        
-        # OpenGL 상태 머신을 객체의 월드 포즈로 이동 (transform.py의 gluProject 연산 위함)
+        # OpenGL 상태 머신을 객체의 월드 포즈로 이동 (gluProject 연산 위함)
         glPushMatrix()
-        # camera.Apply_view()는 위젯단에서 프레임 시작 시 이미 호출됨 가정
         glMultMatrixf(node.world_matrix.T)
 
-        # 2. 활성화된 축 종류에 따라 이동/회전 변화량 행렬($\Delta M$) 산출 위임
         _delta_mat = np.eye(4, dtype=np.float32)
-        
+
         if self.active_axis in ['X', 'Y', 'Z']:
-            # 이동 변화량 계산
             _axis_vec = self._axis_vectors[self.active_axis]
             _delta_mat = Transform_Math.Get_translation_delta(
                 _axis_vec, dx, dy, self.sensitivity
             )
         elif self.active_axis in ['RX', 'RY', 'RZ']:
-            # 회전 변화량 계산 (알파벳 식별 RX -> X)
             _axis_key = self.active_axis[-1]
             _axis_vec = self._axis_vectors[_axis_key]
             _delta_mat = Transform_Math.Get_rotation_delta(
-                self.active_axis, _axis_vec, dx, dy, self.sensitivity
+                self.active_axis, _axis_vec, dx, dy, screen_x, screen_y
             )
 
-        glPopMatrix() # 상태 복구
+        glPopMatrix()
 
-        # 3. 최종 조립: 노드의 로컬 행렬에 변화량 곱세 적용 (M_new = M_old @ M_delta)
         node.local_matrix = Transform_Math.Apply_delta(
             node.local_matrix, _delta_mat
         )

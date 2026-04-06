@@ -1,16 +1,66 @@
 from PySide6.QtWidgets import (
-    QTreeWidget, QTreeWidgetItem, QAbstractItemView, QMenu)
+    QTreeWidget, QTreeWidgetItem, QAbstractItemView, QMenu,
+    QStyledItemDelegate, QLineEdit)
 from PySide6.QtCore import Signal, Qt, QPoint
-from PySide6.QtGui import QAction, QDropEvent
+from PySide6.QtGui import QAction, QDropEvent, QIcon, QPixmap, QPainter, QFont
 
 from data.scene.stage import Stage_Controller
-from data.scene.node import Scene_Node
+from data.scene.node import Scene_Node, Group_Node
+
+
+# 가시성 아이콘 컬럼 인덱스
+_COL_NAME = 0
+_COL_VIS = 1
+
+# 아이콘 크기
+_ICON_SIZE = 16
+
+
+def _Make_eye_icon(visible: bool) -> QIcon:
+    """visible 상태에 따라 눈 아이콘을 생성함."""
+    _pix = QPixmap(_ICON_SIZE, _ICON_SIZE)
+    _pix.fill(Qt.GlobalColor.transparent)
+    _p = QPainter(_pix)
+    _p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    _font = QFont("Segoe UI Symbol", 10)
+    _p.setFont(_font)
+    if visible:
+        _p.setPen(Qt.GlobalColor.white)
+        _p.drawText(_pix.rect(), Qt.AlignmentFlag.AlignCenter, "\U0001F441")
+    else:
+        _p.setPen(Qt.GlobalColor.darkGray)
+        _p.drawText(_pix.rect(), Qt.AlignmentFlag.AlignCenter, "—")
+    _p.end()
+    return QIcon(_pix)
+
+
+class _Name_Delegate(QStyledItemDelegate):
+    """이름 컬럼 전용 인라인 에디터 델리게이트."""
+
+    def createEditor(self, parent, option, index):
+        if index.column() != _COL_NAME:
+            return None
+        _editor = QLineEdit(parent)
+        return _editor
+
+    def setEditorData(self, editor, index):
+        _node = index.data(Qt.ItemDataRole.UserRole)
+        if isinstance(_node, Scene_Node):
+            editor.setText(_node.label)
+
+    def setModelData(self, editor, model, index):
+        _text = editor.text().strip()
+        if not _text:
+            return
+        _node = index.data(Qt.ItemDataRole.UserRole)
+        if isinstance(_node, Scene_Node):
+            _node.label = _text
+            model.setData(index, f"[{_node.prim_type}] {_text}", Qt.ItemDataRole.DisplayRole)
 
 
 class Scene_Tree_Widget(QTreeWidget):
     """씬의 계층 구조 데이터를 시각화하고 다중 선택 및 Batch 상호작용을 처리하는 트리 컴포넌트."""
-    
-    # 이제 단일 노드가 아닌 선택된 노드들의 '리스트'를 방출함
+
     selection_changed = Signal(list)
 
     def __init__(self, stage: Stage_Controller, parent=None):
@@ -20,19 +70,32 @@ class Scene_Tree_Widget(QTreeWidget):
         self.Refresh_ui()
 
     def _Setup_ui(self):
-        self.setHeaderLabel("Hierarchy")
+        self.setColumnCount(2)
+        self.setHeaderLabels(["Hierarchy", ""])
+        self.header().setStretchLastSection(False)
+        self.header().resizeSection(_COL_VIS, 28)
+        self.header().setSectionResizeMode(
+            _COL_NAME, self.header().ResizeMode.Stretch)
+        self.header().setSectionResizeMode(
+            _COL_VIS, self.header().ResizeMode.Fixed)
+
         self.setDragEnabled(True)
         self.setAcceptDrops(True)
         self.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
-        
-        # [핵심 1] 다중 선택 모드 활성화 (Ctrl, Shift 클릭 지원)
+
         self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        
+
         self.customContextMenuRequested.connect(self._Show_context_menu)
-        
-        # [핵심 2] itemClicked 대신 선택 범위 변경 이벤트를 구독
         self.itemSelectionChanged.connect(self._On_selection_changed)
+
+        # 더블클릭 시 이름 컬럼만 인라인 편집 허용
+        self.setItemDelegateForColumn(_COL_NAME, _Name_Delegate(self))
+        self.setEditTriggers(
+            QAbstractItemView.EditTrigger.DoubleClicked)
+
+        # 가시성 컬럼 클릭 감지
+        self.itemClicked.connect(self._On_item_clicked)
 
     # ==========================================
     # 헬퍼 및 데이터 추출
@@ -62,11 +125,24 @@ class Scene_Tree_Widget(QTreeWidget):
 
     def _Refresh_tree(self, node: Scene_Node) -> QTreeWidgetItem:
         _item = QTreeWidgetItem([f"[{node.prim_type}] {node.label}"])
-        _item.setData(0, Qt.ItemDataRole.UserRole, node)
-        
+        _item.setData(_COL_NAME, Qt.ItemDataRole.UserRole, node)
+        _item.setFlags(
+            _item.flags() | Qt.ItemFlag.ItemIsEditable)
+        _item.setIcon(_COL_VIS, _Make_eye_icon(node.visible))
+
         for _child in node.children:
             _item.addChild(self._Refresh_tree(_child))
         return _item
+
+    def _On_item_clicked(self, item: QTreeWidgetItem, column: int) -> None:
+        """가시성 컬럼 클릭 시 visible 토글 후 아이콘 갱신."""
+        if column != _COL_VIS:
+            return
+        _node = self._Get_node(item)
+        if _node is None:
+            return
+        _node.visible = not _node.visible
+        item.setIcon(_COL_VIS, _Make_eye_icon(_node.visible))
 
     # ==========================================
     # 다중 선택 상호작용 (Batch Processing)
@@ -175,9 +251,11 @@ class Scene_Tree_Widget(QTreeWidget):
     def _Request_group(self, items: list[QTreeWidgetItem], parent: Scene_Node):
         """공통 부모를 가진 여러 노드를 새로운 빈 그룹 아래로 일괄 이동시킴."""
         
-        # 1. 새 빈 그룹 노드를 생성하여 공통 부모 아래에 추가
-        _new_group = Scene_Node("New_Group", "Xform") # 데이터 구조에 맞게 생성
-        self.stage.Add_node(_new_group, parent)
+        # 1. 새 빈 그룹 노드를 공통 부모에 직접 삽입
+        #    Add_node는 Xform을 언패킹하므로 사용 불가
+        _new_group = Group_Node(label="New_Group", prim_type="Xform")
+        _new_group.Set_parent(parent)
+        parent.children.append(_new_group)
 
         # 2. 선택된 기존 노드들을 방금 만든 새 그룹 산하로 일괄 이동 (트랜잭션)
         _is_changed = False

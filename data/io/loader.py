@@ -1,3 +1,7 @@
+"""바이너리 3D 포맷(OBJ, USD 등)의 로드를 확장자 기반으로 라우팅하는 모듈.
+
+JSON 직렬화 파일(.json)은 data.scene.scene_file에서 처리함.
+"""
 from pathlib import Path
 from data.scene.node import Scene_Node
 from data.io.obj import load_obj
@@ -6,8 +10,6 @@ from data.io.obj import load_obj
 # 확장자별 파싱 함수 매핑 딕셔너리
 _LOADER_REGISTRY = {
     ".obj": load_obj,
-    # ".gltf": load_gltf,
-    # ".glb": load_gltf,
 }
 
 def load_file(file_path: str | Path) -> Scene_Node:

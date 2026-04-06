@@ -1,7 +1,7 @@
 from OpenGL.GL import glReadPixels, GL_RGB, GL_UNSIGNED_BYTE
 from data.scene.node import Scene_Node
-from graphics.viewport.view import Orbit_Camera
-from graphics.viewport.renderer import Scene_Renderer 
+from ..view import Orbit_Camera
+from ..renderer import Scene_Renderer 
 
 class Selection_Controller:
     """사용자의 마우스 클릭 좌표를 기반으로 3D 씬 내의 객체를 식별하고 선택 상태를 관리함."""

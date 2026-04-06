@@ -12,7 +12,8 @@ class Viewer_Panel(QOpenGLWidget):
     """Qt 프레임워크와 독립된 3D 뷰포트 코어 엔진을 연결하는 메인 UI 패널."""
     
     # 다른 패널(Outliner 등)과 통신하기 위한 시그널
-    node_selected_signal = Signal(object) 
+    node_selected_signal = Signal(object)
+    camera_moved_signal = Signal()
 
     def __init__(self, stage: Stage_Controller, parent=None):
         super().__init__(parent)
@@ -91,21 +92,25 @@ class Viewer_Panel(QOpenGLWidget):
 
             if event.buttons() & Qt.MouseButton.LeftButton:
                 if self.gizmo.active_axis and self.selection.selected_node:
-                    # 기즈모가 활성화된 상태라면 객체 변환 로직으로 라우팅
                     self.makeCurrent()
+                    _sx = float(_current_pos.x())
+                    _sy = float(self.height() - _current_pos.y())
                     self.gizmo.Apply_transform_drag(
-                        self.selection.selected_node, float(_dx), float(_dy)
+                        self.selection.selected_node,
+                        float(_dx), float(_dy), _sx, _sy
                     )
                 else:
                     # 기즈모 비활성 상태라면 카메라 궤도 회전
                     self.camera.Rotate(float(_dx), float(_dy))
-            
+                    self.camera_moved_signal.emit()
+
             elif event.buttons() & Qt.MouseButton.MiddleButton:
                 # 휠 클릭 드래그는 카메라 패닝
                 self.camera.Pan(float(_dx), float(_dy))
+                self.camera_moved_signal.emit()
 
         self._last_mouse_pos = _current_pos
-        self.update() # 화면 갱신 트리거
+        self.update()
 
     def mouseReleaseEvent(self, event: QMouseEvent):
         """드래그 종료 시 기즈모 활성 상태 해제."""
@@ -115,3 +120,4 @@ class Viewer_Panel(QOpenGLWidget):
         """마우스 휠 스크롤 시 카메라 줌 처리."""
         _delta = event.angleDelta().y() / 120.0 # 일반적인 마우스 휠 1틱
         self.camera.Zoom(_delta)
+        self.camera_moved_signal.emit()

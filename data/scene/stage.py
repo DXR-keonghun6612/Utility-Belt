@@ -1,4 +1,8 @@
-from data.scene.node import Scene_Node
+from pathlib import Path
+from data.scene.node import Scene_Node, Group_Node
+
+
+from data.scene.scene_file import save_scene, load_scene
 
 class Stage_Controller:
     """씬 그래프의 양방향 트리 구조를 관리하고 상태 무결성을 제어함."""
@@ -20,7 +24,7 @@ class Stage_Controller:
 
         # 1. 빈 그룹 생성 분기
         if node is None:
-            _new_group = Scene_Node(label="new_group", prim_type="Xform")
+            _new_group = Group_Node(label="new_group", prim_type="Xform")
             _new_group.Set_parent(_target)
             _target.children.append(_new_group)
             return
@@ -78,6 +82,27 @@ class Stage_Controller:
             return node
         except (ValueError, AttributeError):
             return None
+
+    def Save(self, file_path: Path) -> None:
+        """현재 장면 트리를 JSON 파일로 저장함.
+
+        Args:
+            file_path: 저장 대상 JSON 파일 경로.
+        """
+        save_scene(self.root, file_path)
+
+    def Load(self, file_path: Path) -> None:
+        """JSON 파일에서 장면 트리를 복원하여 현재 씬을 교체함.
+
+        Args:
+            file_path: 로드할 JSON 파일 경로.
+        """
+        _loaded_root = load_scene(file_path)
+
+        self.clear_scene()
+        for _child in list(_loaded_root.children):
+            _child.Set_parent(self.root)
+            self.root.children.append(_child)
 
     def clear_scene(self) -> None:
         """씬의 모든 객체를 메모리에서 해제함."""

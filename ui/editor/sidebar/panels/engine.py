@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, Optional, TypeVar, Generic
 
 from PySide6.QtWidgets import (
@@ -6,25 +6,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Slot, Signal
 
-@dataclass
-class Navigation_Style():
-    activity: str = field(
-        default_factory=lambda: "; ".join((
-            "background-color: #333333",
-            "border-right: 1px solid #252526"
-        ))
-    )
-    side: str = field(
-        default_factory=lambda: "; ".join((
-            "background-color: #252526",
-            "border-right: 1px solid #111111"
-        ))
-    )
-    navigation_btn: str = """
-    QPushButton { background-color: transparent; border: none; color: #858585; font-size: 18px; font-weight: bold; }
-    QPushButton:hover { background-color: #444444; color: white; }
-    QPushButton:checked { border-left: 2px solid white; background-color: #37373d; color: white; }
-    """
+from ui.style import ACTIVITY_BAR, NAV_BUTTON
 
 PAGE = TypeVar("PAGE", bound=QWidget)
 
@@ -39,24 +21,20 @@ class Navigation(QHBoxLayout):
 
     toggled = Signal(bool)
 
-    def __init__(
-        self,
-        page_config: dict[str, Page_Config],
-        style: Navigation_Style = Navigation_Style()
-    ):
+    def __init__(self, page_config: dict[str, Page_Config]):
         super().__init__()
         self.pages: Dict[str, QWidget] = {}
         self.nav_buttons: Dict[str, QPushButton] = {}
-        self._init_ui(page_config, style)
+        self._init_ui(page_config)
 
-    def _init_ui(self, page_config: dict[str, Page_Config], style: Navigation_Style):
+    def _init_ui(self, page_config: dict[str, Page_Config]):
         self.setContentsMargins(0, 0, 0, 0)
         self.setSpacing(0)
 
         self.activity_bar = QFrame()
         self.activity_bar.setFixedWidth(50)
-        self.activity_bar.setStyleSheet(style.activity)
-        
+        self.activity_bar.setStyleSheet(ACTIVITY_BAR)
+
         self.activity_layout = QVBoxLayout(self.activity_bar)
         self.activity_layout.setContentsMargins(0, 5, 0, 5)
         self.activity_layout.setSpacing(2)
@@ -64,11 +42,10 @@ class Navigation(QHBoxLayout):
 
         self.side_bar = QStackedWidget()
         self.side_bar.setMinimumWidth(50)
-        # self.side_bar.setStyleSheet(style.side)
         self.side_bar.hide()
 
         for _key, _cfg in page_config.items():
-            _btn = self._create_nav_btn(_cfg.text, _cfg.tooltip, style.navigation_btn)
+            _btn = self._create_nav_btn(_cfg.text, _cfg.tooltip)
             _widget = _cfg.widget  # [수정됨] 반영
 
             self.nav_buttons[_key] = _btn
@@ -82,13 +59,13 @@ class Navigation(QHBoxLayout):
         self.addWidget(self.activity_bar)
         self.addWidget(self.side_bar)
 
-    def _create_nav_btn(self, text: str, tooltip: str, style: str) -> QPushButton:
+    def _create_nav_btn(self, text: str, tooltip: str) -> QPushButton:
         _btn = QPushButton(text)
         _btn.setFixedSize(50, 50)
         _btn.setToolTip(tooltip)
         _btn.setCheckable(True)
         _btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        # _btn.setStyleSheet(style)
+        _btn.setStyleSheet(NAV_BUTTON)
         return _btn
 
     @Slot(str)
