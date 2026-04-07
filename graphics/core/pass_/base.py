@@ -15,9 +15,9 @@ from OpenGL.GL import (
 )
 from OpenGL.GLU import gluPerspective
 
-from data.scene.node import Scene_Node
-from data.scene.node.mesh import Mesh_Node
-from data.scene.node.camera import Camera_Node
+from data.node import Base_Node
+from data.node.type.mesh import Mesh_Node
+from data.node.type.camera import Camera_Node
 from graphics.core.draw import Draw_mesh
 from graphics.core.resource import GPU_Resource_Manager
 
@@ -46,7 +46,7 @@ class Base_Pass(ABC):
     # ==========================================
 
     def Render(
-        self, root_node: Scene_Node, camera_node: Camera_Node,
+        self, root_node: Base_Node, camera_node: Camera_Node,
         width: int, height: int
     ) -> np.ndarray:
         """공통 렌더 파이프라인 실행. 서브클래스는 훅을 통해 차이만 주입함.
@@ -93,7 +93,7 @@ class Base_Pass(ABC):
         """GL 상태 설정 (조명, 디더링 등). 기본: 조기 OFF."""
         glDisable(GL_DEPTH_TEST)
 
-    def _On_draw(self, root_node: Scene_Node) -> None:
+    def _On_draw(self, root_node: Base_Node) -> None:
         """씬 드로우. 기본: Mesh_Node 트리 순회."""
         self._Draw_scene(root_node)
 
@@ -141,7 +141,7 @@ class Base_Pass(ABC):
         _view = np.linalg.inv(camera_node.world_matrix).astype(np.float32)
         glLoadMatrixf(_view.T)
 
-    def _Draw_scene(self, node: Scene_Node) -> None:
+    def _Draw_scene(self, node: Base_Node) -> None:
         """씬 트리를 재귀 순회하며 Mesh_Node의 지오메트리를 렌더링함."""
         if not node.is_renderable:
             return

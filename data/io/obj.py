@@ -1,12 +1,30 @@
+from __future__ import annotations
 from pathlib import Path
+
 import trimesh
 import numpy as np
-from data.scene.node import Scene_Node
-from data.scene.node.mesh import Mesh_Node
-from data.scene.node.group import Group_Node
+
+from data.asset.type.mesh import Mesh_Asset
+from data.node.type import Base_Node
+from data.node.type.mesh import Mesh_Node
+from data.node.type.group import Group_Node
 
 
-def load_obj(file_path: Path) -> Scene_Node:
+def load_obj_as_asset(file_path: Path) -> list[Mesh_Asset]:
+    """OBJ 파일을 파싱하여 Mesh_Asset 리스트로 반환함.
+
+    Args:
+        file_path (Path): 로드할 OBJ 파일 경로.
+
+    Returns:
+        list[Mesh_Asset]: 파싱된 메시 에셋 목록.
+    """
+    _loaded = trimesh.load(file_path)
+    _source = str(file_path.resolve())
+    return _Extract_assets(_loaded, label=file_path.stem, source_path=_source)
+
+
+def load_obj_as_node(file_path: Path) -> Base_Node:
     """OBJ 파일을 파싱하여 Scene_Node 트리로 반환함.
 
     Args:
@@ -21,17 +39,52 @@ def load_obj(file_path: Path) -> Scene_Node:
     return _root
 
 
-def _Set_source_path(node: Scene_Node, path: str) -> None:
+# ==========================================
+# Asset 변환 헬퍼
+# ==========================================
+
+def _Extract_assets(
+    source: trimesh.Geometry, label: str, source_path: str
+) -> list[Mesh_Asset]:
+    """trimesh 객체에서 Mesh_Asset 리스트를 추출함."""
+    if isinstance(source, trimesh.Trimesh):
+        return [Mesh_Asset(
+            label=label,
+            geometry=source,
+            source_path=source_path,
+        )]
+
+    if isinstance(source, trimesh.Scene):
+        _assets: list[Mesh_Asset] = []
+        for _node_name in source.graph.nodes:
+            _trans, _geo_name = source.graph.get(_node_name)
+            if _geo_name is not None and _geo_name in source.geometry:
+                _assets.append(Mesh_Asset(
+                    label=_node_name,
+                    local_matrix=np.array(_trans, dtype=np.float32),
+                    geometry=source.geometry[_geo_name],
+                    source_path=source_path,
+                ))
+        return _assets
+
+    return []
+
+
+# ==========================================
+# Node 변환 헬퍼
+# ==========================================
+
+def _Set_source_path(node: Base_Node, path: str) -> None:
     """Mesh_Node에 원본 파일 경로를 기록함."""
     if isinstance(node, Mesh_Node):
-        node.source_path = path
+        node.source_key = path
     for _child in node.children:
         _Set_source_path(_child, path)
 
 
 def _Parse_trimesh_scene(
     source: trimesh.Geometry, label: str = "obj"
-) -> Scene_Node:
+) -> Base_Node:
     """trimesh 객체의 평면화된 그래프 데이터를 기반으로 트리 계층을 조립함.
 
     Args:
@@ -45,7 +98,7 @@ def _Parse_trimesh_scene(
         return Mesh_Node(label=label, mesh=source, prim_type="Mesh")
 
     if isinstance(source, trimesh.Scene):
-        _nds_map: dict[str, Scene_Node] = {}
+        _nds_map: dict[str, Base_Node] = {}
 
         # Pass 1: 그래프 내 모든 노드를 독립된 인스턴스로 생성 및 해시맵 등록
         for _node_name in source.graph.nodes:

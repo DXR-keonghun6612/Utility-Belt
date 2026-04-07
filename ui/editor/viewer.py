@@ -2,7 +2,7 @@ from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from PySide6.QtGui import QMouseEvent, QWheelEvent
 
-from data.scene.stage import Stage_Controller
+from data.node.stage import Stage_Controller
 from graphics.viewport.view import Orbit_Camera
 from graphics.viewport.renderer import Scene_Renderer
 from graphics.viewport.tool.selection import Selection_Controller

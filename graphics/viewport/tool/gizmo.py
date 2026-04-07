@@ -1,6 +1,6 @@
 import numpy as np
 from OpenGL.GL import *
-from data.scene.node import Scene_Node
+from data.node import Base_Node
 from ..view import Orbit_Camera
 from ..transform import Transform_Math
 
@@ -37,7 +37,7 @@ class Gizmo_Controller:
     # 픽킹 및 상태 제어
     # ==========================================
 
-    def Pick_gizmo_axis(self, x: int, y: int, camera: Orbit_Camera, selected_node: Scene_Node | None) -> str | None:
+    def Pick_gizmo_axis(self, x: int, y: int, camera: Orbit_Camera, selected_node: Base_Node | None) -> str | None:
         """기즈모 자체를 픽킹하여 활성화할 조작 축을 결정함.
         
         [주의] OpenGL 컨텍스트가 makeCurrent된 상태에서 호출되어야 함.
@@ -79,7 +79,7 @@ class Gizmo_Controller:
     # 렌더링 오버레이 (Overlay Rendering)
     # ==========================================
 
-    def Render_overlay(self, camera: Orbit_Camera, selected_node: Scene_Node | None):
+    def Render_overlay(self, camera: Orbit_Camera, selected_node: Base_Node | None):
         """메인 렌더링 위에 기즈모 조작 핸들을 오버레이로 그려 시각적 피드백을 제공함."""
         if selected_node is None: return
 
@@ -100,7 +100,7 @@ class Gizmo_Controller:
         glPopAttrib() # 상태 복구
         glEnable(GL_DEPTH_TEST) # 깊이 테스트 다시 킴
 
-    def _Draw_gizmo_core(self, node: Scene_Node, is_picking: bool):
+    def _Draw_gizmo_core(self, node: Base_Node, is_picking: bool):
         """기즈모의 기하학적 형태(선, 호)를 그리는 핵심 루틴."""
         # 1. 월드 포즈 획득 및 OpenGL 행렬 스택 적용
         _world_mat = node.world_matrix
@@ -179,7 +179,7 @@ class Gizmo_Controller:
     # ==========================================
 
     def Apply_transform_drag(
-        self, node: Scene_Node,
+        self, node: Base_Node,
         dx: float, dy: float,
         screen_x: float, screen_y: float
     ):

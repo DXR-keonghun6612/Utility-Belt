@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from data.scene.node.camera import Camera_Node
+from data.node.type.camera import Camera_Node
 from graphics.render.config import Render_Config
 
 

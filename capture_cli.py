@@ -13,9 +13,9 @@ from PySide6.QtWidgets import QApplication
 
 from python_toolbox.project import Project_Template, Read_from_file
 
-from data.scene.node import Scene_Node, walk_nodes
-from data.scene.scene_file import load_scene
-from data.io.loader import load_file
+from data.node import Base_Node, walk_nodes
+from data.node.stage import Stage_Controller
+from data.io.loader import load_as_node
 from graphics.render.config import Render_Config, Sample_delta_matrix
 from graphics.render.pipeline import Render_Pipeline
 from graphics.render.exporter import Result_Exporter
@@ -32,7 +32,7 @@ class Capture_Project(Project_Template):
         self._frame_counter = 0
 
     def Run(
-        self, root_node: Scene_Node, camera_node: Scene_Node,
+        self, root_node: Base_Node, camera_node: Base_Node,
         width: int, height: int
     ) -> Path:
         """오프스크린 컨텍스트를 생성하고 렌더링 후 결과를 저장함.
@@ -69,20 +69,20 @@ class Capture_Project(Project_Template):
 # 유틸리티
 # ==========================================
 
-def _Find_camera_node(root: Scene_Node, label: str) -> Scene_Node | None:
+def _Find_camera_node(root: Base_Node, label: str) -> Base_Node | None:
     """장면 트리에서 지정된 라벨의 카메라 노드를 탐색함."""
     _is_cam = lambda n: n.label == label and n.prim_type == "Camera"
     return next(walk_nodes(root, _is_cam), None)
 
 
-def _Find_node_by_label(root: Scene_Node, label: str) -> Scene_Node | None:
+def _Find_node_by_label(root: Base_Node, label: str) -> Base_Node | None:
     """장면 트리에서 지정된 라벨의 노드를 탐색함."""
     _is_label = lambda n: n.label == label
     return next(walk_nodes(root, _is_label), None)
 
 
 def _Inject_obj_into_scene(
-    scene_root: Scene_Node, obj_node: Scene_Node,
+    scene_root: Base_Node, obj_node: Base_Node,
     target_label: str
 ) -> None:
     """장면 트리의 대상 노드 자식을 교체하여 OBJ를 삽입함."""
@@ -117,7 +117,7 @@ def _Inject_obj_into_scene(
 # 배치 캡처 실행
 # ==========================================
 
-def _Resolve_render_size(camera_node: Scene_Node) -> tuple[int, int]:
+def _Resolve_render_size(camera_node: Base_Node) -> tuple[int, int]:
     """카메라 intrinsic에서 렌더 해상도를 취득함.
 
     intrinsic이 없으면 기본 1920x1080을 반환함.
@@ -155,9 +155,11 @@ def Run_batch_capture(config_path: Path) -> None:
             print(f"\n[INFO] === [{_obj_idx + 1}/{len(_obj_files)}] {_obj_name} ===")
 
             _scene_path = (_base_dir / _cfg.scene_path).resolve()
-            _root = load_scene(_scene_path)
+            _stage = Stage_Controller()
+            _stage.Load(_scene_path)
+            _root = _stage.root
 
-            _obj_node = load_file(_obj_path)
+            _obj_node = load_as_node(_obj_path)
             _Inject_obj_into_scene(_root, _obj_node, _cfg.target_node_label)
 
             _camera = _Find_camera_node(_root, _cfg.camera_label)
@@ -183,7 +185,9 @@ def Run_batch_capture(config_path: Path) -> None:
 
     else:
         _scene_path = (_base_dir / _cfg.scene_path).resolve()
-        _root = load_scene(_scene_path)
+        _stage = Stage_Controller()
+        _stage.Load(_scene_path)
+        _root = _stage.root
 
         _camera = _Find_camera_node(_root, _cfg.camera_label)
         if _camera is None:

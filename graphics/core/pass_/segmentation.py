@@ -8,8 +8,8 @@ from OpenGL.GL import (
     GL_LIGHTING, GL_DITHER,
 )
 
-from data.scene.node import Scene_Node
-from data.scene.node.mesh import Mesh_Node
+from data.node import Base_Node
+from data.node.type.mesh import Mesh_Node
 from graphics.core.draw import Draw_mesh
 from graphics.core.pass_.base import Base_Pass
 from graphics.core.pass_.registry import Pass_Registry
@@ -25,7 +25,7 @@ class Segmentation_Pass(Base_Pass):
 
     def __init__(self):
         super().__init__()
-        self.last_id_map: dict[tuple[int, int, int], Scene_Node] = {}
+        self.last_id_map: dict[tuple[int, int, int], Base_Node] = {}
         self._id_counter: int = 0
 
     @property
@@ -38,7 +38,7 @@ class Segmentation_Pass(Base_Pass):
         self._id_counter = 1
         self.last_id_map = {}
 
-    def _On_draw(self, root_node: Scene_Node) -> None:
+    def _On_draw(self, root_node: Base_Node) -> None:
         self._Draw_id_scene(root_node)
 
     def _On_readback(self, width: int, height: int, **kwargs) -> np.ndarray:
@@ -51,7 +51,7 @@ class Segmentation_Pass(Base_Pass):
     # ID 맵 전용 드로우
     # ==========================================
 
-    def _Draw_id_scene(self, node: Scene_Node) -> None:
+    def _Draw_id_scene(self, node: Base_Node) -> None:
         """고유 RGB 색상으로 인코딩된 ID 메쉬를 재귀 렌더링함."""
         if not node.is_renderable:
             return

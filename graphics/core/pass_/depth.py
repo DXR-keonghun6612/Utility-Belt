@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 from OpenGL.GL import glDisable, GL_LIGHTING
 
-from data.scene.node.camera import Camera_Node
+from data.node.type.camera import Camera_Node
 from graphics.core.pass_.base import Base_Pass
 from graphics.core.pass_.registry import Pass_Registry
 

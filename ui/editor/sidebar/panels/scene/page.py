@@ -5,8 +5,8 @@ from PySide6.QtWidgets import (
     QPushButton, QFileDialog)
 from PySide6.QtCore import Qt, Signal, Slot
 
-from data.scene.stage import Stage_Controller
-from data.scene.node import Scene_Node, Camera_Intrinsic, Camera_Node
+from data.node.stage import Stage_Controller
+from data.node import Base_Node, Camera_Intrinsic, Camera_Node
 
 from .scene_tree import Scene_Tree_Widget
 from .property import Property_Panel

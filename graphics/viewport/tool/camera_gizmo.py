@@ -8,8 +8,8 @@ _CAM_FRUSTUM_DEPTH = 1.5
 
 def Draw_camera_gizmo(
     fov: float = 60.0,
-    sensor_w: float = 36.0,
-    sensor_h: float = 24.0,
+    img_w: int = 1920,
+    img_h: int = 1080,
     is_selected: bool = False
 ) -> None:
     """카메라 프러스텀 및 바디를 와이어프레임으로 렌더링함.
@@ -19,8 +19,8 @@ def Draw_camera_gizmo(
 
     Args:
         fov: 수직 화각 (degrees).
-        sensor_w: 센서 가로 (mm) -- 종횡비 산출용.
-        sensor_h: 센서 세로 (mm).
+        img_w: 이미지 가로 해상도 (px) -- 종횡비 산출용.
+        img_h: 이미지 세로 해상도 (px).
         is_selected: 선택 상태 시 하이라이트 색상 적용.
     """
     glDisable(GL_LIGHTING)
@@ -33,7 +33,7 @@ def Draw_camera_gizmo(
         glLineWidth(1.5)
 
     # 프러스텀 꼭짓점 계산 (-Z 방향)
-    _aspect = sensor_w / sensor_h if sensor_h > 0 else 1.5
+    _aspect = img_w / img_h if img_h > 0 else 16 / 9
     _half_h = _CAM_FRUSTUM_DEPTH * np.tan(np.radians(fov * 0.5))
     _half_w = _half_h * _aspect
 

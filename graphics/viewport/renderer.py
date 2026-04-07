@@ -1,7 +1,7 @@
 from OpenGL.GL import *
-from data.scene.node import Scene_Node
-from data.scene.node.mesh import Mesh_Node
-from data.scene.node.camera import Camera_Node
+from data.node import Base_Node
+from data.node.type.mesh import Mesh_Node
+from data.node.type.camera import Camera_Node
 from .view import Orbit_Camera
 from .tool.camera_gizmo import Draw_camera_gizmo
 from graphics.core.draw import Draw_mesh
@@ -32,8 +32,8 @@ class Scene_Renderer:
     # ==========================================
 
     def Render_frame(
-        self, root_node: Scene_Node,
-        camera: Orbit_Camera, selected_node: Scene_Node | None
+        self, root_node: Base_Node,
+        camera: Orbit_Camera, selected_node: Base_Node | None
     ) -> None:
         """메인 뷰포트 화면을 갱신함."""
         glClearColor(*self._bg_color)
@@ -53,7 +53,7 @@ class Scene_Renderer:
         self._Render_scene_recursive(root_node, selected_node)
 
     def _Render_scene_recursive(
-        self, node: Scene_Node, selected_node: Scene_Node | None
+        self, node: Base_Node, selected_node: Base_Node | None
     ) -> None:
         """노드 계층을 순회하며 메쉬, 카메라 기즈모, 선택 하이라이트를 그림."""
         if not node.is_renderable:
@@ -83,8 +83,8 @@ class Scene_Renderer:
             _intr = node.intrinsic
             Draw_camera_gizmo(
                 fov=_intr.fov if _intr else 60.0,
-                sensor_w=_intr.sensor_width if _intr else 36.0,
-                sensor_h=_intr.sensor_height if _intr else 24.0,
+                img_w=_intr.width if _intr else 1920,
+                img_h=_intr.height if _intr else 1080,
                 is_selected=(node is selected_node)
             )
 
@@ -98,7 +98,7 @@ class Scene_Renderer:
     # ==========================================
 
     def Render_id_pass(
-        self, root_node: Scene_Node, camera: Orbit_Camera
+        self, root_node: Base_Node, camera: Orbit_Camera
     ) -> dict:
         """픽킹을 위한 ID 패스를 렌더링하고 컬러맵을 반환함."""
         glClearColor(0, 0, 0, 1)
@@ -122,7 +122,7 @@ class Scene_Renderer:
 
         return _id_map
 
-    def _Draw_id_recursive(self, node: Scene_Node, id_map: dict) -> None:
+    def _Draw_id_recursive(self, node: Base_Node, id_map: dict) -> None:
         """고유 색상 기반의 ID 메쉬를 그림."""
         if not node.is_renderable:
             return

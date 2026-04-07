@@ -4,8 +4,8 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Signal, Qt, QPoint
 from PySide6.QtGui import QAction, QDropEvent, QIcon, QPixmap, QPainter, QFont
 
-from data.scene.stage import Stage_Controller
-from data.scene.node import Scene_Node, Group_Node
+from data.node.stage import Stage_Controller
+from data.node import Base_Node, Group_Node
 
 
 # 가시성 아이콘 컬럼 인덱스
@@ -45,7 +45,7 @@ class _Name_Delegate(QStyledItemDelegate):
 
     def setEditorData(self, editor, index):
         _node = index.data(Qt.ItemDataRole.UserRole)
-        if isinstance(_node, Scene_Node):
+        if isinstance(_node, Base_Node):
             editor.setText(_node.label)
 
     def setModelData(self, editor, model, index):
@@ -53,7 +53,7 @@ class _Name_Delegate(QStyledItemDelegate):
         if not _text:
             return
         _node = index.data(Qt.ItemDataRole.UserRole)
-        if isinstance(_node, Scene_Node):
+        if isinstance(_node, Base_Node):
             _node.label = _text
             model.setData(index, f"[{_node.prim_type}] {_text}", Qt.ItemDataRole.DisplayRole)
 
@@ -101,13 +101,13 @@ class Scene_Tree_Widget(QTreeWidget):
     # 헬퍼 및 데이터 추출
     # ==========================================
 
-    def _Get_node(self, item: QTreeWidgetItem | None) -> Scene_Node | None:
+    def _Get_node(self, item: QTreeWidgetItem | None) -> Base_Node | None:
         """아이템에서 Scene_Node 데이터를 안전하게 추출함."""
         if not item: 
             return None
         return item.data(0, Qt.ItemDataRole.UserRole)
 
-    def Get_selected_nodes(self) -> list[Scene_Node]:
+    def Get_selected_nodes(self) -> list[Base_Node]:
         """현재 선택된 모든 유효한 노드를 리스트로 반환함."""
         _nodes = []
         for _item in self.selectedItems():
@@ -123,7 +123,7 @@ class Scene_Tree_Widget(QTreeWidget):
             self.addTopLevelItem(_root_item)
             self.expandAll()
 
-    def _Refresh_tree(self, node: Scene_Node) -> QTreeWidgetItem:
+    def _Refresh_tree(self, node: Base_Node) -> QTreeWidgetItem:
         _item = QTreeWidgetItem([f"[{node.prim_type}] {node.label}"])
         _item.setData(_COL_NAME, Qt.ItemDataRole.UserRole, node)
         _item.setFlags(
@@ -248,7 +248,7 @@ class Scene_Tree_Widget(QTreeWidget):
     # ==========================================
     # 신규 기능: 선택 항목 그룹화 요청
     # ==========================================
-    def _Request_group(self, items: list[QTreeWidgetItem], parent: Scene_Node):
+    def _Request_group(self, items: list[QTreeWidgetItem], parent: Base_Node):
         """공통 부모를 가진 여러 노드를 새로운 빈 그룹 아래로 일괄 이동시킴."""
         
         # 1. 새 빈 그룹 노드를 공통 부모에 직접 삽입
@@ -270,7 +270,7 @@ class Scene_Tree_Widget(QTreeWidget):
         if _is_changed:
             self.Refresh_ui()
 
-    def _Request_add(self, node: Scene_Node | None, parent: Scene_Node):
+    def _Request_add(self, node: Base_Node | None, parent: Base_Node):
         self.stage.Add_node(node, parent)
         self.Refresh_ui()
 

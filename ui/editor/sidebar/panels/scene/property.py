@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Signal, Qt
 
-from data.scene.node import Scene_Node, Camera_Node
+from data.node import Base_Node, Camera_Node
 from ui.style import (
     SPIN_BOX, Spin_box_accented, Axis_label, LABEL,
     HEADER, SUB_HEADER, GROUP_BOX, SEPARATOR, AXIS_COLORS, AXIS_COLORS_WXYZ
@@ -20,7 +20,7 @@ class Property_Panel(QWidget):
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
-        self.current_node: Scene_Node | None = None
+        self.current_node: Base_Node | None = None
         self._Setup_ui()
 
     def _Setup_ui(self) -> None:
@@ -78,12 +78,10 @@ class Property_Panel(QWidget):
             "Near Clip", 0.001, 1000.0, 0.1, 0.01, 3, _cg_layout)
         self.far_spin = self._Create_single_row(
             "Far Clip", 1.0, 100000.0, 1000.0, 10.0, 1, _cg_layout)
-        self.focal_spin = self._Create_single_row(
-            "Focal (mm)", 1.0, 1000.0, 50.0, 1.0, 1, _cg_layout)
-        self.sensor_w_spin = self._Create_single_row(
-            "Sensor W", 1.0, 100.0, 36.0, 0.1, 1, _cg_layout)
-        self.sensor_h_spin = self._Create_single_row(
-            "Sensor H", 1.0, 100.0, 24.0, 0.1, 1, _cg_layout)
+        self.res_w_spin = self._Create_single_row(
+            "Width (px)", 1.0, 16384.0, 1920.0, 1.0, 0, _cg_layout)
+        self.res_h_spin = self._Create_single_row(
+            "Height (px)", 1.0, 16384.0, 1080.0, 1.0, 0, _cg_layout)
 
         self.camera_group.setVisible(False)
         _layout.addWidget(self.camera_group)
@@ -163,7 +161,7 @@ class Property_Panel(QWidget):
     # 데이터 바인딩
     # ==========================================
 
-    def Update_info(self, node: Scene_Node | None) -> None:
+    def Update_info(self, node: Base_Node | None) -> None:
         self.current_node = node
         if not node:
             self.lbl_node_name.setText("No Selection")
@@ -194,9 +192,8 @@ class Property_Panel(QWidget):
             self.fov_spin.setValue(_intr.fov)
             self.near_spin.setValue(_intr.near_clip)
             self.far_spin.setValue(_intr.far_clip)
-            self.focal_spin.setValue(_intr.focal_length)
-            self.sensor_w_spin.setValue(_intr.sensor_width)
-            self.sensor_h_spin.setValue(_intr.sensor_height)
+            self.res_w_spin.setValue(float(_intr.width))
+            self.res_h_spin.setValue(float(_intr.height))
 
         self._Block_spin_signals(False)
 
@@ -205,7 +202,7 @@ class Property_Panel(QWidget):
             for _spin in _spins:
                 _spin.blockSignals(block)
         for _spin in [self.fov_spin, self.near_spin, self.far_spin,
-                      self.focal_spin, self.sensor_w_spin, self.sensor_h_spin]:
+                      self.res_w_spin, self.res_h_spin]:
             _spin.blockSignals(block)
 
     def _On_camera_value_edited(self) -> None:
@@ -216,9 +213,8 @@ class Property_Panel(QWidget):
         _intr.fov = self.fov_spin.value()
         _intr.near_clip = self.near_spin.value()
         _intr.far_clip = self.far_spin.value()
-        _intr.focal_length = self.focal_spin.value()
-        _intr.sensor_width = self.sensor_w_spin.value()
-        _intr.sensor_height = self.sensor_h_spin.value()
+        _intr.width = int(self.res_w_spin.value())
+        _intr.height = int(self.res_h_spin.value())
         self.property_changed.emit()
 
     def _On_value_edited(self) -> None:

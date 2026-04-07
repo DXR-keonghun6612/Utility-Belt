@@ -1,5 +1,5 @@
 from OpenGL.GL import glReadPixels, GL_RGB, GL_UNSIGNED_BYTE
-from data.scene.node import Scene_Node
+from data.node import Base_Node
 from ..view import Orbit_Camera
 from ..renderer import Scene_Renderer 
 
@@ -7,14 +7,14 @@ class Selection_Controller:
     """사용자의 마우스 클릭 좌표를 기반으로 3D 씬 내의 객체를 식별하고 선택 상태를 관리함."""
 
     def __init__(self):
-        self.selected_node: Scene_Node | None = None
+        self.selected_node: Base_Node | None = None
 
     def Pick(
         self, x: int, y: int, 
-        root_node: Scene_Node, 
+        root_node: Base_Node, 
         camera: Orbit_Camera, 
         renderer: Scene_Renderer
-    ) -> Scene_Node | None:
+    ) -> Base_Node | None:
         """화면 좌표(x, y)의 픽셀 색상을 읽어 객체를 픽킹함.
         
         [주의]
@@ -43,6 +43,6 @@ class Selection_Controller:
         """현재 선택된 객체 상태를 해제함."""
         self.selected_node = None
         
-    def Set_selection(self, node: Scene_Node | None) -> None:
+    def Set_selection(self, node: Base_Node | None) -> None:
         """외부 패널(예: Outliner 트리 뷰)에서 명시적으로 선택 상태를 주입할 때 사용함."""
         self.selected_node = node

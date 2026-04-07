@@ -2,8 +2,8 @@ from PySide6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QApplication
 from PySide6.QtCore import Slot
 
 # 코어 데이터 매니저
-from data.scene.stage import Stage_Controller
-from data.registry import Asset_Registry
+from data.node.stage import Stage_Controller
+from data.asset import Asset_Cache
 
 # 분리된 UI 위젯들 임포트
 from .viewer import Viewer_Panel
@@ -21,7 +21,7 @@ class Main_Window(QMainWindow):
         self.resize(1280, 720)
 
         self.stage = Stage_Controller()
-        self.asset_registry = Asset_Registry()
+        self.asset_cache = Asset_Cache()
 
         self._Setup_ui()
         self._Connect_signals()
@@ -36,7 +36,7 @@ class Main_Window(QMainWindow):
         _main_layout.setSpacing(0)
 
         # 2. 위젯 생성
-        self.sidebar = Main_Sidebar(self.stage, self.asset_registry)
+        self.sidebar = Main_Sidebar(self.stage, self.asset_cache)
         self.viewer = Viewer_Panel(self.stage)
 
         # 3. 레이아웃에 배치

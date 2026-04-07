@@ -11,8 +11,8 @@ from OpenGL.GL import (
     GL_FLOAT, GL_UNSIGNED_INT, GL_UNSIGNED_BYTE, GL_TRIANGLES,
 )
 
-from data.scene.node import Scene_Node
-from data.scene.node.mesh import Mesh_Node
+from data.node import Base_Node
+from data.node.type.mesh import Mesh_Node
 from graphics.core.pass_.base import Base_Pass
 from graphics.core.pass_.registry import Pass_Registry
 
@@ -35,7 +35,7 @@ class Normal_Pass(Base_Pass):
         glDisable(GL_LIGHTING)
         glDisable(GL_DITHER)
 
-    def _On_draw(self, root_node: Scene_Node) -> None:
+    def _On_draw(self, root_node: Base_Node) -> None:
         self._Draw_normal_scene(root_node)
 
     def _On_readback(self, width: int, height: int, **kwargs) -> np.ndarray:
@@ -48,7 +48,7 @@ class Normal_Pass(Base_Pass):
     # 법선 맵 전용 드로우
     # ==========================================
 
-    def _Draw_normal_scene(self, node: Scene_Node) -> None:
+    def _Draw_normal_scene(self, node: Base_Node) -> None:
         """법선 벡터를 색상으로 인코딩하여 재귀 렌더링함."""
         if not node.is_renderable:
             return

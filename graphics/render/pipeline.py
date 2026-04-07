@@ -3,8 +3,8 @@ from __future__ import annotations
 import numpy as np
 from PySide6.QtGui import QOffscreenSurface, QSurfaceFormat, QOpenGLContext
 from PySide6.QtOpenGL import QOpenGLFramebufferObject, QOpenGLFramebufferObjectFormat
-from data.scene.node import Scene_Node
-from data.scene.node.camera import Camera_Node
+from data.node import Base_Node
+from data.node.type.camera import Camera_Node
 from graphics.render.config import Render_Config
 from graphics.core.pass_.base import Base_Pass
 from graphics.core.pass_.build import Get_render
@@ -210,7 +210,7 @@ class Render_Pipeline:
     # ==========================================
 
     def Execute(
-        self, root_node: Scene_Node, camera_node: Camera_Node,
+        self, root_node: Base_Node, camera_node: Camera_Node,
         width: int, height: int
     ) -> dict[str, np.ndarray]:
         """등록된 패스를 순차 실행하고 패스명 → 픽셀 배열 딕셔너리를 반환함.

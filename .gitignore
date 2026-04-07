@@ -139,6 +139,7 @@ exp/
 result/
 results/
 dataset*/
+dataset*
 
 # 로그 파일
 log/
