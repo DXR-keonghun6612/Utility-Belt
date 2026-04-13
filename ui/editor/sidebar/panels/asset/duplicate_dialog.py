@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Slot, Qt
 
-from data.asset import Asset_Cache
+from data.asset import ASSET_CACHE
 from data.asset.type.mesh import Mesh_Asset
 from data.asset.utils.similarity import Is_exact_match, Calculate_match_rate
 
@@ -14,9 +14,8 @@ from data.asset.utils.similarity import Is_exact_match, Calculate_match_rate
 class Duplicate_Dialog(QDialog):
     """에셋 중복 검출 파라미터를 설정하고 결과를 표시하는 다이얼로그."""
 
-    def __init__(self, cache: Asset_Cache, parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self._cache = cache
         self.setWindowTitle("Find Duplicate Assets")
         self.resize(560, 420)
 
@@ -169,7 +168,7 @@ class Duplicate_Dialog(QDialog):
 
     def _Find_exact_groups(self, tol: float) -> list[list[Mesh_Asset]]:
         """캐시 내 Mesh_Asset 간 정확 일치 그룹을 탐지함."""
-        _meshes = self._cache.Get_by_type(Mesh_Asset)
+        _meshes = ASSET_CACHE.Get_by_type(Mesh_Asset)
         _visited: set[int] = set()
         _groups: list[list[Mesh_Asset]] = []
 

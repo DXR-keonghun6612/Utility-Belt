@@ -3,7 +3,7 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QFileDialog, QAbstractItemView
 )
 from PySide6.QtCore import Signal, Slot, Qt
-from data.asset import Asset_Cache
+from data.asset import ASSET_CACHE
 from data.asset.type.mesh import Mesh_Asset
 from data.node import Base_Node
 from data.io.loader import load_as_asset, load_as_node
@@ -16,9 +16,8 @@ class Asset_Browser_Panel(QWidget):
     instantiate_requested = Signal(object)
     asset_removed = Signal(str)
 
-    def __init__(self, asset_cache: Asset_Cache, parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self.res_manager = asset_cache
         self._init_ui()
 
     def _init_ui(self):
@@ -62,12 +61,12 @@ class Asset_Browser_Panel(QWidget):
         )
         for _f in _files:
             # 캐시에 이미 있으면 스킵
-            if self.res_manager.Get(_f) is not None:
+            if ASSET_CACHE.Get(_f) is not None:
                 continue
 
             _assets = load_as_asset(_f)
             if _assets:
-                self.res_manager.Register(_f, _assets)
+                ASSET_CACHE.Register(_f, _assets)
                 # 첫 번째 에셋의 label을 대표명으로 사용
                 self._update_table(_assets[0].label, _f)
 
@@ -97,20 +96,20 @@ class Asset_Browser_Panel(QWidget):
 
         _path_key = _path_item.text()
 
-        if self.res_manager.Remove(_path_key):
+        if ASSET_CACHE.Remove(_path_key):
             self.table.removeRow(_row)
             self.asset_removed.emit(_path_key)
 
     @Slot()
     def Clear_assets(self) -> None:
         """씬이 초기화될 때 모든 에셋 데이터를 캐시에서 해제하고 UI를 비움."""
-        self.res_manager.Clear()
+        ASSET_CACHE.Clear()
         self.table.setRowCount(0)
 
     @Slot()
     def _on_find_duplicates_clicked(self) -> None:
         """중복 에셋 검출 다이얼로그를 표시함."""
-        Duplicate_Dialog(self.res_manager, parent=self).exec()
+        Duplicate_Dialog(parent=self).exec()
 
     def _update_table(self, name: str, path: str):
         """성공적으로 로드된 정보를 UI에 반영함."""

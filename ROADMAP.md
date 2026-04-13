@@ -39,7 +39,7 @@ FOCUS 프로젝트의 진행 사항 및 향후 과제 목록임.
 
 ### 도메인 전반
 
-- [ ] UI 측 `Asset_Cache` 인스턴스화 지점을 전역 `ASSET_CACHE` 싱글톤으로 마이그레이션 (capture와 캐시 일원화)
+- [x] UI 측 `Asset_Cache` 인스턴스화 지점을 전역 `ASSET_CACHE` 싱글톤으로 마이그레이션 (capture와 캐시 일원화)
 - [ ] capture_cli `_Find_camera_node` 탐색 범위를 `target`의 형제 노드로 한정 (현재는 root 전체 walk)
 - [ ] BVH 또는 비동기 처리를 통한 픽킹 성능 개선
 - [ ] Command 패턴 기반 상태 제어층을 도입하여 UI의 데이터 직접 변경 방지
