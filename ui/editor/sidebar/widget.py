@@ -7,19 +7,18 @@ from .panels.asset.browser import Asset_Browser_Panel
 from .panels.viewport.camera import Orbit_Camera_Panel
 
 from data.node.stage import Stage_Controller
-from data.asset import Asset_Cache
 
 class Main_Sidebar(QWidget):
     """
-    내부에 크기 조절 전용 핸들을 포함하여, 
+    내부에 크기 조절 전용 핸들을 포함하여,
     자식 위젯의 간섭 없이 사이드바 너비를 조절하는 컨테이너.
     """
-    def __init__(self, stage: Stage_Controller, res_manager: Asset_Cache, parent=None):
+    def __init__(self, stage: Stage_Controller, parent=None):
         super().__init__(parent)
 
         # 1. 패널 인스턴스화
         self.scene_page = Scene_Explorer_Page(stage)
-        self.asset_page = Asset_Browser_Panel(res_manager)
+        self.asset_page = Asset_Browser_Panel()
         self.camera_page = Orbit_Camera_Panel()
 
         page_config = {

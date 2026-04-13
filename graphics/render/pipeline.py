@@ -22,10 +22,12 @@ class Render_Pipeline:
     def __init__(self, config: Render_Config):
         self._config = config
 
-        # config.passes 이름 목록으로 패스 인스턴스 생성
-        self._passes: list[Base_Pass] = [
-            Get_render(name) for name in config.passes
-        ]
+        # config.passes 이름 목록으로 패스 인스턴스 생성 + Configure 주입
+        self._passes: list[Base_Pass] = []
+        for _name in config.passes:
+            _pass = Get_render(_name)
+            _pass.Configure(config)
+            self._passes.append(_pass)
 
         # 헤드리스 모드 전용 리소스 (Qt 폴백용)
         self._surface: QOffscreenSurface | None = None

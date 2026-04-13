@@ -4,7 +4,6 @@ from abc import ABC, abstractmethod
 import numpy as np
 from OpenGL.GL import (
     glMatrixMode, glLoadIdentity, glViewport, glLoadMatrixf,
-    glPushMatrix, glPopMatrix, glMultMatrixf,
     glClearColor, glClear, glEnable, glDisable, glFlush,
     glReadPixels,
     GL_PROJECTION, GL_MODELVIEW,
@@ -20,6 +19,7 @@ from data.node.type.mesh import Mesh_Node
 from data.node.type.camera import Camera_Node
 from graphics.core.draw import Draw_mesh
 from graphics.core.resource import GPU_Resource_Manager
+from graphics.core.traversal_gl import Walk_gl
 
 
 class Base_Pass(ABC):
@@ -34,6 +34,14 @@ class Base_Pass(ABC):
 
     def __init__(self):
         self.res_manager = GPU_Resource_Manager()
+
+    def Configure(self, config) -> None:
+        """Render_Config에서 패스별 파라미터를 주입함. 기본: no-op.
+
+        서브클래스는 필요 시 오버라이드하여 config 필드를 인스턴스 상태로 흡수함.
+        Render_Config 의존을 피하기 위해 타입은 명시하지 않음 (덕 타이핑).
+        """
+        pass
 
     @property
     @abstractmethod
@@ -143,19 +151,12 @@ class Base_Pass(ABC):
 
     def _Draw_scene(self, node: Base_Node) -> None:
         """씬 트리를 재귀 순회하며 Mesh_Node의 지오메트리를 렌더링함."""
-        if not node.is_renderable:
-            return
+        Walk_gl(node, self._Draw_one_mesh)
 
-        glPushMatrix()
-        glMultMatrixf(node.local_matrix.T)
-
+    def _Draw_one_mesh(self, node: Base_Node) -> None:
+        """Walk_gl 콜백 — Mesh_Node에 한해 지오메트리 드로우."""
         if isinstance(node, Mesh_Node) and node.mesh is not None:
             Draw_mesh(node.mesh, self.res_manager)
-
-        for _child in node.children:
-            self._Draw_scene(_child)
-
-        glPopMatrix()
 
     @staticmethod
     def _Read_rgb(width: int, height: int) -> np.ndarray:

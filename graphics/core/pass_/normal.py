@@ -3,7 +3,6 @@ from __future__ import annotations
 import numpy as np
 from OpenGL.GL import (
     glDisable, glEnable,
-    glPushMatrix, glPopMatrix, glMultMatrixf,
     glEnableClientState, glDisableClientState,
     glVertexPointer, glColorPointer, glDrawElements,
     GL_LIGHTING, GL_DITHER,
@@ -15,6 +14,7 @@ from data.node import Base_Node
 from data.node.type.mesh import Mesh_Node
 from graphics.core.pass_.base import Base_Pass
 from graphics.core.pass_.registry import Pass_Registry
+from graphics.core.traversal_gl import Walk_gl
 
 
 @Pass_Registry.Register_module("normal")
@@ -36,7 +36,7 @@ class Normal_Pass(Base_Pass):
         glDisable(GL_DITHER)
 
     def _On_draw(self, root_node: Base_Node) -> None:
-        self._Draw_normal_scene(root_node)
+        Walk_gl(root_node, self._On_node)
 
     def _On_readback(self, width: int, height: int, **kwargs) -> np.ndarray:
         return self._Read_rgb(width, height)
@@ -48,21 +48,10 @@ class Normal_Pass(Base_Pass):
     # 법선 맵 전용 드로우
     # ==========================================
 
-    def _Draw_normal_scene(self, node: Base_Node) -> None:
-        """법선 벡터를 색상으로 인코딩하여 재귀 렌더링함."""
-        if not node.is_renderable:
-            return
-
-        glPushMatrix()
-        glMultMatrixf(node.local_matrix.T)
-
+    def _On_node(self, node: Base_Node) -> None:
+        """Walk_gl 콜백 — Mesh_Node에 한해 법선 색상 드로우."""
         if isinstance(node, Mesh_Node) and node.mesh is not None:
             self._Draw_normal_mesh(node.mesh)
-
-        for _child in node.children:
-            self._Draw_normal_scene(_child)
-
-        glPopMatrix()
 
     def _Draw_normal_mesh(self, mesh) -> None:
         """vertex_normals를 glColorPointer로 전달하거나 VBO를 사용하여 법선 맵을 렌더링함."""

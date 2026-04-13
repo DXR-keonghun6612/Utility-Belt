@@ -42,6 +42,7 @@ class Result_Exporter:
         results: dict[str, np.ndarray],
         camera_node: Camera_Node,
         config: Render_Config,
+        extra_meta: dict | None = None,
     ) -> Path:
         """프레임별 렌더 결과 및 메타데이터를 저장하고 프레임 디렉토리 경로를 반환함.
 
@@ -50,6 +51,7 @@ class Result_Exporter:
             results: Render_Pipeline.Execute()의 반환값.
             camera_node: 메타데이터 추출에 사용할 카메라 씬 노드.
             config: 렌더 설정 (메타데이터에 포함).
+            extra_meta: 메타데이터 JSON에 병합할 추가 필드.
 
         Returns:
             Path: 저장된 프레임 디렉토리 경로.
@@ -57,7 +59,9 @@ class Result_Exporter:
         for _name, _data in results.items():
             self._Save_array(self._output_dir / f"{_name}_{frame_id:06d}", _data)
 
-        self._Save_metadata(self._output_dir, frame_id, camera_node, config)
+        self._Save_metadata(
+            self._output_dir, frame_id, camera_node, config, extra_meta
+        )
 
         return self._output_dir
 
@@ -77,7 +81,8 @@ class Result_Exporter:
 
     def _Save_metadata(
         self, output_dir: Path, frame_id: int,
-        camera_node: Camera_Node, config: Render_Config
+        camera_node: Camera_Node, config: Render_Config,
+        extra_meta: dict | None = None,
     ) -> None:
         """카메라 intrinsic/extrinsic 및 렌더 설정을 JSON으로 저장함."""
         _intrinsic = camera_node.intrinsic
@@ -89,6 +94,9 @@ class Result_Exporter:
             },
             "render": config.Serialize(),
         }
+        if extra_meta:
+            _meta.update(extra_meta)
+
         (output_dir / f"metadata_{frame_id:06d}.json").write_text(
             json.dumps(_meta, indent=2, ensure_ascii=False), encoding="utf-8"
         )

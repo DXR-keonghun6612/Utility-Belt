@@ -1,5 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
+from typing import Literal
 
 import numpy as np
 
@@ -10,6 +11,9 @@ from data.node import Build_transform
 # 고정값 또는 [min, max] 범위
 Randomizable = float | list
 
+# 출력 디렉토리 레이아웃 — per_object: 객체별 서브디렉토리, flat: 단일 디렉토리
+Output_Layout = Literal["per_object", "flat"]
+
 
 @dataclass
 class Render_Config(Base_Config):
@@ -19,11 +23,9 @@ class Render_Config(Base_Config):
     bg_color: 배경색 (RGB, 0.0~1.0).
 
     scene_path: 장면 JSON 파일 경로.
-    num_samples: 카메라 랜덤화 반복 횟수.
+    num_samples: target 객체 1개당 프레임 수 (카메라 델타 반복).
     camera_label: 장면 내 카메라 노드 식별자.
-
-    obj_dir: OBJ 디렉토리 스캔 모드 (빈 문자열이면 비활성).
-    target_node_label: OBJ 삽입 대상 노드 라벨.
+    output_layout: 출력 디렉토리 구조 ("per_object" | "flat").
 
     tx~rz: 카메라 Extrinsic 델타 범위 (고정값 또는 [min, max]).
     """
@@ -32,14 +34,18 @@ class Render_Config(Base_Config):
     passes: list = field(default_factory=lambda: ["rgb", "depth", "segmentation", "normal"])
     bg_color: list = field(default_factory=lambda: [0.0, 0.0, 0.0])
 
+    # RGB 패스 — Phong 조명 (RGBA, 0.0~1.0)
+    light_diffuse: list = field(default_factory=lambda: [1.0, 1.0, 1.0, 1.0])
+    light_ambient: list = field(default_factory=lambda: [0.3, 0.3, 0.3, 1.0])
+    light_specular: list = field(default_factory=lambda: [1.0, 1.0, 1.0, 1.0])
+    material_specular: list = field(default_factory=lambda: [0.4, 0.4, 0.4, 1.0])
+    material_shininess: float = 32.0
+
     # 장면 및 캡처
     scene_path: str = ""
     num_samples: int = 1
     camera_label: str = "main_camera"
-
-    # OBJ 배치 모드
-    obj_dir: str = ""
-    target_node_label: str = ""
+    output_layout: Output_Layout = "per_object"
 
     # 카메라 Extrinsic 델타 — 이동 (씬 좌표계)
     tx: Randomizable = 0.0

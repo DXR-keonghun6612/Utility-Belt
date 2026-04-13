@@ -1,67 +1,82 @@
 # graphics
 
-3D 시각화, 렌더링, 편집기 UI를 담당하는 도메인. `data/` 레이어의 유일한 소비자임.
+3D 시각화와 렌더링을 담당하는 도메인. `data/` 레이어의 소비자이며, UI(`ui/editor/`)에 시각 출력을 제공함.
 
 ## 의존 방향
 
 ```
-data/  ←──  graphics/core/
-       ←──  graphics/viewport/  ←──  graphics/ui/
-       ←──  graphics/render/    ←──  graphics/ui/
+data/  ←──  graphics/core/     (드로우, 리소스, 패스 정의)
+       ←──  graphics/viewport/  (편집기 실시간 뷰포트, core 사용)
+       ←──  graphics/render/    (오프라인 데이터셋 생성, core 사용)
+                  ↑
+              ui/editor/        (graphics의 최상위 소비자)
 ```
 
-- `core/` : `data/scene/node` 참조
-- `viewport/`, `render/` : `data/` + `core/` 참조
-- `ui/` : 최상위 소비자, 나머지 전부 참조
-
-순환 참조 없음. `graphics/` 내부에서도 단방향 흐름이 유지됨.
+순환 참조 없음. UI는 `graphics/` 외부(`ui/`)에 위치하며, graphics는 UI를 참조하지 않음.
 
 ## 구조
 
 ```
 graphics/
-├── core/
-│   └── draw.py           # Draw_mesh, Walk_scene — OpenGL 고정 파이프라인 공용 드로우
-├── viewport/             # 편집기 실시간 뷰포트 (→ viewport/README.md)
+├── core/                      # 드로우/리소스/패스 정의 (viewport와 render의 공통 의존)
+│   ├── draw.py                #   Draw_mesh — VBO 우선, 클라이언트 배열 폴백
+│   ├── resource.py            #   GPU_Resource_Manager — 메시 → VBO 캐시
+│   └── pass_/
+│       ├── base.py            #     Base_Pass (ABC, Template Method)
+│       ├── registry.py        #     Pass_Registry
+│       ├── build.py           #     Get_render(name) — 패스 인스턴스 팩토리
+│       ├── rgb.py             #     Phong 조명 RGB
+│       ├── depth.py           #     선형 미터 단위 뎁스
+│       ├── normal.py          #     로컬 법선 RGB 인코딩
+│       └── segmentation.py    #     인스턴스 ID RGB 인코딩
+├── viewport/                  # 편집기 실시간 뷰포트 (→ viewport/README.md)
 │   ├── renderer.py
 │   ├── view.py
 │   ├── transform.py
 │   └── tool/
-├── render/               # 학습 데이터 오프라인 생성 (→ render/README.md)
-│   ├── config.py
-│   ├── pass_/
-│   ├── pipeline.py
-│   └── exporter.py
-└── ui/                   # PySide6 편집기 UI
-    └── editor/
-        ├── main.py       # Main_Window — 레이아웃 사령탑
-        ├── viewer.py     # Viewer_Panel — QOpenGLWidget 기반 3D 뷰포트
-        └── sidebar/
-            ├── widget.py # Main_Sidebar — 크기 조절 가능한 사이드바 컨테이너
-            └── panels/
-                ├── engine.py        # Navigation — Activity/Side Bar 레이아웃 엔진
-                ├── scene/           # Scene Explorer (Outliner + Inspector)
-                └── asset/browser.py # Asset Browser (Import/Instantiate)
+└── render/                    # 데이터셋 오프라인 생성 (→ render/README.md)
+    ├── config.py
+    ├── pipeline.py
+    └── exporter.py
 ```
+
+> **참고**: 편집기 UI는 프로젝트 루트의 `ui/editor/` 패키지에 위치함. 과거에는 `graphics/ui/`에 있었으나 도메인 분리 리팩토링으로 이관됨.
 
 ## core/
 
-`viewport/`와 `render/` 양쪽에서 사용하는 OpenGL 드로우 코어를 분리한 모듈.
+`viewport/`와 `render/` 양쪽에서 사용하는 OpenGL 코어 및 렌더 패스 구현체를 보유함.
 
-| 함수 | 역할 |
-|---|---|
-| `Draw_mesh(mesh)` | Trimesh 데이터를 glVertexPointer/glDrawElements로 렌더링 |
-| `Walk_scene(node)` | 씬 트리를 재귀 순회하며 local_matrix 적용 + Draw_mesh 호출 |
+### draw.py — Draw_mesh
 
-## ui/
+| 모드 | 트리거 | 특성 |
+|---|---|---|
+| VBO 경로 | `res_manager` 인자 전달 시 | `GPU_Resource_Manager.Sync_mesh()`로 캐시된 VBO 사용 |
+| 클라이언트 배열 폴백 | `res_manager=None` | trimesh 배열을 매 프레임 직접 전달 |
 
-편집기의 위젯 조립 구조. 시그널/슬롯 기반 단방향 데이터 흐름:
+### resource.py — GPU_Resource_Manager
 
-```
-Asset Browser  ──(instantiate_requested)──→  Main_Window  ──→  Stage + Viewer
-Scene Tree     ──(selection_changed)──────→  Main_Window  ──→  Viewer + Inspector
-Inspector      ──(property_changed)───────→  Main_Window  ──→  Viewer.update()
-Viewer         ──(node_selected_signal)───→  Main_Window  ──→  Scene Tree
-```
+`id(mesh)` 키 기반 VBO 캐시. 정점/법선/인덱스 + Normal Pass 전용 색상 VBO(`(n+1)*127.5`)를 함께 업로드하여 `Normal_Pass`가 추가 변환 없이 재사용함. `Clear()`로 일괄 해제.
 
-`Main_Window`가 중재자(Mediator) 역할을 수행하여 위젯 간 직접 참조를 방지함.
+### core/pass_/
+
+오프라인 렌더 패스 구현체와 추상 베이스. **이전에는 `graphics/render/pass_/`에 있었으나 viewport에서도 재사용 가능하도록 core로 이관됨.**
+
+`Base_Pass`는 Template Method 패턴으로 공통 흐름을 고정하고, 서브클래스는 다음 훅만 오버라이드함:
+
+- `_On_setup()` — GL 상태 설정 (조명/디더 등)
+- `_On_draw(root)` — 씬 드로우 (기본: `_Draw_scene` 재귀)
+- `_On_readback(w, h, **kw)` — `glReadPixels` (필수 구현)
+- `_On_cleanup()` — 상태 복구
+
+공통 헬퍼: `_Apply_camera`(intrinsic→glPerspective + world_matrix 역행렬→ModelView), `_Read_rgb`, `_Read_depth`. 패스 등록은 `@Pass_Registry.Register_module("name")` 데코레이터로 수행하며, `Get_render(name)`이 인스턴스를 반환함.
+
+상세 패스 사양은 `graphics/render/README.md` 참조.
+
+## viewport/ vs render/
+
+| 항목 | viewport/ | render/ |
+|---|---|---|
+| 컨텍스트 | 호스트(Qt) 위젯 컨텍스트 | EGL 우선, Qt 폴백 헤드리스 FBO |
+| 사용처 | 편집기 실시간 미리보기 | `capture_cli.py` 데이터셋 생성 |
+| 카메라 | `Orbit_Camera` (편집기 전용) | `Camera_Node`(intrinsic 보유) |
+| 패스 사용 | 자체 메인 패스 + ID 패스 | `core/pass_/` 패스 시퀀스 |

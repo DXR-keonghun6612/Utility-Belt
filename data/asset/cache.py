@@ -1,6 +1,7 @@
 from __future__ import annotations
 from pathlib import Path
 from copy import deepcopy
+from typing import Sequence
 
 from data.asset.type.base import Base_Asset
 
@@ -16,14 +17,18 @@ class Asset_Cache:
         # { asset_type: { resolved_path: [asset, ...] } }
         self._cache: dict[type[Base_Asset], dict[Path, list[Base_Asset]]] = {}
 
-    def Get(self, file_path: str | Path) -> list[Base_Asset] | None:
-        """캐시에서 해당 경로의 모든 타입 에셋을 조회하여 복제본을 반환함.
+    def Get(
+        self, file_path: str | Path, share: bool = False
+    ) -> list[Base_Asset] | None:
+        """캐시에서 해당 경로의 모든 타입 에셋을 조회함.
 
         Args:
             file_path: 조회할 에셋의 절대 또는 상대 경로.
+            share: True면 원본 참조 반환 (호출자가 불변 사용 책임).
+                   False(기본)면 deepcopy로 독립 인스턴스 반환.
 
         Returns:
-            list[Base_Asset] | None: 캐시 히트 시 복제된 에셋 목록, 미스 시 None.
+            list[Base_Asset] | None: 캐시 히트 시 에셋 목록, 미스 시 None.
         """
         _path = Path(file_path).resolve()
         _result: list[Base_Asset] = []
@@ -32,7 +37,10 @@ class Asset_Cache:
             if _path in _bucket:
                 _result.extend(_bucket[_path])
 
-        return deepcopy(_result) if _result else None
+        if not _result:
+            return None
+
+        return _result if share else deepcopy(_result)
 
     def Get_all(self) -> list[Base_Asset]:
         """캐시 내 모든 에셋을 단일 리스트로 반환함.
@@ -64,7 +72,9 @@ class Asset_Cache:
             _all.extend(_assets)
         return _all
 
-    def Register(self, file_path: str | Path, assets: list[Base_Asset]) -> None:
+    def Register(
+        self, file_path: str | Path, assets: Sequence[Base_Asset]
+    ) -> None:
         """에셋 목록을 타입별로 분류하여 캐시에 등록함.
 
         Args:
@@ -103,3 +113,7 @@ class Asset_Cache:
     def Clear(self) -> None:
         """모든 에셋 캐시를 비움."""
         self._cache.clear()
+
+
+# 프로세스 단위 공유 싱글톤. 모든 로더/렌더 경로가 이 인스턴스를 참조함.
+ASSET_CACHE = Asset_Cache()

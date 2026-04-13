@@ -1,66 +1,131 @@
 # data
 
-3D 씬 데이터의 모델 정의, 파일 입출력, 캐시 관리를 담당하는 순수 데이터 레이어.
+3D 씬 데이터의 모델 정의, 파일 입출력, 에셋 캐시를 담당하는 순수 데이터 레이어임.
 
-`graphics/`를 포함한 프로젝트 내 모든 모듈이 이 레이어를 소비하며, `data/` 자체는 외부 모듈에 대한 의존이 없음 (단방향 흐름).
+`graphics/`, `ui/`를 포함한 프로젝트 전 모듈이 이 레이어를 소비하며, `data/` 자체는 외부 모듈에 대한 의존이 없음 (단방향 흐름).
 
 ```
-data/ ←── graphics/viewport/
+data/ ←── graphics/core/
+      ←── graphics/viewport/
       ←── graphics/render/
-      ←── graphics/ui/
+      ←── ui/editor/
 ```
 
 ## 구조
 
 ```
 data/
-├── scene/
-│   ├── node.py       # Scene_Node — USD Prim 기반 씬 그래프 노드 (dataclass)
-│   └── stage.py      # Stage_Controller — 씬 트리 CRUD 및 양방향 참조 관리
-├── model/
-│   └── camera.py     # Camera_Intrinsic — 물리 카메라 광학 파라미터 (Base_Config 상속)
+├── node/                    # 씬 그래프 노드 (트리 구조 데이터)
+│   ├── stage.py             #   Stage_Controller — 트리 CRUD + JSON 직렬화 I/O
+│   ├── type/
+│   │   ├── base.py          #   Base_Node — Dirty Flag 기반 world_matrix 캐싱
+│   │   ├── group.py         #   Group_Node — Xform/Stage 컨테이너
+│   │   ├── mesh.py          #   Mesh_Node — Trimesh 인스턴스 보유 (얕은 복사)
+│   │   └── camera.py        #   Camera_Node + Camera_Intrinsic
+│   └── utils/
+│       ├── transform.py     #   Build/Decompose_transform — Euler ↔ 4x4
+│       └── traversal.py     #   walk_nodes — predicate 기반 제너레이터 순회
+├── asset/                   # 파일에서 로드된 원시 데이터 (씬 그래프와 분리)
+│   ├── cache.py             #   Asset_Cache — 타입별 분리 + deepcopy 반환
+│   ├── type/
+│   │   ├── base.py          #   Base_Asset
+│   │   ├── mesh.py          #   Mesh_Asset (Trimesh)
+│   │   └── point_cloud.py   #   PointCloud_Asset (points/colors/normals)
+│   └── utils/
+│       └── similarity.py    #   메시 유사도 (정확 비교, 표면 샘플링, ICP)
 ├── io/
-│   ├── loader.py     # 확장자 기반 파서 라우팅 (load_file)
-│   └── obj.py        # OBJ 포맷 파서 (trimesh → Scene_Node 트리 변환)
-└── registry.py       # Asset_Registry — 경로 기반 에셋 캐시 (Clone 반환으로 원본 보호)
+│   ├── loader.py            # 확장자 라우팅 (load_as_asset / load_as_node)
+│   └── obj.py               # OBJ → Mesh_Asset / Scene_Node 변환
+└── register.py              # NODE_REGISTRY, ASSET_REGISTRY (python_toolbox.Registry)
 ```
 
-## scene/
+## node/
 
-`Scene_Node`는 프로젝트 전체의 핵심 데이터 구조임.
+씬 그래프의 핵심 데이터 구조임. USD Prim 스키마를 추종함.
 
-- USD의 Prim 스키마를 추종하는 `PrimType` 타입 시스템 (Stage, Xform, Mesh, Camera 등)
-- `local_matrix` (4x4 float32) 기반 계층적 변환
-- `world_matrix` 프로퍼티: 루트까지 누적 행렬을 재귀 계산하여 반환
-- `prim_path` 프로퍼티: USD 호환 절대 네임스페이스 경로 (`/Root/Child/...`)
-- `mesh` 필드: Trimesh 지오메트리 데이터 (얕은 복사로 인스턴싱)
-- `intrinsic` 필드: Camera 노드 전용 광학 파라미터 (`Camera_Intrinsic`)
+### Base_Node 핵심 특성
 
-`Stage_Controller`는 씬 트리의 상태 무결성을 관리함 (노드 추가/이동/분리/초기화).
+- `PrimType` 리터럴 시스템: Stage, Xform, Mesh, Camera, Material, Shader, PhysicsScene, SkelRoot, Empty
+- `local_matrix` (4x4 float32) 기반 계층 변환
+- `world_matrix` 프로퍼티: **Dirty Flag 기반 캐싱**. `local_matrix`/`parent` 변경 시 `_Mark_dirty()`가 자손까지 전파되어 캐시를 무효화함
+- `prim_path` 프로퍼티: `/Root/Child/...` 형태의 USD 호환 절대 경로
+- `is_renderable` 프로퍼티: 부모 체인 visible 누적 검사
+- `Serialize()`/`Clone()` 지원 (Base_Config 상속, `__custom_keys__`로 `local_matrix → local_matrix_meta` 키 매핑)
 
-## model/
+### 노드 타입 분화 (data/node/type/)
 
-`Camera_Intrinsic`은 `Base_Config`를 상속하여 직렬화(`Serialize`) 및 파일 저장(`Write_to`)을 지원함.
-
-| 필드 | 기본값 | 용도 |
+| 클래스 | prim_type | 추가 필드 |
 |---|---|---|
-| `fov` | 60.0 | 수직 화각 (degrees) — OpenGL 투영에 사용 |
-| `near_clip` / `far_clip` | 0.1 / 1000.0 | 클리핑 평면 |
-| `focal_length` | 50.0 | mm 단위 — 메타데이터 기록용 |
-| `sensor_width` / `sensor_height` | 36.0 / 24.0 | mm 단위 — 메타데이터 기록용 |
+| `Group_Node` | Xform / Stage | — |
+| `Mesh_Node` | Mesh | `mesh: trimesh.Trimesh` (얕은 복사 인스턴싱) |
+| `Camera_Node` | Camera | `intrinsic: Camera_Intrinsic` (width/height/fov/clip) |
+
+각 타입은 `@NODE_REGISTRY.Register_module("…")`로 등록되어 `Stage_Controller.Load()`가 `prim_type` 문자열로부터 클래스를 역해석함.
+
+### Stage_Controller
+
+- 양방향 트리 무결성 관리: `Add_node`, `Move_node`, `Pop_node`, `Clear`
+- `Add_node`는 컨테이너(Xform/Stage)를 받으면 자식만 평탄화 복제, 그 외에는 단일 클론을 추가
+- `Save`/`Load`는 `python_toolbox.file.Utils`로 JSON 직렬화. `_Build_node`가 `NODE_REGISTRY` 조회 후 재귀 복원
+
+### node/utils/
+
+- `Build_transform(tx, ty, tz, rx, ry, rz)` — extrinsic XYZ Euler(°) → 4x4
+- `Decompose_transform(matrix)` — 4x4 → (tx,ty,tz,rx,ry,rz), 짐벌락 근사 처리
+- `walk_nodes(root, predicate)` — 제너레이터 기반 트리 순회 (중복 순회 코드 일원화)
+
+## asset/
+
+`node/`와 분리된 **순수 데이터 레이어**. 파일 1회 로드 → 캐시 → 씬 그래프에 인스턴스화하는 흐름의 중간 저장소임.
+
+### Asset_Cache
+
+- 내부 구조: `{ asset_type: { resolved_path: [Base_Asset, ...] } }` — 타입 버킷 분리로 `Get_by_type` 호출 시 전수 순회 회피
+- `Get(file_path)`: 캐시 히트 시 **deepcopy** 반환 (원본 보호)
+- `Get_all()`, `Get_by_type(asset_type)`: 원본 참조 반환 (브라우징 전용)
+- `Register`, `Remove`, `Clear`
+
+### asset/type/
+
+| 클래스 | 보유 데이터 | 직렬화 제외 |
+|---|---|---|
+| `Base_Asset` | label, local_matrix, source_path | — |
+| `Mesh_Asset` | `geometry: trimesh.Trimesh` | geometry |
+| `PointCloud_Asset` | points/colors/normals (np.ndarray) | 전체 배열 |
+
+### asset/utils/similarity.py
+
+메시 형상 유사도 계측 독립 함수 모듈 (Mesh_Asset에 결합되지 않음).
+
+| 함수 | 용도 |
+|---|---|
+| `Is_exact_match` | 정점/면 배열 정확 일치 (vertex count → bbox → 전수 비교 단계적 기각) |
+| `Calculate_match_rate` | 동일 좌표계 전제. 표면 샘플링 → 양방향 거리 평균 |
+| `Calculate_scan_match_rate` | 비정형 스캔 대응. 단위 정규화 → SVD 기반 ICP → 양방향 거리 max |
 
 ## io/
 
-`loader.py`는 확장자 → 파서 함수 매핑 딕셔너리(`_LOADER_REGISTRY`)를 통해 라우팅함. 새 포맷 추가 시 파서 함수를 작성하고 딕셔너리에 등록하면 됨.
+`loader.py`는 두 가지 진입점을 제공함:
+
+- `load_as_asset(path) → list[Mesh_Asset]` — 순수 지오메트리 로드
+- `load_as_node(path) → Base_Node` — 씬 트리 로드
+
+각 진입점은 별도 디스패치 테이블(`_ASSET_LOADER`, `_NODE_LOADER`)을 보유함. 새 포맷 추가 시 파서 함수 작성 후 두 테이블에 등록함.
 
 ```python
-# 확장 예시
-_LOADER_REGISTRY = {
-    ".obj": load_obj,
-    # ".gltf": load_gltf,
-}
+_ASSET_LOADER = {".obj": load_obj_as_asset}
+_NODE_LOADER  = {".obj": load_obj_as_node}
 ```
 
-## registry.py
+`obj.py`는 trimesh 그래프를 두 패스(Pass 1: 노드 인스턴스화, Pass 2: 부모-자식 링킹)로 평탄화하여 O(1) 부모 탐색을 보장함.
 
-`Asset_Registry.Get(path)`는 캐시 히트 시 I/O 없이 `Clone()`을 반환하고, 캐시 미스 시 `load_file`을 호출하여 등록 후 복제본을 반환함. 원본 데이터는 레지스트리 내부에서만 보유됨.
+## register.py
+
+`python_toolbox.project.Registry` 기반 전역 레지스트리.
+
+```python
+ASSET_REGISTRY = Registry[type[Base_Asset]]("Asset", Base_Asset)
+NODE_REGISTRY  = Registry[type[Base_Node]]("Node",  Base_Node)
+```
+
+각 노드/에셋 타입 모듈은 import 시점에 `@NODE_REGISTRY.Register_module("Mesh")` 데코레이터로 자기 자신을 등록함.

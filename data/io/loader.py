@@ -7,8 +7,10 @@ JSON 직렬화 파일(.json)은 data.node.stage.Stage_Controller에서 처리함
 from __future__ import annotations
 from pathlib import Path
 
+from data.asset.cache import ASSET_CACHE
 from data.asset.type.mesh import Mesh_Asset
 from data.node.type import Base_Node
+from data.node.utils.traversal import walk_nodes
 from data.io.obj import load_obj_as_asset, load_obj_as_node
 
 # 확장자별 파싱 함수 매핑
@@ -75,3 +77,58 @@ def load_as_node(file_path: str | Path) -> Base_Node:
 
 # 하위 호환: stage.py의 _Build_node에서 load_file로 참조
 load_file = load_as_node
+
+
+def Resolve_meshes(root: Base_Node, strict: bool = True) -> None:
+    """root 하위 Mesh 노드의 source_key로 지오메트리를 1회 로드 후 공유 주입함.
+
+    전역 ASSET_CACHE를 통해 디스크 I/O를 1회로 줄이고, share=True 모드로
+    조회하여 동일 source_key를 참조하는 모든 노드가 같은 trimesh 인스턴스를
+    공유하도록 보장함 (GPU VBO 캐시 단일화 직결).
+
+    Args:
+        root: 순회 시작 노드.
+        strict: True면 source_key 누락/로드 실패 시 예외 전파.
+                False면 해당 노드는 mesh=None 유지하고 계속 진행.
+
+    Raises:
+        ValueError: strict=True 이며 source_key가 None이거나 추출 실패 시.
+        FileNotFoundError: strict=True 이며 source_key 파일이 존재하지 않을 때.
+    """
+    _is_unresolved = (
+        lambda n: n.prim_type == "Mesh" and getattr(n, "mesh", None) is None
+    )
+
+    for _node in walk_nodes(root, _is_unresolved):
+        _key = _node.source_key
+
+        if _key is None:
+            if strict:
+                raise ValueError(
+                    f"Mesh 노드 '{_node.prim_path}'의 source_key가 None임."
+                )
+            continue
+
+        _cached = ASSET_CACHE.Get(_key, share=True)
+        if _cached is None:
+            try:
+                _assets = load_as_asset(_key)
+            except (FileNotFoundError, ValueError):
+                if strict:
+                    raise
+                continue
+            ASSET_CACHE.Register(_key, _assets)
+            _cached = ASSET_CACHE.Get(_key, share=True)
+
+        _mesh_asset = next(
+            (_a for _a in (_cached or []) if isinstance(_a, Mesh_Asset)),
+            None,
+        )
+        if _mesh_asset is None:
+            if strict:
+                raise ValueError(
+                    f"source_key '{_key}'에서 Mesh_Asset을 추출하지 못함."
+                )
+            continue
+
+        _node.mesh = _mesh_asset.geometry
