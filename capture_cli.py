@@ -19,14 +19,16 @@ import sys
 import argparse
 from pathlib import Path
 
+import numpy as np
 from PySide6.QtWidgets import QApplication
 
+import python_toolbox.project as _pt
 from python_toolbox.project import Project_Template, Read_from_file
 
 from data.node import Base_Node, walk_nodes
 from data.node.stage import Stage_Controller
 from data.io.loader import Resolve_meshes
-from graphics.render.config import Render_Config, Sample_delta_matrix
+from graphics.render.config import Render_Config, Sample_delta_matrix, Sample_translation
 from graphics.render.pipeline import Render_Pipeline
 from graphics.render.exporter import Result_Exporter
 
@@ -70,8 +72,8 @@ def _Set_isolated_visibility(
 class Capture_Project(Project_Template):
     """단일 장면 + target 그룹 순회 기반 다중 패스 오프스크린 렌더링."""
 
-    def __init__(self, config: Render_Config):
-        super().__init__("capture")
+    def __init__(self, project_name: str, config: Render_Config):
+        super().__init__(project_name)
         self._config = config
         self._pipeline = Render_Pipeline(config)
 
@@ -94,10 +96,15 @@ class Capture_Project(Project_Template):
         try:
             _flat_counter = 0
             _base_matrix = camera.local_matrix.copy()
+            # 광원 기준 위치(방향광 w 포함)를 스냅샷하여 델타를 xyz 에만 적용
+            _light_base = list(self._config.light_position)
 
             for _obj_idx, _child in enumerate(target_group.children):
                 _Set_isolated_visibility(target_group, _obj_idx)
                 _exporter = self._Build_exporter(_child.label)
+
+                # 객체 base 스냅샷 — 샘플마다 이 행렬에 델타를 덮어씌움
+                _obj_base = _child.local_matrix.copy()
 
                 print(
                     f"\n[INFO] === [{_obj_idx + 1}/{len(target_group.children)}] "
@@ -106,8 +113,20 @@ class Capture_Project(Project_Template):
 
                 for _sample_idx in range(self._config.num_samples):
                     camera.local_matrix = (
-                        _base_matrix @ Sample_delta_matrix(self._config)
+                        _base_matrix @ Sample_delta_matrix(self._config.cam)
                     )
+                    _child.local_matrix = (
+                        _obj_base @ Sample_delta_matrix(self._config.obj)
+                    )
+
+                    # 광원 기준 + xyz 델타. w 성분은 원본 유지 (방향광 0 / 점광 1).
+                    _dx, _dy, _dz = Sample_translation(self._config.light)
+                    self._pipeline.Set_light_position([
+                        _light_base[0] + _dx,
+                        _light_base[1] + _dy,
+                        _light_base[2] + _dz,
+                        _light_base[3],
+                    ])
 
                     _results = self._pipeline.Execute(root, camera, width, height)
 
@@ -120,6 +139,7 @@ class Capture_Project(Project_Template):
                         "target_object_label": _child.label,
                         "object_index": _obj_idx,
                         "sample_index": _sample_idx,
+                        "segmentation_id_map": self._pipeline.Get_segmentation_id_map(),
                     }
                     _exporter.Save(
                         _frame_id, _results, camera, self._config, _extra
@@ -151,9 +171,19 @@ def Run_batch_capture(config_path: Path) -> None:
         config_path: Render_Config JSON 파일 경로.
     """
     _cfg = Read_from_file(Render_Config, config_path)
-    _base_dir = config_path.parent.resolve()
+    _scene_path = Path(_cfg.scene_path).resolve()
 
-    _scene_path = (_base_dir / _cfg.scene_path).resolve()
+    _base_dir = _scene_path.parent
+
+    # 결과 루트를 장면 파일 디렉토리로 전환. Project_Template 은
+    # {RESULT_ROOT}/{project_name}/{run_id} 로 workspace 를 구성하므로
+    # project_name 에 장면 파일 stem 을 주입하면 <scene_dir>/<stem>/<run_id>/ 가 됨.
+    _pt.RESULT_ROOT = str(_base_dir)
+
+    # 재현성 — 시드가 설정되어 있으면 전역 RNG에 주입
+    if _cfg.seed is not None:
+        np.random.seed(_cfg.seed)
+
     _stage = Stage_Controller()
     _stage.Load(_scene_path)
     Resolve_meshes(_stage.root)
@@ -174,7 +204,7 @@ def Run_batch_capture(config_path: Path) -> None:
 
     _w, _h = _Resolve_render_size(_camera)
 
-    _project = Capture_Project(_cfg)
+    _project = Capture_Project(_scene_path.stem, _cfg)
     _project._Setup()
 
     print(f"[INFO] 워크스페이스: {_project.workspace}")
@@ -199,7 +229,7 @@ def _Build_arg_parser() -> argparse.ArgumentParser:
         description="FOCUS 헤드리스 렌더링 파이프라인"
     )
     _parser.add_argument(
-        "--capture", type=Path, default=None,
+        "--render_cfg", type=Path, default="result/render.json",
         help="Render_Config JSON 파일 경로 (배치 캡처)"
     )
     return _parser
@@ -210,8 +240,8 @@ if __name__ == "__main__":
 
     _app = QApplication.instance() or QApplication(sys.argv)
 
-    if _args.capture:
-        Run_batch_capture(_args.capture)
+    if _args.render_cfg:
+        Run_batch_capture(_args.render_cfg)
     else:
-        print("[ERROR] --capture 옵션을 지정해야 함.")
+        print("[ERROR] --render_cfg 옵션을 지정해야 함.")
         sys.exit(1)

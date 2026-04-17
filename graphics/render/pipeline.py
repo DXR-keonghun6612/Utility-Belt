@@ -38,6 +38,42 @@ class Render_Pipeline:
         self._use_egl = False
 
     # ==========================================
+    # 패스 파라미터 런타임 갱신
+    # ==========================================
+
+    def Get_segmentation_id_map(self) -> list[dict]:
+        """segmentation 패스의 color→node 매핑을 JSON 직렬화 가능한 리스트로 반환함.
+
+        반환 포맷: [{"color": [r,g,b], "label": ..., "prim_path": ...}, ...]
+        segmentation 패스가 없거나 아직 렌더되지 않았으면 빈 리스트 반환.
+        """
+        for _pass in self._passes:
+            if not hasattr(_pass, "last_id_map"):
+                continue
+            return [
+                {
+                    "color": list(_color),
+                    "label": _node.label,
+                    "prim_path": _node.prim_path,
+                }
+                for _color, _node in _pass.last_id_map.items()
+            ]
+        return []
+
+    def Set_light_position(self, position: list[float]) -> None:
+        """광원 위치(4성분)를 모든 해당 패스에 런타임 주입함.
+
+        Apply_phong_lighting을 사용하는 패스(RGB 등)에만 영향을 미침. 다른 패스는
+        `light_position` 속성을 갖지 않으므로 조용히 스킵됨 (덕 타이핑).
+
+        Args:
+            position: [x, y, z, w] 4성분. w=0은 방향광, w=1은 점광원.
+        """
+        for _pass in self._passes:
+            if hasattr(_pass, "light_position"):
+                _pass.light_position = list(position)
+
+    # ==========================================
     # 헤드리스 컨텍스트 관리
     # ==========================================
 

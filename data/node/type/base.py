@@ -43,6 +43,12 @@ class Base_Node(Base_Config):
         default=None, init=False, repr=False)
     _is_dirty: bool = field(default=True, init=False, repr=False)
 
+    def __post_init__(self, local_matrix_meta: list | None):
+      if local_matrix_meta is not None:
+          self.local_matrix = np.asarray(
+              local_matrix_meta, dtype=np.float32
+          ).reshape(4, 4)
+
     def __setattr__(self, key, value):
         super().__setattr__(key, value)
         if key in ("local_matrix", "parent"):

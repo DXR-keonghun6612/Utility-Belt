@@ -66,22 +66,44 @@ class Property_Panel(QWidget):
 
         _layout.addWidget(self.transform_group)
 
-        # 3. Camera Intrinsic 그룹 (Camera 노드 전용)
-        self.camera_group = QGroupBox("Camera Intrinsic")
+        # 3. Camera Intrinsic 그룹 (Camera 노드 전용) — K 모델
+        self.camera_group = QGroupBox("Camera Intrinsic (K model)")
         self.camera_group.setStyleSheet(GROUP_BOX)
         _cg_layout = QVBoxLayout(self.camera_group)
         _cg_layout.setSpacing(6)
 
-        self.fov_spin = self._Create_single_row(
-            "FOV", 1.0, 179.0, 60.0, 1.0, 1, _cg_layout)
-        self.near_spin = self._Create_single_row(
-            "Near Clip", 0.001, 1000.0, 0.1, 0.01, 3, _cg_layout)
-        self.far_spin = self._Create_single_row(
-            "Far Clip", 1.0, 100000.0, 1000.0, 10.0, 1, _cg_layout)
+        # 해상도
         self.res_w_spin = self._Create_single_row(
             "Width (px)", 1.0, 16384.0, 1920.0, 1.0, 0, _cg_layout)
         self.res_h_spin = self._Create_single_row(
             "Height (px)", 1.0, 16384.0, 1080.0, 1.0, 0, _cg_layout)
+
+        # 초점거리
+        self.fx_spin = self._Create_single_row(
+            "fx", 1.0, 100000.0, 1000.0, 1.0, 3, _cg_layout)
+        self.fy_spin = self._Create_single_row(
+            "fy", 1.0, 100000.0, 1000.0, 1.0, 3, _cg_layout)
+
+        # 주점
+        self.cx_spin = self._Create_single_row(
+            "cx", 0.0, 16384.0, 960.0, 1.0, 3, _cg_layout)
+        self.cy_spin = self._Create_single_row(
+            "cy", 0.0, 16384.0, 540.0, 1.0, 3, _cg_layout)
+
+        # 클리핑
+        self.near_spin = self._Create_single_row(
+            "Near Clip", 0.001, 1000.0, 0.1, 0.01, 3, _cg_layout)
+        self.far_spin = self._Create_single_row(
+            "Far Clip", 1.0, 100000.0, 1000.0, 10.0, 1, _cg_layout)
+
+        # 산출 FOV (read-only)
+        self.lbl_fov_x = QLabel("FOV X: —")
+        self.lbl_fov_x.setStyleSheet(LABEL)
+        _cg_layout.addWidget(self.lbl_fov_x)
+
+        self.lbl_fov_y = QLabel("FOV Y: —")
+        self.lbl_fov_y.setStyleSheet(LABEL)
+        _cg_layout.addWidget(self.lbl_fov_y)
 
         self.camera_group.setVisible(False)
         _layout.addWidget(self.camera_group)
@@ -189,11 +211,15 @@ class Property_Panel(QWidget):
         self.camera_group.setVisible(_is_camera)
         if _is_camera:
             _intr = node.intrinsic
-            self.fov_spin.setValue(_intr.fov)
-            self.near_spin.setValue(_intr.near_clip)
-            self.far_spin.setValue(_intr.far_clip)
             self.res_w_spin.setValue(float(_intr.width))
             self.res_h_spin.setValue(float(_intr.height))
+            self.fx_spin.setValue(_intr.fx)
+            self.fy_spin.setValue(_intr.fy)
+            self.cx_spin.setValue(_intr.cx)
+            self.cy_spin.setValue(_intr.cy)
+            self.near_spin.setValue(_intr.near_clip)
+            self.far_spin.setValue(_intr.far_clip)
+            self._Refresh_fov_labels(_intr)
 
         self._Block_spin_signals(False)
 
@@ -201,21 +227,32 @@ class Property_Panel(QWidget):
         for _spins in [self.loc_spins, self.rot_spins, self.scale_spins]:
             for _spin in _spins:
                 _spin.blockSignals(block)
-        for _spin in [self.fov_spin, self.near_spin, self.far_spin,
-                      self.res_w_spin, self.res_h_spin]:
+        for _spin in [self.res_w_spin, self.res_h_spin,
+                      self.fx_spin, self.fy_spin,
+                      self.cx_spin, self.cy_spin,
+                      self.near_spin, self.far_spin]:
             _spin.blockSignals(block)
 
     def _On_camera_value_edited(self) -> None:
-        """카메라 intrinsic 스핀박스 값 변경 시 노드에 반영."""
+        """카메라 intrinsic 스핀박스 값 변경 시 노드에 반영하고 fov 라벨을 갱신."""
         if not isinstance(self.current_node, Camera_Node) or self.current_node.intrinsic is None:
             return
         _intr = self.current_node.intrinsic
-        _intr.fov = self.fov_spin.value()
-        _intr.near_clip = self.near_spin.value()
-        _intr.far_clip = self.far_spin.value()
         _intr.width = int(self.res_w_spin.value())
         _intr.height = int(self.res_h_spin.value())
+        _intr.fx = self.fx_spin.value()
+        _intr.fy = self.fy_spin.value()
+        _intr.cx = self.cx_spin.value()
+        _intr.cy = self.cy_spin.value()
+        _intr.near_clip = self.near_spin.value()
+        _intr.far_clip = self.far_spin.value()
+        self._Refresh_fov_labels(_intr)
         self.property_changed.emit()
+
+    def _Refresh_fov_labels(self, intrinsic) -> None:
+        """K로부터 산출된 fov_x/fov_y를 라벨에 표시함."""
+        self.lbl_fov_x.setText(f"FOV X: {intrinsic.fov_x:.2f}°")
+        self.lbl_fov_y.setText(f"FOV Y: {intrinsic.fov_y:.2f}°")
 
     def _On_value_edited(self) -> None:
         """Transform 스핀박스 값 변경 시 노드 행렬 갱신."""

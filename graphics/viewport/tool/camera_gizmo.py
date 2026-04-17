@@ -1,26 +1,29 @@
 """카메라 노드의 위치/방향/화각을 와이어프레임으로 시각화하는 기즈모 모듈."""
-import numpy as np
 from OpenGL.GL import *
+
+from data.node.type.camera import Camera_Intrinsic
 
 _CAM_BODY_SIZE = 0.3
 _CAM_FRUSTUM_DEPTH = 1.5
 
+# fallback 기본값 (intrinsic 미제공 시)
+_DEFAULT_W = 1920
+_DEFAULT_H = 1080
+_DEFAULT_F = 1000.0
+
 
 def Draw_camera_gizmo(
-    fov: float = 60.0,
-    img_w: int = 1920,
-    img_h: int = 1080,
+    intrinsic: Camera_Intrinsic | None = None,
     is_selected: bool = False
 ) -> None:
     """카메라 프러스텀 및 바디를 와이어프레임으로 렌더링함.
 
     로컬 좌표계 원점에 그려지므로, 호출 전 glMultMatrixf로 노드 변환이 적용되어 있어야 함.
-    카메라는 -Z 방향을 바라보는 OpenGL 관례를 따름.
+    카메라는 -Z 방향을 바라보는 OpenGL 관례를 따름. 프러스텀 크기는 intrinsic의
+    fx/fy/width/height로부터 직접 산출되며 cx/cy 오프셋은 시각화 단순화를 위해 생략함.
 
     Args:
-        fov: 수직 화각 (degrees).
-        img_w: 이미지 가로 해상도 (px) -- 종횡비 산출용.
-        img_h: 이미지 세로 해상도 (px).
+        intrinsic: 카메라 내부 파라미터. None이면 기본 해상도/초점거리 사용.
         is_selected: 선택 상태 시 하이라이트 색상 적용.
     """
     glDisable(GL_LIGHTING)
@@ -32,10 +35,16 @@ def Draw_camera_gizmo(
         glColor3f(0.3, 0.7, 1.0)
         glLineWidth(1.5)
 
-    # 프러스텀 꼭짓점 계산 (-Z 방향)
-    _aspect = img_w / img_h if img_h > 0 else 16 / 9
-    _half_h = _CAM_FRUSTUM_DEPTH * np.tan(np.radians(fov * 0.5))
-    _half_w = _half_h * _aspect
+    # intrinsic → 프러스텀 half extent (fx/fy 기반)
+    if intrinsic is not None:
+        _W, _H = intrinsic.width, intrinsic.height
+        _fx, _fy = intrinsic.fx, intrinsic.fy
+    else:
+        _W, _H = _DEFAULT_W, _DEFAULT_H
+        _fx = _fy = _DEFAULT_F
+
+    _half_h = _CAM_FRUSTUM_DEPTH * (_H * 0.5) / _fy
+    _half_w = _CAM_FRUSTUM_DEPTH * (_W * 0.5) / _fx
 
     _fz = -_CAM_FRUSTUM_DEPTH
     _ftl = (-_half_w, _half_h, _fz)

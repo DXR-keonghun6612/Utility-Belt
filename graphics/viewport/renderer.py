@@ -78,11 +78,8 @@ class Scene_Renderer:
             return
 
         if isinstance(node, Camera_Node):
-            _intr = node.intrinsic
             Draw_camera_gizmo(
-                fov=_intr.fov if _intr else 60.0,
-                img_w=_intr.width if _intr else 1920,
-                img_h=_intr.height if _intr else 1080,
+                intrinsic=node.intrinsic,
                 is_selected=(node is self._selected_node)
             )
 

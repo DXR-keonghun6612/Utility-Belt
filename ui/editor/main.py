@@ -57,6 +57,8 @@ class Main_Window(QMainWindow):
         self.sidebar.asset_page.instantiate_requested.connect(self._On_asset_instantiated)
         # 5. 장면 로드 -> 뷰어 갱신
         self.sidebar.scene_page.scene_loaded.connect(self._On_scene_loaded)
+        # 5-1. 트리 변경(컨텍스트 메뉴 에셋 추가 등) -> 뷰어 갱신
+        self.sidebar.scene_page.scene_mutated.connect(self.viewer.update)
         # 6. 뷰포트 카메라 패널 바인딩
         self.sidebar.camera_page.Bind_camera(self.viewer.camera)
         self.sidebar.camera_page.camera_changed.connect(self._On_camera_changed)

@@ -12,8 +12,6 @@ from OpenGL.GL import (
     GL_RGB, GL_UNSIGNED_BYTE, GL_DEPTH_COMPONENT, GL_FLOAT,
     GLubyte, GLfloat,
 )
-from OpenGL.GLU import gluPerspective
-
 from data.node import Base_Node
 from data.node.type.mesh import Mesh_Node
 from data.node.type.camera import Camera_Node
@@ -79,6 +77,11 @@ class Base_Pass(ABC):
         # 3. 카메라 적용
         self._Apply_camera(camera_node, width, height)
 
+        # 3-1. 카메라 이후 훅 — view 행렬이 로드된 상태에서 수행해야 하는 설정
+        # (예: 월드 고정 광원 위치. glLightfv(GL_POSITION)은 호출 시점 modelview로
+        # 변환되어 eye space에 저장되므로, 월드 고정을 원하면 view 적용 후 호출해야 함.)
+        self._On_post_camera()
+
         # 4. 패스 드로우
         self._On_draw(root_node)
 
@@ -116,6 +119,10 @@ class Base_Pass(ABC):
         """
         ...
 
+    def _On_post_camera(self) -> None:
+        """view 행렬 적용 직후 훅. 기본: 없음."""
+        pass
+
     def _On_cleanup(self) -> None:
         """GL 상태 복구. 기본: 없음."""
         pass
@@ -137,12 +144,11 @@ class Base_Pass(ABC):
 
         glViewport(0, 0, width, height)
 
+        # K 기반 projection은 intrinsic 자체의 width/height/fx/fy/cx/cy에서 빌드됨.
+        # 호출부의 width/height는 glViewport 매핑 전용이며, intrinsic 해상도와
+        # 다르면 화면 왜곡이 발생하므로 렌더 파이프라인이 일치시켜 주어야 함.
         glMatrixMode(GL_PROJECTION)
-        glLoadIdentity()
-        gluPerspective(
-            _intrinsic.fov, width / height,
-            _intrinsic.near_clip, _intrinsic.far_clip
-        )
+        glLoadMatrixf(_intrinsic.Build_gl_projection())
 
         glMatrixMode(GL_MODELVIEW)
         glLoadIdentity()

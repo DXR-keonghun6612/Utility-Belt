@@ -20,6 +20,7 @@ def load_obj_as_asset(file_path: Path) -> list[Mesh_Asset]:
         list[Mesh_Asset]: 파싱된 메시 에셋 목록.
     """
     _loaded = trimesh.load(file_path)
+    _Fix_normals_recursive(_loaded)
     _source = str(file_path.resolve())
     return _Extract_assets(_loaded, label=file_path.stem, source_path=_source)
 
@@ -34,9 +35,34 @@ def load_obj_as_node(file_path: Path) -> Base_Node:
         Scene_Node: 생성된 씬 노드 구조의 루트.
     """
     _loaded = trimesh.load(file_path)
+    _Fix_normals_recursive(_loaded)
     _root = _Parse_trimesh_scene(_loaded, label=file_path.stem)
     _Set_source_path(_root, str(file_path.resolve()))
     return _root
+
+
+# ==========================================
+# 노멀 정리
+# ==========================================
+
+def _Fix_normals_recursive(source: trimesh.Geometry) -> None:
+    """trimesh 객체의 winding을 일관되게 재정렬함.
+
+    연결된 component 내부의 winding 일관성은 복구하지만, non-watertight 메시에서는
+    component의 전역 "외향" 방향을 volume으로 판정할 수 없어 절반만 맞는 경우가
+    있음. 궁극적으로 ROADMAP의 노멀 복구 과제에서 해결 예정이며, 그 전까지는
+    양면 조명으로 시각적 증상을 우회함.
+    """
+    if isinstance(source, trimesh.Trimesh):
+        source.merge_vertices()
+        source.fix_normals()
+        return
+
+    if isinstance(source, trimesh.Scene):
+        for _geo in source.geometry.values():
+            if isinstance(_geo, trimesh.Trimesh):
+                _geo.merge_vertices()
+                _geo.fix_normals()
 
 
 # ==========================================

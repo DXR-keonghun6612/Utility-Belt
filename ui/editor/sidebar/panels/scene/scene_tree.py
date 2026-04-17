@@ -6,6 +6,8 @@ from PySide6.QtGui import QAction, QDropEvent, QIcon, QPixmap, QPainter, QFont
 
 from data.node.stage import Stage_Controller
 from data.node import Base_Node, Group_Node
+from data.io.loader import load_as_node
+from .add_asset_dialog import Add_Asset_Dialog
 
 
 # 가시성 아이콘 컬럼 인덱스
@@ -62,6 +64,7 @@ class Scene_Tree_Widget(QTreeWidget):
     """씬의 계층 구조 데이터를 시각화하고 다중 선택 및 Batch 상호작용을 처리하는 트리 컴포넌트."""
 
     selection_changed = Signal(list)
+    scene_mutated = Signal()
 
     def __init__(self, stage: Stage_Controller, parent=None):
         super().__init__(parent)
@@ -204,6 +207,13 @@ class Scene_Tree_Widget(QTreeWidget):
                 lambda: self._Request_add(None, _target))
             _menu.addAction(_add_child_act)
 
+            # Stage 또는 Xform(그룹)에 한해 에셋 배치 액션 노출
+            if _target.prim_type in ("Stage", "Xform"):
+                _add_asset_act = QAction("Add Asset...", self)
+                _add_asset_act.triggered.connect(
+                    lambda: self._Request_add_asset(_target))
+                _menu.addAction(_add_asset_act)
+
             # 최상위 루트 노드는 삭제 불가
             if _target.parent is not None:
                 _menu.addSeparator()
@@ -273,6 +283,28 @@ class Scene_Tree_Widget(QTreeWidget):
     def _Request_add(self, node: Base_Node | None, parent: Base_Node):
         self.stage.Add_node(node, parent)
         self.Refresh_ui()
+
+    def _Request_add_asset(self, parent: Base_Node) -> None:
+        """다이얼로그에서 선택된 다수 에셋을 대상 부모 하위로 일괄 배치함."""
+        _dialog = Add_Asset_Dialog(parent=self)
+        if _dialog.exec() != Add_Asset_Dialog.DialogCode.Accepted:
+            return
+
+        _paths = _dialog.Get_selected_paths()
+        if not _paths:
+            return
+
+        _is_changed = False
+        for _path in _paths:
+            _node = load_as_node(str(_path))
+            if _node is None:
+                continue
+            self.stage.Add_node(_node, parent)
+            _is_changed = True
+
+        if _is_changed:
+            self.Refresh_ui()
+            self.scene_mutated.emit()
 
     def _Request_delete(self):
         """선택된 여러 아이템을 안전하게 일괄 삭제함."""

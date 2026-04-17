@@ -54,6 +54,17 @@ class Asset_Cache:
                 _all.extend(_assets)
         return _all
 
+    def Get_paths(self) -> list[Path]:
+        """캐시에 등록된 모든 고유 경로를 정렬된 리스트로 반환함.
+
+        Returns:
+            list[Path]: 타입 버킷을 가로지른 중복 제거 경로 목록.
+        """
+        _paths: set[Path] = set()
+        for _bucket in self._cache.values():
+            _paths.update(_bucket.keys())
+        return sorted(_paths)
+
     def Get_by_type(self, asset_type: type[Base_Asset]) -> list[Base_Asset]:
         """특정 에셋 타입에 해당하는 모든 에셋을 반환함.
 

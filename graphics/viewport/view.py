@@ -1,9 +1,11 @@
 import numpy as np
 from OpenGL.GL import (
-    glMatrixMode, glLoadIdentity, glTranslatef, glRotatef, 
+    glMatrixMode, glLoadIdentity, glLoadMatrixf, glTranslatef, glRotatef,
     GL_PROJECTION, GL_MODELVIEW, glGetDoublev, glGetIntegerv, GL_VIEWPORT
 )
-from OpenGL.GLU import gluPerspective, gluLookAt
+from OpenGL.GLU import gluLookAt
+
+from data.node.type.camera import Build_gl_projection
 
 class Orbit_Camera:
     """극좌표계 기반의 3D 궤도 카메라(Orbit Camera) 제어 및 View/Projection 관리 클래스."""
@@ -74,13 +76,26 @@ class Orbit_Camera:
     # ==========================================
 
     def Update_projection(self, width: int, height: int) -> None:
-        """창 크기 변경 시 호출되어 Projection 행렬을 갱신함."""
-        if height == 0: height = 1 # 0으로 나누기 방지
-        _aspect = float(width) / float(height)
+        """창 크기 변경 시 호출되어 Projection 행렬을 갱신함.
+
+        Orbit_Camera는 K 모델이 아닌 fov 중심으로 조작되므로, fov_y로부터
+        fx/fy를 역산하여 씬 카메라와 동일한 빌더 경로를 공유함.
+        """
+        if height == 0: height = 1  # 0으로 나누기 방지
+
+        # fov(수직) → fy 역산. 정사각 픽셀 가정으로 fx = fy.
+        _fy = (height * 0.5) / np.tan(np.radians(self.fov * 0.5))
+        _fx = _fy
+        _cx = width * 0.5
+        _cy = height * 0.5
+
+        _proj = Build_gl_projection(
+            _fx, _fy, _cx, _cy, width, height,
+            self.near_clip, self.far_clip
+        )
 
         glMatrixMode(GL_PROJECTION)
-        glLoadIdentity()
-        gluPerspective(self.fov, _aspect, self.near_clip, self.far_clip)
+        glLoadMatrixf(_proj)
 
     def Apply_view(self) -> None:
         """매 프레임 호출되어 ModelView 행렬에 카메라 위치를 세팅함."""

@@ -17,6 +17,7 @@ class Outliner_Panel(QWidget):
 
     selection_changed = Signal(list)
     scene_loaded = Signal()
+    scene_mutated = Signal()
 
     def __init__(self, stage: Stage_Controller, parent=None):
         super().__init__(parent)
@@ -35,6 +36,7 @@ class Outliner_Panel(QWidget):
 
         self.tree_widget = Scene_Tree_Widget(self.stage)
         self.tree_widget.selection_changed.connect(self.selection_changed.emit)
+        self.tree_widget.scene_mutated.connect(self.scene_mutated.emit)
         layout.addWidget(self.tree_widget)
 
         toolbar_layout = QHBoxLayout()
@@ -82,8 +84,7 @@ class Outliner_Panel(QWidget):
 
         _camera_node = Camera_Node(
             label="new_camera",
-            prim_type="Camera",
-            intrinsic=Camera_Intrinsic()
+            prim_type="Camera"
         )
         _camera_node.Set_parent(_parent_node)
         _parent_node.children.append(_camera_node)
@@ -124,6 +125,8 @@ class Scene_Explorer_Page(QWidget):
     property_changed = Signal()
     # 장면 파일 로드 완료 시 외부 갱신을 위한 시그널
     scene_loaded = Signal()
+    # 트리 구조 변경(노드 추가/삭제 등)을 외부(뷰어 갱신)로 릴레이
+    scene_mutated = Signal()
 
     def __init__(self, stage: Stage_Controller, parent=None):
         super().__init__(parent)
@@ -165,6 +168,9 @@ class Scene_Explorer_Page(QWidget):
 
         # 3. 장면 로드 시 인스펙터 초기화 및 외부 릴레이
         self.outliner.scene_loaded.connect(self._On_scene_loaded)
+
+        # 4. 트리 구조 변경 이벤트 외부 릴레이
+        self.outliner.scene_mutated.connect(self.scene_mutated.emit)
 
     @Slot(list)
     def _On_outliner_selection_changed(self, nodes: list):
