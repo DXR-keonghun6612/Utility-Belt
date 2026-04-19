@@ -4,26 +4,23 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QDoubleSpinBox, QGroupBox, QFrame
 )
-from PySide6.QtCore import Signal, Qt
+from PySide6.QtCore import Qt
 
-from data.node import Base_Node, Camera_Node
+from spatial_toolbox.scene.node import Base_Node, Camera as Camera_Node
 from ui.style import (
     SPIN_BOX, Spin_box_accented, Axis_label, LABEL,
     HEADER, SUB_HEADER, GROUP_BOX, SEPARATOR, AXIS_COLORS, AXIS_COLORS_WXYZ
 )
+from ui.core.base_panel import Base_Panel
 
-
-class Property_Panel(QWidget):
+class Property_Panel(Base_Panel):
     """선택된 3D 객체의 속성을 표시하며, 회전은 Quaternion(W, X, Y, Z) 기반으로 제어함."""
 
-    property_changed = Signal()
-
     def __init__(self, parent: QWidget | None = None):
-        super().__init__(parent)
         self.current_node: Base_Node | None = None
-        self._Setup_ui()
+        super().__init__(parent)
 
-    def _Setup_ui(self) -> None:
+    def _setup_ui(self) -> None:
         _layout = QVBoxLayout(self)
         _layout.setContentsMargins(10, 10, 10, 10)
         _layout.setSpacing(12)
@@ -308,5 +305,8 @@ class Property_Panel(QWidget):
         _mat[_slice_xyz, 1] = _rot_mat[:, 1] * scale[1]
         _mat[_slice_xyz, 2] = _rot_mat[:, 2] * scale[2]
         _mat[_slice_xyz, 3] = loc
+
+        return _mat
+3] = loc
 
         return _mat

@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 
-from data.asset import ASSET_CACHE
+from spatial_toolbox.scene import ASSET_CACHE
 
 
 class Add_Asset_Dialog(QDialog):

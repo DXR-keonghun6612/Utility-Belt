@@ -4,9 +4,9 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Signal, Qt, QPoint
 from PySide6.QtGui import QAction, QDropEvent, QIcon, QPixmap, QPainter, QFont
 
-from data.node.stage import Stage_Controller
-from data.node import Base_Node, Group_Node
-from data.io.loader import load_as_node
+from spatial_toolbox.scene import Controller as Stage_Controller
+from spatial_toolbox.scene.node import Base_Node, Group
+from spatial_toolbox.scene.file import Read_from as load_as_node
 from .add_asset_dialog import Add_Asset_Dialog
 
 
@@ -62,9 +62,6 @@ class _Name_Delegate(QStyledItemDelegate):
 
 class Scene_Tree_Widget(QTreeWidget):
     """씬의 계층 구조 데이터를 시각화하고 다중 선택 및 Batch 상호작용을 처리하는 트리 컴포넌트."""
-
-    selection_changed = Signal(list)
-    scene_mutated = Signal()
 
     def __init__(self, stage: Stage_Controller, parent=None):
         super().__init__(parent)
@@ -263,7 +260,7 @@ class Scene_Tree_Widget(QTreeWidget):
         
         # 1. 새 빈 그룹 노드를 공통 부모에 직접 삽입
         #    Add_node는 Xform을 언패킹하므로 사용 불가
-        _new_group = Group_Node(label="New_Group", prim_type="Xform")
+        _new_group = Group(label="New_Group", prim_type="Xform")
         _new_group.Set_parent(parent)
         parent.children.append(_new_group)
 
@@ -304,7 +301,7 @@ class Scene_Tree_Widget(QTreeWidget):
 
         if _is_changed:
             self.Refresh_ui()
-            self.scene_mutated.emit()
+            EVENT_BUS.scene_mutated.emit()
 
     def _Request_delete(self):
         """선택된 여러 아이템을 안전하게 일괄 삭제함."""
@@ -328,4 +325,4 @@ class Scene_Tree_Widget(QTreeWidget):
     def _On_selection_changed(self):
         """선택 영역이 변경될 때마다 선택된 노드 리스트를 외부로 브로드캐스트함."""
         _nodes = self.Get_selected_nodes()
-        self.selection_changed.emit(_nodes)
+        EVENT_BUS.selection_changed.emit(_nodes)

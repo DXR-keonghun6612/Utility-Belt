@@ -6,7 +6,7 @@ from .panels.scene.page import Scene_Explorer_Page
 from .panels.asset.browser import Asset_Browser_Panel
 from .panels.viewport.camera import Orbit_Camera_Panel
 
-from data.node.stage import Stage_Controller
+from spatial_toolbox.scene import Controller as Stage_Controller
 
 class Main_Sidebar(QWidget):
     """

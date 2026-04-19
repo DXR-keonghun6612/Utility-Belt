@@ -5,8 +5,8 @@ from PySide6.QtWidgets import (
     QPushButton, QFileDialog)
 from PySide6.QtCore import Qt, Signal, Slot
 
-from data.node.stage import Stage_Controller
-from data.node import Base_Node, Camera_Intrinsic, Camera_Node
+from spatial_toolbox.scene import Controller as Stage_Controller
+from spatial_toolbox.scene.node import Base_Node, Camera_Intrinsic, Camera as Camera_Node
 
 from .scene_tree import Scene_Tree_Widget
 from .property import Property_Panel
@@ -118,15 +118,6 @@ class Outliner_Panel(QWidget):
 
 class Scene_Explorer_Page(QWidget):
     """Outliner(트리)와 Inspector(속성창)를 결합하고 내부 시그널을 중재하는 씬 탐색기 래퍼 패널."""
-    
-    # 아웃라이너의 선택 변경 사항을 외부(뷰어 등)로 패스스루하기 위한 시그널
-    selection_changed = Signal(list)
-    # 인스펙터의 속성 변경 사항을 외부(뷰어 렌더링 갱신 등)로 패스스루하기 위한 시그널
-    property_changed = Signal()
-    # 장면 파일 로드 완료 시 외부 갱신을 위한 시그널
-    scene_loaded = Signal()
-    # 트리 구조 변경(노드 추가/삭제 등)을 외부(뷰어 갱신)로 릴레이
-    scene_mutated = Signal()
 
     def __init__(self, stage: Stage_Controller, parent=None):
         super().__init__(parent)
@@ -159,18 +150,8 @@ class Scene_Explorer_Page(QWidget):
     def _connect_signals(self):
         """내부 패널 간의 데이터 흐름을 중재하고 외부로 릴레이함."""
         
-        # 1. 내부 와이어링: 아웃라이너 선택 변경 -> 중재 슬롯 호출
-        self.outliner.selection_changed.connect(
-            self._On_outliner_selection_changed)
-        
-        # 2. 외부 릴레이: 인스펙터에서 값이 바뀌면 외부로 방송
-        self.inspector.property_changed.connect(self.property_changed.emit)
-
-        # 3. 장면 로드 시 인스펙터 초기화 및 외부 릴레이
-        self.outliner.scene_loaded.connect(self._On_scene_loaded)
-
-        # 4. 트리 구조 변경 이벤트 외부 릴레이
-        self.outliner.scene_mutated.connect(self.scene_mutated.emit)
+        EVENT_BUS.selection_changed.connect(self._On_outliner_selection_changed)
+        EVENT_BUS.scene_loaded.connect(self._On_scene_loaded)
 
     @Slot(list)
     def _On_outliner_selection_changed(self, nodes: list):
@@ -184,17 +165,15 @@ class Scene_Explorer_Page(QWidget):
             # 향후 Multi-Edit 기능을 구현한다면 이 부분을 확장하면 됨
             self.inspector.Update_info(None)
 
-        # 외부(메인 윈도우/뷰어)로도 선택된 리스트를 그대로 전파함
-        self.selection_changed.emit(nodes)
-
     @Slot()
     def _On_scene_loaded(self):
         """장면 파일 로드 후 인스펙터를 초기화하고 외부에 알림."""
         self.inspector.Update_info(None)
-        self.scene_loaded.emit()
 
     def Set_external_selection(self, nodes: list):
         """뷰포트 등 외부에서 객체를 직접 클릭(Picking)했을 때 호출되는 API."""
         # 이 메서드를 통해 뷰어에서 선택한 것도 아웃라이너 트리와 동기화되게 만들 수 있음
         # (아웃라이너의 트리 아이템 선택 상태를 코드로 변경하는 로직이 필요하다면 추가 가능)
+        self._On_outliner_selection_changed(nodes)
+를 코드로 변경하는 로직이 필요하다면 추가 가능)
         self._On_outliner_selection_changed(nodes)

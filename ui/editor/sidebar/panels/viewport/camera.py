@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Signal, Qt
 
-from graphics.viewport.view import Orbit_Camera
+from viewport.view import Orbit_Camera
 from ui.style import (
     SPIN_BOX, Axis_label, LABEL, HEADER, GROUP_BOX, BUTTON, AXIS_COLORS
 )
@@ -194,7 +194,7 @@ class Orbit_Camera_Panel(QWidget):
         _c.rot_speed = self.rot_speed_spin.value()
         _c.zoom_speed = self.zoom_speed_spin.value()
 
-        self.camera_changed.emit()
+        self.bus.camera_changed.emit()
 
     def _On_reset_clicked(self) -> None:
         """카메라를 기본값으로 초기화."""
@@ -213,7 +213,7 @@ class Orbit_Camera_Panel(QWidget):
         _c.zoom_speed = 0.5
 
         self._Sync_from_camera()
-        self.camera_changed.emit()
+        self.bus.camera_changed.emit()
 
     def Refresh(self) -> None:
         """외부에서 카메라 값이 변경된 후 UI 동기화용."""

@@ -2,18 +2,16 @@ from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from PySide6.QtGui import QMouseEvent, QWheelEvent
 
-from data.node.stage import Stage_Controller
-from graphics.viewport.view import Orbit_Camera
-from graphics.viewport.renderer import Scene_Renderer
-from graphics.viewport.tool.selection import Selection_Controller
-from graphics.viewport.tool.gizmo import Gizmo_Controller
+from spatial_toolbox.scene import Controller as Stage_Controller
+from viewport.view import Orbit_Camera
+from viewport.renderer import Scene_Renderer
+from viewport.tool.selection import Selection_Controller
+from viewport.tool.gizmo import Gizmo_Controller
+
+from ui.core.event_bus import EVENT_BUS
 
 class Viewer_Panel(QOpenGLWidget):
     """Qt 프레임워크와 독립된 3D 뷰포트 코어 엔진을 연결하는 메인 UI 패널."""
-    
-    # 다른 패널(Outliner 등)과 통신하기 위한 시그널
-    node_selected_signal = Signal(object)
-    camera_moved_signal = Signal()
 
     def __init__(self, stage: Stage_Controller, parent=None):
         super().__init__(parent)
@@ -33,6 +31,25 @@ class Viewer_Panel(QOpenGLWidget):
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update)
         self.timer.start(16)
+
+        # 4. 이벤트 버스 구독
+        EVENT_BUS.property_changed.connect(self.update)
+        EVENT_BUS.scene_mutated.connect(self.update)
+        EVENT_BUS.scene_loaded.connect(self._On_scene_loaded)
+        EVENT_BUS.camera_changed.connect(self._On_camera_changed)
+        EVENT_BUS.selection_changed.connect(self._On_selection_changed)
+
+    def _On_scene_loaded(self):
+        self.selection.selected_node = None
+        self.update()
+
+    def _On_camera_changed(self):
+        self.camera.Update_projection(self.width(), self.height())
+        self.update()
+
+    def _On_selection_changed(self, nodes: list):
+        self.selection.selected_node = nodes[0] if len(nodes) == 1 else None
+        self.update()
 
     # ==========================================
     # Qt OpenGL 파이프라인 오버라이딩
@@ -80,7 +97,7 @@ class Viewer_Panel(QOpenGLWidget):
                 _node = self.selection.Pick(
                     _x, _y, self.stage.root, self.camera, self.renderer)
                 # 속성창 등 다른 UI 갱신을 위해 시그널 발송
-                self.node_selected_signal.emit(_node)
+                EVENT_BUS.selection_changed.emit([_node] if _node else [])
 
     def mouseMoveEvent(self, event: QMouseEvent):
         """드래그 시 기즈모 변환 또는 카메라 조작 처리."""
@@ -102,12 +119,12 @@ class Viewer_Panel(QOpenGLWidget):
                 else:
                     # 기즈모 비활성 상태라면 카메라 궤도 회전
                     self.camera.Rotate(float(_dx), float(_dy))
-                    self.camera_moved_signal.emit()
+                    EVENT_BUS.camera_moved.emit()
 
             elif event.buttons() & Qt.MouseButton.MiddleButton:
                 # 휠 클릭 드래그는 카메라 패닝
                 self.camera.Pan(float(_dx), float(_dy))
-                self.camera_moved_signal.emit()
+                EVENT_BUS.camera_moved.emit()
 
         self._last_mouse_pos = _current_pos
         self.update()
@@ -120,4 +137,4 @@ class Viewer_Panel(QOpenGLWidget):
         """마우스 휠 스크롤 시 카메라 줌 처리."""
         _delta = event.angleDelta().y() / 120.0 # 일반적인 마우스 휠 1틱
         self.camera.Zoom(_delta)
-        self.camera_moved_signal.emit()
+        EVENT_BUS.camera_moved.emit()

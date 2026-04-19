@@ -6,9 +6,9 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Slot, Qt
 
-from data.asset import ASSET_CACHE
-from data.asset.type.mesh import Mesh_Asset
-from data.asset.utils.similarity import Is_exact_match, Calculate_match_rate
+from spatial_toolbox.scene import ASSET_CACHE
+from spatial_toolbox.scene.asset import Mesh as Mesh_Asset
+from spatial_toolbox.scene.asset.utils import Is_exact_match, Calculate_match_rate
 
 
 class Duplicate_Dialog(QDialog):

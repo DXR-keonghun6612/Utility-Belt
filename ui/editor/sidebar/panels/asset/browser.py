@@ -3,24 +3,25 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QFileDialog, QAbstractItemView
 )
 from PySide6.QtCore import Signal, Slot, Qt
-from data.asset import ASSET_CACHE
-from data.asset.type.mesh import Mesh_Asset
-from data.node import Base_Node
-from data.io.loader import load_as_asset, load_as_node
+from spatial_toolbox.scene import ASSET_CACHE
+from spatial_toolbox.scene.asset import Mesh as Mesh_Asset
+from spatial_toolbox.scene.node import Base_Node
+from spatial_toolbox.scene.file import Read_from as load_as_asset, Read_from as load_as_node
 from ui.editor.sidebar.panels.asset.duplicate_dialog import Duplicate_Dialog
+from ui.core.base_panel import Base_Panel
 
-class Asset_Browser_Panel(QWidget):
+class Asset_Browser_Panel(Base_Panel):
     """에셋 라이브러리 목록을 시각화하고 씬으로의 인스턴스화 요청을 담당하는 패널임."""
 
-    # 에셋이 씬에 배치되어야 할 때 방출하는 시그널
-    instantiate_requested = Signal(object)
     asset_removed = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._init_ui()
 
-    def _init_ui(self):
+    def _connect_signals(self) -> None:
+        self.bus.scene_loaded.connect(self.Clear_assets)
+
+    def _setup_ui(self):
         _layout = QVBoxLayout(self)
         _layout.setContentsMargins(5, 5, 5, 5)
 
@@ -32,7 +33,7 @@ class Asset_Browser_Panel(QWidget):
         _btn_layout.addWidget(self.btn_load)
         _btn_layout.addWidget(self.btn_remove)
         _btn_layout.addWidget(self.btn_duplicates)
-        _layout.addLayout(_btn_layout)
+        self.main_layout.addLayout(_btn_layout)
 
         # 2. 에셋 목록 테이블 영역
         self.table = QTableWidget(0, 2)
@@ -44,7 +45,7 @@ class Asset_Browser_Panel(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
 
-        _layout.addWidget(self.table)
+        self.main_layout.addWidget(self.table)
 
         # 3. 이벤트 와이어링
         self.btn_load.clicked.connect(self._on_load_clicked)
@@ -82,7 +83,7 @@ class Asset_Browser_Panel(QWidget):
         # io를 통해 Scene_Node 트리로 변환하여 씬에 전달
         _node = load_as_node(_path_key)
         if _node:
-            self.instantiate_requested.emit(_node)
+            self.bus.asset_instantiate_requested.emit(_node)
 
     @Slot()
     def _on_remove_clicked(self):
@@ -117,3 +118,4 @@ class Asset_Browser_Panel(QWidget):
         self.table.insertRow(_row)
         self.table.setItem(_row, 0, QTableWidgetItem(name))
         self.table.setItem(_row, 1, QTableWidgetItem(path))
+
