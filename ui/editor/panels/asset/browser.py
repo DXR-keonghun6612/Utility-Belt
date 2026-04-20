@@ -1,10 +1,12 @@
+from pathlib import Path
+
 from PySide6.QtWidgets import (
     QHBoxLayout, QPushButton, QTableWidget, QTableWidgetItem,
     QHeaderView, QFileDialog, QAbstractItemView
 )
 from PySide6.QtCore import Signal, Slot
 
-from spatial_toolbox.scene import ASSET_CACHE
+from spatial_toolbox.scene.asset.cache import ASSET_CACHE, Parse_key
 from spatial_toolbox.scene.file import Load_and_register
 from ui.editor.panels.asset.duplicate_dialog import Duplicate_Dialog
 from ui.core.base_panel import Base_Panel
@@ -59,7 +61,14 @@ class Asset_Browser_Panel(Base_Panel):
             _asset_keys = Load_and_register(_f)
             if _asset_keys:
                 for _key in _asset_keys:
-                    self._update_table(_key, _f)
+                    _path_key, _fragment_key = Parse_key(_key)
+                    _path_key = Path(_path_key).stem
+
+                    if _fragment_key is None:
+                        self._update_table(_path_key, _f)
+                    else:
+                        self._update_table(
+                            f"{_path_key}#{_fragment_key}", _f)
 
     @Slot(QTableWidgetItem)
     def _on_item_double_clicked(self, item: QTableWidgetItem):

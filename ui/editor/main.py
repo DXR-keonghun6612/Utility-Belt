@@ -6,6 +6,7 @@ from ui.editor.sidebar.container import Sidebar_Container, Page_Config
 from ui.editor.panels.scene.page import Scene_Explorer_Page
 from ui.editor.panels.asset.browser import Asset_Browser_Panel
 from ui.editor.panels.viewport.camera import Orbit_Camera_Panel
+from ui.editor.panels.simulation.page import Simulation_Page
 # 시뮬레이션 패널 등 추가 필요 시 여기서 임포트
 
 class Main_Window(QMainWindow):
@@ -35,6 +36,7 @@ class Main_Window(QMainWindow):
         self.scene_page = Scene_Explorer_Page(self.stage)
         self.asset_page = Asset_Browser_Panel()
         self.camera_page = Orbit_Camera_Panel()
+        self.simulation_page = Simulation_Page(self.stage)
 
         # 뷰포트 카메라 패널 바인딩 (동일 계층에서 처리되므로 결합도가 낮아짐)
         self.camera_page.Bind_camera(self.viewer.camera)
@@ -43,7 +45,8 @@ class Main_Window(QMainWindow):
         _pages = [
             Page_Config("scene", "🗂", "Scene Explorer", self.scene_page),
             Page_Config("asset", "📦", "Asset Browser", self.asset_page),
-            Page_Config("camera", "🎥", "Viewport Camera", self.camera_page)
+            Page_Config("camera", "🎥", "Viewport Camera", self.camera_page),
+            Page_Config("simulation", "🎬", "Simulation Engine", self.simulation_page)
         ]
         self.sidebar = Sidebar_Container(_pages)
 

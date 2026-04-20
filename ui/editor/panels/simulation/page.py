@@ -1,13 +1,18 @@
 """Simulation Panel Package"""
+import json
 import traceback
 from pathlib import Path
 
 from PySide6.QtWidgets import (
-    QWidget, QPushButton, QLabel, QFileDialog, QProgressBar, QMessageBox
+    QWidget, QPushButton, QLabel, QFileDialog, QProgressBar, QMessageBox, QHBoxLayout
 )
 from PySide6.QtCore import QThread, Signal
 
 from simulation.engine import Run_batch_capture
+from simulation.config import Render_Config
+from spatial_toolbox.scene import Controller as Stage_Controller
+from spatial_toolbox.scene.node import Camera as Camera_Node
+from spatial_toolbox.scene.node.utils import walk_nodes
 from ui.core.base_panel import Base_Panel
 
 
@@ -23,7 +28,6 @@ class Simulation_Worker(QThread):
 
     def run(self):
         try:
-            # 렌더링 엔진 호출. 진행률은 콜백을 통해 UI 스레드로 시그널 발행.
             Run_batch_capture(self.config_path, progress_callback=self._emit_progress)
             self.finished_sig.emit(True, "시뮬레이션이 성공적으로 완료됨.")
         except Exception as e:
@@ -35,9 +39,10 @@ class Simulation_Worker(QThread):
 
 
 class Simulation_Page(Base_Panel):
-    """시뮬레이션(렌더링 파이프라인) 설정을 로드하고 실행하는 UI 도메인 패널."""
+    """시뮬레이션(렌더링 파이프라인) 설정을 로드/생성하고 실행하는 UI 도메인 패널."""
     
-    def __init__(self, parent: QWidget | None = None):
+    def __init__(self, stage: Stage_Controller, parent: QWidget | None = None):
+        self.stage = stage
         self.worker: Simulation_Worker | None = None
         self.config_path: Path | None = None
         super().__init__(parent)
@@ -58,10 +63,20 @@ class Simulation_Page(Base_Panel):
         self.config_path_label.setStyleSheet("color: #aaaaaa; font-size: 12px; margin-bottom: 10px;")
         self.main_layout.addWidget(self.config_path_label)
 
-        self.btn_select_config = QPushButton("Render Config 선택 (JSON)")
+        # Config 생성 및 로드 버튼 레이아웃
+        _btn_layout = QHBoxLayout()
+        
+        self.btn_generate_config = QPushButton("현재 씬 기반 Config 생성")
+        self.btn_generate_config.setFixedHeight(30)
+        self.btn_generate_config.clicked.connect(self._generate_config)
+        _btn_layout.addWidget(self.btn_generate_config)
+
+        self.btn_select_config = QPushButton("Render Config 로드")
         self.btn_select_config.setFixedHeight(30)
         self.btn_select_config.clicked.connect(self._select_config)
-        self.main_layout.addWidget(self.btn_select_config)
+        _btn_layout.addWidget(self.btn_select_config)
+
+        self.main_layout.addLayout(_btn_layout)
 
         self.btn_run = QPushButton("시뮬레이션 시작")
         self.btn_run.setFixedHeight(40)
@@ -79,12 +94,42 @@ class Simulation_Page(Base_Panel):
         self.status_label.setStyleSheet("margin-top: 5px;")
         self.main_layout.addWidget(self.status_label)
         
-        # 여백 확보
         self.main_layout.addStretch()
 
     # ==========================================
     # 이벤트 및 로직
     # ==========================================
+
+    def _generate_config(self) -> None:
+        """현재 씬 트리를 분석하여 Render_Config 객체를 생성하고 파일로 저장함."""
+        if not self.stage.root:
+            QMessageBox.warning(self, "경고", "활성화된 씬이 없음.")
+            return
+
+        # 씬 내부의 카메라 노드 탐색
+        _cameras = list(walk_nodes(self.stage.root, lambda n: isinstance(n, Camera_Node)))
+        _cam_label = _cameras[0].label if _cameras else "main_camera"
+
+        _cfg = Render_Config(
+            camera_label=_cam_label,
+            num_samples=1,
+            output_layout="per_object",
+            scene_path="scene.json" # 시뮬레이터 실행 전 씬 저장이 필요함을 안내하는 기본값
+        )
+
+        _path, _ = QFileDialog.getSaveFileName(
+            self, "Render Config 저장", "render_config.json", "JSON Files (*.json)"
+        )
+        
+        if _path:
+            _out_path = Path(_path)
+            _out_path.write_text(json.dumps(_cfg.Serialize(), indent=4), encoding="utf-8")
+            
+            # 저장 직후 자동 로드 처리
+            self.config_path = _out_path
+            self.config_path_label.setText(str(self.config_path))
+            self.btn_run.setEnabled(True)
+            self.status_label.setText("Config가 성공적으로 생성 및 로드됨.")
 
     def _select_config(self) -> None:
         """JSON 설정 파일을 선택하고 경로를 검증함."""
@@ -101,13 +146,12 @@ class Simulation_Page(Base_Panel):
         if not self.config_path:
             return
 
-        # UI 잠금 처리
         self.btn_run.setEnabled(False)
+        self.btn_generate_config.setEnabled(False)
         self.btn_select_config.setEnabled(False)
         self.progress_bar.setValue(0)
         self.status_label.setText("시뮬레이션 초기화 중...")
 
-        # 비동기 스레드 실행
         self.worker = Simulation_Worker(self.config_path)
         self.worker.progress.connect(self._on_progress)
         self.worker.finished_sig.connect(self._on_finished)
@@ -123,6 +167,7 @@ class Simulation_Page(Base_Panel):
     def _on_finished(self, success: bool, message: str) -> None:
         """워커 스레드 종료 시 UI 잠금을 해제하고 결과를 알림."""
         self.btn_run.setEnabled(True)
+        self.btn_generate_config.setEnabled(True)
         self.btn_select_config.setEnabled(True)
         
         if success:
