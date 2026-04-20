@@ -1,0 +1,10 @@
+# Core Dependencies
+numpy
+scipy
+Pillow
+PyOpenGL
+PySide6
+
+# GitHub Remote Dependencies (ToolBox repo, branch-based)
+python_toolbox @ git+https://github.com/DXR-keonghun6612/ToolBox.git@python_toolbox
+spatial_toolbox @ git+https://github.com/DXR-keonghun6612/ToolBox.git@spatial_toolbox
