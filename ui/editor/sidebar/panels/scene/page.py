@@ -175,5 +175,3 @@ class Scene_Explorer_Page(QWidget):
         # 이 메서드를 통해 뷰어에서 선택한 것도 아웃라이너 트리와 동기화되게 만들 수 있음
         # (아웃라이너의 트리 아이템 선택 상태를 코드로 변경하는 로직이 필요하다면 추가 가능)
         self._On_outliner_selection_changed(nodes)
-를 코드로 변경하는 로직이 필요하다면 추가 가능)
-        self._On_outliner_selection_changed(nodes)

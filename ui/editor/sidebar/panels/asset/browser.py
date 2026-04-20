@@ -6,7 +6,7 @@ from PySide6.QtCore import Signal, Slot, Qt
 from spatial_toolbox.scene import ASSET_CACHE
 from spatial_toolbox.scene.asset import Mesh as Mesh_Asset
 from spatial_toolbox.scene.node import Base_Node
-from spatial_toolbox.scene.file import Read_from as load_as_asset, Read_from as load_as_node
+from spatial_toolbox.scene.file import Load_and_register
 from ui.editor.sidebar.panels.asset.duplicate_dialog import Duplicate_Dialog
 from ui.core.base_panel import Base_Panel
 
@@ -65,11 +65,11 @@ class Asset_Browser_Panel(Base_Panel):
             if ASSET_CACHE.Get(_f) is not None:
                 continue
 
-            _assets = load_as_asset(_f)
-            if _assets:
-                ASSET_CACHE.Register(_f, _assets)
+            _asset_keys = Load_and_register(_f)
+            if _asset_keys:
                 # 첫 번째 에셋의 label을 대표명으로 사용
-                self._update_table(_assets[0].label, _f)
+                for _key in _asset_keys:
+                    self._update_table(_key, _f)
 
     @Slot(QTableWidgetItem)
     def _on_item_double_clicked(self, item: QTableWidgetItem):

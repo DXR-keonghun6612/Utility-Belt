@@ -1,7 +1,7 @@
 """카메라 노드의 위치/방향/화각을 와이어프레임으로 시각화하는 기즈모 모듈."""
 from OpenGL.GL import *
 
-from spatial_toolbox.scene.node import Camera_Intrinsic
+from spatial_toolbox.scene.node.camera import Camera_Intrinsic
 
 _CAM_BODY_SIZE = 0.3
 _CAM_FRUSTUM_DEPTH = 1.5

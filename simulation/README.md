@@ -1,59 +1,96 @@
-# graphics/render
+# simulation
 
-학습 데이터 생성을 위한 오프라인 멀티패스 렌더링 파이프라인.
+오프라인 멀티패스 렌더링 파이프라인. 헤드리스 환경에서 하나의 장면(씬 + 카메라)으로부터 RGB·Depth·Segmentation·Normal 등 다수의 정답 데이터를 동시에 생성함.
 
-하나의 장면(씬 + 카메라)에서 여러 렌더 패스를 순차 실행하여 RGB, Depth, Segmentation, Normal 등의 정답 데이터를 동시에 생성함.
-
-> **중요**: 패스 구현체(`rgb`, `depth`, `normal`, `segmentation`)는 **`graphics/core/pass_/`** 에 위치함. `render/`는 컨텍스트 관리, 패스 시퀀싱, 결과 저장만 담당함.
+렌더 코어(`Base_Pass`·패스 구현체·`OpenGL_Renderer`)는 `spatial_toolbox.graphics`에 위치하며, 본 모듈은 **컨텍스트 관리 · 배치 시퀀싱 · 결과 저장 · 랜덤화 샘플링**만 담당함.
 
 ## 구조
 
-```
-render/
-├── config.py     # Render_Config — 패스 목록, 카메라 랜덤화 범위
+```text
+simulation/
+├── config.py     # Render_Config — 패스 목록 · 카메라/객체/광원 랜덤화 범위
+├── engine.py     # Capture_Project / Run_batch_capture — 배치 캡처 진입점
 ├── pipeline.py   # Render_Pipeline — EGL/Qt 헤드리스 컨텍스트 + 패스 실행
 └── exporter.py   # Result_Exporter — PNG/NPY/JSON 저장
 ```
 
-관련 패스 코어:
+관련 서브모듈 진입점:
 
+```text
+spatial_toolbox.graphics.openGL.pass_.base.OpenGL_Base_Pass   # 패스 추상 (Template Method)
+spatial_toolbox.graphics.openGL.renderer.OpenGL_Renderer      # 패스 실행 + 조명/VBO 관리
+spatial_toolbox.graphics.registry.Pass_Registry               # 데코레이터 기반 패스 레지스트리
 ```
-graphics/core/pass_/
-├── base.py          # Base_Pass (ABC, Template Method)
-├── registry.py      # Pass_Registry
-├── build.py         # Get_render(name) — name → Base_Pass 인스턴스
-├── rgb.py           # RGB_Pass
-├── depth.py         # Depth_Pass
-├── normal.py        # Normal_Pass
-└── segmentation.py  # Segmentation_Pass
+
+## 실행 진입점
+
+### CLI (`capture_cli.py`)
+
+```bash
+python capture_cli.py --render_cfg path/to/render.json
+```
+
+내부 흐름: `Run_batch_capture` → `Render_Config.Read_from_file` → `Stage_Controller.Load(scene_path)` → `target` 그룹 탐색 → 자식 객체별 visible 토글 + `Capture_Project.Render_target` 반복.
+
+### 프로그램 호출
+
+```python
+from pathlib import Path
+from simulation.engine import Run_batch_capture
+
+Run_batch_capture(Path("path/to/render.json"))
+```
+
+### 저수준 직접 제어
+
+```python
+from spatial_toolbox.scene import Controller as Stage_Controller
+from simulation.config import Render_Config
+from simulation.pipeline import Render_Pipeline
+from simulation.exporter import Result_Exporter
+
+config = Render_Config(passes=["rgb", "depth", "segmentation", "normal"])
+pipeline = Render_Pipeline(config)
+pipeline.Setup_headless_context(width=640, height=480, use_egl=True)
+
+stage = Stage_Controller()
+stage.Load("scene.json")
+root = stage.root
+camera = next(n for n in root.children if n.prim_type == "Camera")
+
+results = pipeline.Execute(root, camera, 640, 480)
+
+exporter = Result_Exporter("./out")
+exporter.Save(frame_id=0, results=results, camera_node=camera, config=config)
+pipeline.Teardown_headless_context()
 ```
 
 ## 실행 흐름
 
-```
-Render_Config(passes=["rgb","depth","segmentation","normal"], …)
+```text
+Render_Config(passes=[...], cam=Randomize_Range(...), ...)
     │
     ▼
 Render_Pipeline(config)
     │
-    ├── Setup_headless_context(w, h, use_egl=True)  ─── EGL 시도 → 실패 시 Qt 폴백
+    ├── Setup_headless_context(w, h, use_egl=True)   ── EGL 시도 → 실패 시 Qt 폴백
     │
-    ├── Execute(root_node, camera_node, w, h)       ─── 등록 패스 순차 실행
+    ├── Execute(root_node, camera_node, w, h)        ── OpenGL_Renderer.Render 위임
     │       │
-    │       ├── RGB_Pass.Render()           → np.uint8  (H×W×3)
-    │       ├── Depth_Pass.Render()         → np.float32 (H×W)
-    │       ├── Segmentation_Pass.Render()  → np.uint8  (H×W×3)
-    │       └── Normal_Pass.Render()        → np.uint8  (H×W×3)
+    │       ├── rgb           → uint8  (H×W×3)
+    │       ├── depth         → float32 (H×W)
+    │       ├── segmentation  → uint8  (H×W×3)
+    │       └── normal        → uint8  (H×W×3)
     │
     └── Teardown_headless_context()
 
 Result_Exporter(output_dir).Save(frame_id, results, camera_node, config)
     │
     ├── rgb_000000.png
-    ├── depth_000000.npy            (float32 → npy)
+    ├── depth_000000.npy            # float32 선형 미터
     ├── segmentation_000000.png
     ├── normal_000000.png
-    └── metadata_000000.json        (intrinsic + extrinsic + render config)
+    └── metadata_000000.json        # intrinsic + extrinsic + render config + id_map
 ```
 
 ## 컨텍스트 관리 (pipeline.py)
@@ -61,89 +98,85 @@ Result_Exporter(output_dir).Save(frame_id, results, camera_node, config)
 `Render_Pipeline`은 세 가지 OpenGL 컨텍스트 모드를 지원함:
 
 | 모드 | 트리거 | 백엔드 |
-|---|---|---|
-| **EGL** (우선) | `Setup_headless_context(use_egl=True)` 성공 시 | PyOpenGL EGL + 직접 FBO 생성 (PySide6 비의존) |
-| **Qt 폴백** | EGL 실패 시 자동 전환 | `QOffscreenSurface` + `QOpenGLFramebufferObject` |
-| **UI 임베드** | `Setup_headless_context()` 미호출 | 호출 측의 기존 컨텍스트(makeCurrent된 상태) |
+| --- | --- | --- |
+| **EGL** (우선) | `Setup_headless_context(use_egl=True)` 성공 시 | PyOpenGL EGL + 직접 FBO/렌더버퍼 생성 (PySide6 비의존) |
+| **Qt 폴백** | EGL 초기화 실패 시 자동 전환 | `QOffscreenSurface` + `QOpenGLFramebufferObject` |
+| **UI 임베드** | `Setup_headless_context()` 미호출 | 호출 측의 기존 컨텍스트(`makeCurrent` 된 상태) 재사용 |
 
-EGL 모드에서는 컬러 + 24-bit 뎁스 렌더버퍼를 직접 생성/연결하며, `Teardown_headless_context()`가 모든 GL 객체와 EGL 디스플레이를 해제함.
+EGL 모드에서는 컬러 `GL_RGBA8` + 24-bit 뎁스 렌더버퍼를 직접 생성/연결하며, `Teardown_headless_context()`가 모든 GL 객체와 EGL 디스플레이를 해제함.
 
-## 렌더 패스 상세 (graphics/core/pass_/)
+## 배치 캡처 (engine.py)
 
-| 패스 | dtype / shape | 인코딩 / 배경 |
-|---|---|---|
-| `rgb` | uint8 (H×W×3) | Phong 조명 (light_position/diffuse/ambient 외부 주입) |
+`Capture_Project`는 `python_toolbox.project.Project_Template`를 상속하여 `./result/capture/<timestamp>_<uuid>/` 워크스페이스를 자동 생성함.
+
+- `_Find_target_group(root)` — `label="target"`, `prim_type="Xform"`인 그룹을 탐색
+- `_Set_isolated_visibility(group, index)` — 그룹 직속 자식 중 index만 visible=True로 설정
+- `Render_target(...)` — target 자식 각각에 대해 `num_samples` 프레임을 캡처. 샘플마다 카메라·객체·광원 델타를 `Sample_delta_matrix` / `Sample_translation`으로 독립 샘플링
+
+`output_layout="per_object"`는 target 자식별 서브디렉토리 생성, `"flat"`은 단일 디렉토리에 평탄화함.
+
+## 패스 결과 스펙
+
+패스 구현은 `spatial_toolbox.graphics.openGL.pass_` 에 위치함. 본 모듈은 이름으로만 참조함.
+
+| 패스 이름 | dtype / shape | 인코딩 / 배경 |
+| --- | --- | --- |
+| `rgb` | uint8 (H×W×3) | Phong 조명 (light_position/diffuse/ambient/specular 외부 주입) |
 | `depth` | float32 (H×W) | NDC → 선형 미터 변환. 배경(NDC≥1.0) = 0.0 |
 | `segmentation` | uint8 (H×W×3) | 인스턴스 카운터를 24-bit RGB로 분해. 배경 = (0,0,0) |
-| `normal` | uint8 (H×W×3) | `(n+1)*127.5` (VBO 사전 인코딩 사용). 배경 = (128,128,255) |
+| `normal` | uint8 (H×W×3) | `(n+1)*127.5` (VBO 사전 인코딩). 배경 = (128,128,255) |
 
-`Segmentation_Pass.last_id_map`은 `(R,G,B) → Base_Node` 딕셔너리를 제공하여 ID 색상으로부터 노드를 역추적할 수 있음.
+`Render_Pipeline.Get_segmentation_id_map()`은 `(R,G,B) → (label, prim_path)` 매핑을 JSON 직렬화 가능한 리스트로 반환함 (segmentation 패스 등록 시).
 
-`Base_Pass.Render()`는 모든 패스 결과에 `np.flipud`를 적용하여 OpenGL 좌하단 기준 → 좌상단 기준으로 정규화함.
+`OpenGL_Renderer`가 모든 패스 결과에 `np.flipud`를 적용하여 OpenGL 좌하단 기준 → 좌상단 기준으로 정규화함.
 
 ## 새 패스 추가 방법
 
-1. `graphics/core/pass_/` 에 새 파일 생성
-2. `Base_Pass`를 상속하고 `@Pass_Registry.Register_module("이름")`으로 등록
-3. `Name` 프로퍼티와 `_On_readback` 구현 (선택적으로 `_On_setup`/`_On_draw`/`_On_cleanup`)
-4. `graphics/core/pass_/build.py` import 목록에 추가
-5. `Render_Config.passes` 리스트에 이름 추가 — `pipeline.py` 수정 불필요
+1. `spatial_toolbox.graphics.openGL.pass_` 에 새 파일 생성
+2. `OpenGL_Base_Pass` 를 상속하고 `@Pass_Registry.Register_module("이름")`으로 등록
+3. 클래스 속성(`name`, `_readback_format`, `_draw_mode`, `_use_lighting`, `_clear_color`) 선언. 필요 시 훅 오버라이드
+4. `Render_Config.passes` 에 이름 추가 — 파이프라인이 `Pass_Registry.Get(name)` 으로 자동 인스턴스화 + `Configure` 훅 호출
 
 ```python
-from graphics.core.pass_.base import Base_Pass
-from graphics.core.pass_.registry import Pass_Registry
+from spatial_toolbox.graphics.openGL.pass_.base import OpenGL_Base_Pass
+from spatial_toolbox.graphics.registry import Pass_Registry
 
 @Pass_Registry.Register_module("optical_flow")
-class Optical_Flow_Pass(Base_Pass):
-    @property
-    def Name(self) -> str:
-        return "optical_flow"
-
-    def _On_setup(self) -> None:
-        ...
-
-    def _On_readback(self, width, height, **kwargs):
-        return self._Read_rgb(width, height)
+class Optical_Flow_Pass(OpenGL_Base_Pass):
+    name = "optical_flow"
+    _use_lighting = False
+    _draw_mode = "default"
+    _readback_format = "rgb"
 ```
+
+자세한 훅 오버라이드 규칙은 [../submodules/spatial_toolbox/spatial_toolbox/graphics/openGL/COOKBOOK.md](../submodules/spatial_toolbox/spatial_toolbox/graphics/openGL/COOKBOOK.md) 참조.
 
 ## Render_Config 주요 필드
 
 | 필드 | 기본값 | 설명 |
-|---|---|---|
+| --- | --- | --- |
 | `passes` | `["rgb","depth","segmentation","normal"]` | 실행할 패스 이름 목록 |
 | `bg_color` | `[0.0, 0.0, 0.0]` | 배경색 (RGB, 0.0~1.0) |
 | `scene_path` | `""` | 장면 JSON 파일 경로 |
-| `num_samples` | `1` | 카메라 랜덤화 반복 횟수 |
-| `camera_label` | `"main_camera"` | 장면 내 타깃 카메라 노드 라벨 |
-| `obj_dir` | `""` | OBJ 디렉토리 스캔 모드 (빈 문자열이면 비활성) |
-| `target_node_label` | `""` | OBJ 삽입 대상 노드 라벨 |
-| `tx`/`ty`/`tz`, `rx`/`ry`/`rz` | `0.0` | 카메라 Extrinsic 델타. 고정값 또는 `[min, max]` |
+| `num_samples` | `1` | target 객체 1개당 샘플 프레임 수 |
+| `camera_label` | `"main_camera"` | 장면 내 카메라 노드 식별자 |
+| `output_layout` | `"per_object"` | `"per_object"` / `"flat"` |
+| `light_position` | `[0.0, 1.0, 0.0, 0.0]` | 광원 기준 위치(4성분, w=0 방향광 / w=1 점광원) |
+| `cam` | `Randomize_Range()` | 카메라 extrinsic 델타 범위 |
+| `obj` | `Randomize_Range()` | 객체 local 델타 범위 |
+| `light` | `Randomize_Range()` | 광원 위치 델타 범위 (tx/ty/tz만 사용, 회전 무시) |
+| `seed` | `None` | RNG 시드. 정수 지정 시 `np.random.seed` 주입으로 재현성 확보 |
 
-`Sample_delta_matrix(config)`는 위 6개 필드에서 균일 샘플링하여 4x4 델타 행렬을 생성함 (랜덤 카메라 변동 적용용).
+`Randomize_Range`의 각 필드(tx/ty/tz/rx/ry/rz)는 고정값(`float`) 또는 `[min, max]` 리스트로 지정함. `Sample_delta_matrix` / `Sample_translation`이 균일 샘플링하여 4×4 델타 행렬 또는 3-벡터를 생성함.
 
-`Base_Config` 상속이므로 `Serialize()`, `Write_to()`, `Read_from_file()` 사용 가능.
+`Render_Config`는 `Base_Config` 상속이므로 `Serialize()`, `Write_to()`, `Read_from_file()` 사용 가능함.
 
-## 실행 모드
+## UI 임베드 모드
 
-**헤드리스 (capture_cli.py)**
-
-```python
-config = Render_Config(passes=["rgb", "depth"])
-pipeline = Render_Pipeline(config)
-pipeline.Setup_headless_context(width=640, height=480, use_egl=True)
-
-results = pipeline.Execute(root_node, camera_node, 640, 480)
-
-exporter = Result_Exporter("./out")
-exporter.Save(frame_id=0, results=results, camera_node=camera_node, config=config)
-
-pipeline.Teardown_headless_context()
-```
-
-**UI 임베드 (편집기 내)**
+편집기에서 이미 GL 컨텍스트가 활성화된 경우 `Setup_headless_context`를 호출하지 않고 바로 `Execute`함.
 
 ```python
-# 호출 측에서 GL 컨텍스트 makeCurrent 후
+# QOpenGLWidget.paintGL 내부 등 makeCurrent 이후
 pipeline = Render_Pipeline(config)
 results = pipeline.Execute(root_node, camera_node, w, h)
 ```

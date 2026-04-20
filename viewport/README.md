@@ -1,30 +1,32 @@
-# graphics/viewport
+# viewport
 
-편집기의 실시간 3D 뷰포트. 씬 시각화, 카메라 내비게이션, 객체 선택 및 기즈모 조작을 처리함.
+편집기의 실시간 3D 뷰포트 어댑터. 씬 시각화, 카메라 내비게이션, 객체 선택 및 기즈모 조작을 처리함.
+
+메시 드로우·조명·VBO 캐시·ID 패스 등 저수준 렌더링은 `spatial_toolbox.graphics.openGL.OpenGL_Renderer`에 위임하고, 본 모듈은 **편집기 시점(Orbit) · 상호작용(픽킹/기즈모) · 시각적 오버레이(그리드/선택 하이라이트)** 만 담당함.
 
 ## 구조
 
-```
+```text
 viewport/
 ├── renderer.py         # Scene_Renderer — 메인 패스 + ID 픽킹 패스 + 그라운드 그리드
 ├── view.py             # Orbit_Camera — 극좌표계 기반 궤도 카메라
 ├── transform.py        # Transform_Math — 마우스 2D 델타 → 3D 행렬 변환
 └── tool/
     ├── gizmo.py        # Gizmo_Controller — 3축 이동/회전 핸들
-    ├── camera_gizmo.py # Draw_camera_gizmo — Camera_Node 와이어프레임 시각화
+    ├── camera_gizmo.py # Draw_camera_gizmo — Camera 노드 와이어프레임 시각화
     └── selection.py    # Selection_Controller — ID 패스 기반 객체 픽킹
 ```
 
 ## 모듈 관계
 
-```
+```text
 Viewer_Panel (ui/editor/viewer.py)
     │
-    ├── Orbit_Camera          ← 마우스 이벤트로 회전/패닝/줌
-    ├── Scene_Renderer        ← 매 프레임 Render_frame() 호출
-    │       └── GPU_Resource_Manager (graphics/core/resource.py)
-    ├── Selection_Controller  ← 클릭 시 Pick() → ID 패스 렌더링 → 노드 반환
-    └── Gizmo_Controller      ← 드래그 시 Apply_transform_drag() → 노드 행렬 갱신
+    ├── Orbit_Camera            ← 마우스 이벤트로 회전/패닝/줌
+    ├── Scene_Renderer          ← 매 프레임 Render_frame() 호출
+    │       └── OpenGL_Renderer (spatial_toolbox.graphics.openGL) — 메시 드로우 · VBO 캐시 · 조명 · id_map
+    ├── Selection_Controller    ← 클릭 시 Pick() → ID 패스 렌더링 → 노드 반환
+    └── Gizmo_Controller        ← 드래그 시 Apply_transform_drag() → 노드 행렬 갱신
 ```
 
 ## renderer.py — Scene_Renderer
@@ -32,29 +34,31 @@ Viewer_Panel (ui/editor/viewer.py)
 세 가지 렌더 경로를 보유함:
 
 - **메인 패스** (`Render_frame`): Phong 조명 + 그라운드 그리드. 선택 메시는 와이어프레임 하이라이트 오버레이.
-- **ID 패스** (`Render_id_pass`): 메시별 고유 RGB 색상 인코딩. 라이팅/디더/멀티샘플 OFF 후 컬러키 → `Base_Node` 딕셔너리 반환. `Selection_Controller`가 사용함.
-- **카메라 기즈모**: `Camera_Node` 순회 시 `Draw_camera_gizmo`를 호출하여 프러스텀과 바디를 와이어프레임으로 함께 렌더링함.
+- **ID 패스** (`Render_id_pass`): 라이팅/디더/멀티샘플 OFF 상태에서 `OpenGL_Renderer.Draw_mesh(..., draw_mode="id_color", node=...)` 로 위임. 반환값은 `(R,G,B) → Base_Node` 매핑(`renderer.id_map`). `Selection_Controller`가 사용함.
+- **카메라 기즈모**: `Camera` 노드 순회 시 `Draw_camera_gizmo`를 호출하여 프러스텀과 바디를 와이어프레임으로 함께 렌더링함.
 
-메시 드로우는 `graphics/core/draw.Draw_mesh`에 위임하며, `GPU_Resource_Manager`로 VBO 캐싱을 활성화함. `render_mode`("SOLID"/"WIREFRAME") 토글을 지원함.
+메시 드로우는 `OpenGL_Renderer.Draw_mesh` 에 위임하며, 내부적으로 `id(mesh)` 키 VBO 캐시를 유지함. `render_mode`("SOLID"/"WIREFRAME") 토글을 지원함.
+
+> 주: VBO 수명 관리는 `OpenGL_Renderer` 내부에서 `weakref.finalize`로 처리되므로 별도 리소스 매니저 객체가 필요하지 않음.
 
 ## view.py — Orbit_Camera
 
-편집기 전용 내비게이션 카메라. 씬에 배치되는 `Camera_Node`(prim_type="Camera")와는 **별개의 객체**임.
+편집기 전용 내비게이션 카메라. 씬에 배치되는 `Camera`(`prim_type="Camera"`)와는 **별개의 객체**임.
 
 | 조작 | 메서드 | 설명 |
-|---|---|---|
+| --- | --- | --- |
 | 궤도 회전 | `Rotate(dx, dy)` | Yaw/Pitch 극좌표 갱신 (Pitch ±89° 클램핑) |
 | 패닝 | `Pan(dx, dy)` | Right/Up 벡터 산출 후 거리 비례 보정 |
 | 줌 | `Zoom(delta)` | 타겟 거리 증감 (최소 0.1 보호) |
-| 투영 | `Update_projection(w, h)` | gluPerspective 갱신 |
-| 뷰 적용 | `Apply_view()` | gluLookAt 호출 (매 프레임) |
+| 투영 | `Update_projection(w, h)` | fov → fx/fy 역산 후 `Build_gl_projection` 호출 (씬 카메라와 동일 투영 빌더 공유) |
+| 뷰 적용 | `Apply_view()` | `gluLookAt` 호출 (매 프레임) |
 
 ## transform.py — Transform_Math
 
 마우스 드래그 → 3D 변환 행렬 변환의 순수 수학 유틸리티. 모든 메서드는 정적이며, 호출 전 `GL_MODELVIEW_MATRIX`가 `카메라 뷰 * 객체 월드` 상태여야 함.
 
 | 메서드 | 기법 |
-|---|---|
+| --- | --- |
 | `_Get_screen_direction(axis)` | `gluProject`로 3D 축의 화면 투영 방향 산출 |
 | `Get_translation_delta(axis, dx, dy, sens)` | 마우스 벡터와 화면 축 방향의 내적 → 평행이동 행렬 |
 | `Get_rotation_delta(key, axis, dx, dy, sx, sy)` | 객체 중심 기준 atan2 각도 + 뷰 Z축 부호 보정 → 회전 행렬 |
@@ -74,7 +78,7 @@ Viewer_Panel (ui/editor/viewer.py)
 
 ### camera_gizmo.py — Draw_camera_gizmo
 
-`Camera_Node` 시각화 전용 함수 (컨트롤러 클래스 없음). `fov`/`img_w`/`img_h`로 프러스텀을 산출하여 OpenGL `-Z` 관례에 맞춰 와이어프레임 바디(작은 직육면체) + 프러스텀 라인 + 원거리 사각형 + Up 인디케이터(상단 삼각형)를 그림. 호출 전 `glMultMatrixf`로 노드 변환이 적용된 상태여야 함.
+`Camera` 노드 시각화 전용 함수 (컨트롤러 클래스 없음). `Camera_Intrinsic`의 `fov`/`img_w`/`img_h`로 프러스텀을 산출하여 OpenGL `-Z` 관례에 맞춰 와이어프레임 바디(작은 직육면체) + 프러스텀 라인 + 원거리 사각형 + Up 인디케이터(상단 삼각형)를 그림. 호출 전 `glMultMatrixf`로 노드 변환이 적용된 상태여야 함.
 
 ### selection.py — Selection_Controller
 

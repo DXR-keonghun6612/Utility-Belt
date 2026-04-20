@@ -6,7 +6,7 @@ from PySide6.QtGui import QAction, QDropEvent, QIcon, QPixmap, QPainter, QFont
 
 from spatial_toolbox.scene import Controller as Stage_Controller
 from spatial_toolbox.scene.node import Base_Node, Group
-from spatial_toolbox.scene.file import Read_from as load_as_node
+from spatial_toolbox.scene.file import Load_and_register
 from .add_asset_dialog import Add_Asset_Dialog
 
 
@@ -293,10 +293,13 @@ class Scene_Tree_Widget(QTreeWidget):
 
         _is_changed = False
         for _path in _paths:
-            _node = load_as_node(str(_path))
-            if _node is None:
+            _keys = Load_and_register(str(_path))
+            if _keys:
                 continue
-            self.stage.Add_node(_node, parent)
+            
+            for _key in _keys:
+                _node = self.stage.Build_node_from_cache(_key)
+                self.stage.Add_node(_node, parent)
             _is_changed = True
 
         if _is_changed:

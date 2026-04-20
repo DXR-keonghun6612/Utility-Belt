@@ -22,13 +22,21 @@ FOCUS 프로젝트의 진행 사항 및 향후 과제 목록임.
 
 ### 3차 — graphics/core 통합
 
-- [x] 트리 순회 통합 — `Walk_gl(root, on_node)` 헬퍼(`graphics/core/traversal_gl.py`)로 push/mult/pop + is_renderable 체크 일원화. `Base_Pass`/`Normal_Pass`/`Segmentation_Pass`/`Scene_Renderer` 5개 사이트 적용
-- [x] ID 패스 통합 — `Id_Pass_Driver`(`graphics/core/id_pass.py`)로 인코딩/매핑 단일화. `Segmentation_Pass`와 viewport 픽킹이 동일 드라이버 위임
-- [x] Phong 조명 헬퍼 분리 — `Apply_phong_lighting`(`graphics/core/lighting.py`)로 viewport `Initialize`와 `RGB_Pass._On_setup`이 동일 진입점 사용
+- [x] 트리 순회 통합 — `Walk_gl(root, on_node)` 헬퍼로 push/mult/pop + is_renderable 체크 일원화
+- [x] ID 패스 통합 — `Id_Pass_Driver`로 인코딩/매핑 단일화. segmentation과 viewport 픽킹이 동일 드라이버 위임
+- [x] Phong 조명 헬퍼 분리 — `Apply_phong_lighting`로 viewport `Initialize`와 `RGB_Pass._On_setup`이 동일 진입점 사용
 
 ### 4차 — 캐시 일원화
 
 - [x] UI 측 `Asset_Cache` 인스턴스화 지점을 전역 `ASSET_CACHE` 싱글톤으로 마이그레이션 (capture와 캐시 일원화)
+
+### 5차 — 서브모듈 분리 (spatial_toolbox)
+
+- [x] `data/`(노드·에셋·I/O) + `graphics/core/`(렌더 코어·패스)를 `submodules/spatial_toolbox/` 서브모듈로 추출
+- [x] `viewport/`·`simulation/`을 프로젝트 최상위 파트로 승격 (`graphics/viewport/` → `viewport/`, `graphics/render/` → `simulation/`)
+- [x] 의존 방향 재정립 — `spatial_toolbox ← {viewport, simulation} ← ui` 단방향 경계 확정
+- [x] 헤드리스 데이터셋 생성 진입점 분리 — `capture_cli.py` + `simulation.engine.Run_batch_capture` (Project_Template 기반)
+- [x] 랜덤화 구조 일반화 — 카메라/객체/광원 독립 `Randomize_Range` 도입 (`simulation.config`)
 
 ## 정적 편집기 기본 기능
 
@@ -38,17 +46,20 @@ FOCUS 프로젝트의 진행 사항 및 향후 과제 목록임.
 
 ## 진행 중 리팩토링
 
-### graphics/ 도메인
+### spatial_toolbox 도메인
 
-- [ ] `Render_Pipeline` 비대화 해소 — 246 LOC 중 ~180 LOC가 EGL/Qt 컨텍스트 관리. `graphics/render/context/` 하위로 `Egl_Context`/`Qt_Context`/`Embedded_Context` 전략 분리
-- [ ] `Gizmo_Controller` SRP 위반 해소 — Pick/Render/Drag 세 책임을 단일 클래스가 보유. `Gizmo_Picker`/`Gizmo_Renderer`/`Gizmo_Dragger`로 분리
-- [ ] 와일드카드 임포트 제거 — `graphics/viewport/renderer.py`, `graphics/viewport/tool/camera_gizmo.py`의 `from OpenGL.GL import *` 제거
-- [ ] `selection.py` → `Scene_Renderer` 직접 의존 해소 — ID 패스 인터페이스를 추상화하여 순환 의존 위험 차단 (BVH 픽킹의 선결 조건)
-- [ ] `graphics/core/pass_/build.py` 수동 import 제거 — 패스 모듈 자동 발견(`import_module` 순회) 도입
+- [ ] `Render_Pipeline` 비대화 해소 — EGL/Qt 컨텍스트 관리 로직을 `simulation/context/` 하위 `Egl_Context`/`Qt_Context`/`Embedded_Context` 전략으로 분리
+- [ ] 패스 자동 발견 — `spatial_toolbox.graphics.openGL.pass_` 수동 import 제거 (`importlib` 순회 도입)
+- [ ] `selection.py` → `Scene_Renderer` 직접 의존 해소 — ID 패스 인터페이스 추상화 (BVH 픽킹의 선결 조건)
 
-### data/ · ui/ 도메인
+### viewport/ 도메인
 
-- [ ] capture_cli `_Find_camera_node` 탐색 범위를 `target`의 형제 노드로 한정 (현재는 root 전체 walk)
+- [ ] `Gizmo_Controller` SRP 위반 해소 — Pick/Render/Drag 세 책임을 `Gizmo_Picker`/`Gizmo_Renderer`/`Gizmo_Dragger`로 분리
+- [ ] 와일드카드 임포트 제거 — `viewport/renderer.py`, `viewport/tool/camera_gizmo.py`의 `from OpenGL.GL import *` 제거
+
+### simulation/ · ui/ 도메인
+
+- [ ] `simulation.engine._Find_camera_node` 탐색 범위를 `target`의 형제 노드로 한정 (현재는 root 전체 walk)
 - [ ] Command 패턴 기반 상태 제어층 도입 — UI의 데이터 직접 변경 방지 (에셋 인스턴스화 이관의 선결 조건)
 - [ ] 에셋 인스턴스화 로직을 `Stage_Controller`로 이관하여 비즈니스 로직 캡슐화
 - [ ] UI 아키텍처 및 도메인 상호작용 구조 전면 정리 (UI 의존성 분리)
@@ -63,12 +74,12 @@ FOCUS 프로젝트의 진행 사항 및 향후 과제 목록임.
 - [ ] `Mesh_Asset.source_unit` 메타 기록 — 로더에서 감지/지정 (OBJ의 경우 사용자 지정, 기본 `"m"`)
 - [ ] `Stage_Controller.meters_per_unit` 필드 도입 및 직렬화 (USD `metersPerUnit` 관례 준수)
 - [ ] 인스턴스화 시점 스케일 보정 — `asset.source_unit` ↔ `stage.meters_per_unit` 변환을 `Stage_Controller` 이관 경로에 내장
-- [ ] `data/asset/utils/similarity.py` threshold를 m 단위로 고정 후 호출부에서 stage 단위로 환산
+- [ ] `spatial_toolbox.scene.asset.utils.similarity` threshold를 m 단위로 고정 후 호출부에서 stage 단위로 환산
 - [ ] Inspector/뷰포트에 stage 단위 라벨 노출 (기즈모 그리드 눈금 단위 표기 포함)
 
 ### 메시 노멀 복구
 
-> 현재 `data/io/obj.py`에서 `merge_vertices + fix_normals`를 호출하여 connected component 내 winding은 일관화되지만, non-watertight 메시는 volume 부호로 "외향"을 판정할 수 없어 component별 전역 방향이 랜덤하게 결정됨. 증상: 대칭/미러 모델에서 반쪽만 정상 조명, 반대쪽은 반전. 임시 우회로 `GL_LIGHT_MODEL_TWO_SIDE`를 상시 켜둔 상태이며(`graphics/core/lighting.py`), 근본 수정 완료 시 제거 필요.
+> 현재 OBJ 로더에서 `merge_vertices + fix_normals`를 호출하여 connected component 내 winding은 일관화되지만, non-watertight 메시는 volume 부호로 "외향"을 판정할 수 없어 component별 전역 방향이 랜덤하게 결정됨. 증상: 대칭/미러 모델에서 반쪽만 정상 조명, 반대쪽은 반전. 임시 우회로 `GL_LIGHT_MODEL_TWO_SIDE`를 상시 켜둔 상태이며(`spatial_toolbox.graphics.openGL` 조명 진입점), 근본 수정 완료 시 제거 필요.
 
 - [ ] 로드 시 메시별 watertight 여부 판정 및 비-watertight 분기 파이프라인 수립
 - [ ] 외향 판정 휴리스틱 선택 — 후보: ray-casting 기반 voting, 카메라 뷰 의존 추정, convex hull normal 참조, 사용자 지정 "외향 기준점"
@@ -86,7 +97,7 @@ FOCUS 프로젝트의 진행 사항 및 향후 과제 목록임.
 
 ### 데이터 및 시각화
 
-- [x] 메시 형상 유사도(일치율) 계측 함수군 구축 (`data/asset/utils/similarity.py`)
+- [x] 메시 형상 유사도(일치율) 계측 함수군 구축 (`spatial_toolbox.scene.asset.utils.similarity`)
 - [ ] 씬 내 중복 에셋 감지 시스템 (similarity 함수 활용)
 - [ ] Point Cloud 데이터 입출력 및 시각화
 

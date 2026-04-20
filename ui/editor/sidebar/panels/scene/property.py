@@ -307,6 +307,3 @@ class Property_Panel(Base_Panel):
         _mat[_slice_xyz, 3] = loc
 
         return _mat
-3] = loc
-
-        return _mat

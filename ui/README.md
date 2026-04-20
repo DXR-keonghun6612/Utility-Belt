@@ -1,13 +1,13 @@
 # ui
 
-PySide6 기반 편집기 UI 레이어. `data/`(씬/에셋 모델)와 `graphics/`(뷰포트/렌더링)의 **최상위 소비자**이며, 이 레이어는 어떤 도메인 모듈도 참조하지 않음.
+PySide6 기반 편집기 UI 레이어. `spatial_toolbox`(씬/에셋 모델·렌더 코어)와 `viewport/`·`simulation/`(편집기 뷰포트·오프라인 캡처)의 **최상위 소비자**이며, 이 레이어는 어떤 도메인 모듈도 참조하지 않음.
 
 ## 의존 방향
 
-```
-data/      ──┐
-             ├──→  ui/editor/
-graphics/  ──┘
+```text
+spatial_toolbox  ──┐
+viewport/          ├──→  ui/editor/
+simulation/        ──┘
 ```
 
 UI는 도메인을 호출만 하고, 도메인은 UI를 알지 못함. 위젯 간 직접 참조 없이 `Main_Window`가 **Mediator** 역할로 시그널/슬롯을 중재함.
@@ -55,7 +55,7 @@ Scene_Page     ──(scene_loaded)───────────→  Main_Wi
 
 ## viewer.py — Viewer_Panel
 
-`QOpenGLWidget`을 상속한 3D 뷰포트. graphics/viewport 모듈을 Qt 이벤트 루프에 결합하는 어댑터 역할임.
+`QOpenGLWidget`을 상속한 3D 뷰포트. `viewport/` 모듈을 Qt 이벤트 루프에 결합하는 어댑터 역할임.
 
 - **보유 객체**: `Orbit_Camera`, `Scene_Renderer`, `Selection_Controller`, `Gizmo_Controller`
 - **렌더링 루프**: `QTimer(16ms)` → `update()` → `paintGL` → `Scene_Renderer.Render_frame` + (선택 시) `Gizmo_Controller.Render_overlay`
@@ -98,7 +98,7 @@ VS Code 스타일의 Activity Bar + Side Bar 레이아웃 엔진. `QHBoxLayout` 
 | 위젯 | 역할 | 시그널 |
 |---|---|---|
 | `Asset_Browser_Panel` | `Asset_Cache`에 등록된 에셋 목록 + 임포트/인스턴스화 트리거 | `instantiate_requested(object)`, `asset_removed(str)` |
-| `Duplicate_Dialog` | 임포트 시 `data/asset/utils/similarity` 기반 중복 후보 표시 다이얼로그 | — |
+| `Duplicate_Dialog` | 임포트 시 `spatial_toolbox.scene.asset.utils.similarity` 기반 중복 후보 표시 다이얼로그 | — |
 
 ### viewport/
 
