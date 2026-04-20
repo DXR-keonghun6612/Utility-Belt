@@ -6,37 +6,31 @@ FOCUS 프로젝트의 진행 사항 및 향후 과제 목록임.
 
 ### 1차 — 리팩토링 및 아키텍처 최적화
 
-- [x] 변환 캐싱(Dirty Flag) + GPU VBO 리소스 매니저 도입
-- [x] `walk_nodes` 제너레이터 기반 트리 탐색 일원화
-- [x] 씬 초기화 시 Asset 캐시 해제로 메모리 누수 차단
-- [x] 렌더 익스포터 UI 의존성(PySide6.QImage) 제거 → PIL 교체
-- [x] 오프스크린 컨텍스트(FBO)를 PySide6 → 순수 EGL로 분리
-- [x] 도메인 재구성 — `data/node`, `data/asset/cache` 타입 버킷, `graphics/core/pass_/` 이관
+- [x] Dirty Flag 변환 캐싱 + VBO 리소스 매니저 도입, `walk_nodes` 트리 탐색 일원화, 씬 초기화 시 Asset 캐시 해제로 누수 차단
+- [x] 오프스크린 컨텍스트를 PySide6 → 순수 EGL로 분리, `PySide6.QImage` 의존 제거(PIL 교체), `data/`·`graphics/core/pass_/` 도메인 재편
 
 ### 2차 — 학습 데이터 생성
 
-- [x] `Resolve_meshes` — 전역 `ASSET_CACHE` + share 모드로 디스크/VBO 단일화
-- [x] `Render_Config.output_layout` (`per_object`/`flat`) 도입, `obj_dir`/`target_node_label` 제거
-- [x] capture_cli 재작성 — `target` 그룹 직속 자식 visible 토글 순회로 객체별 N프레임 캡처
-- [x] RGB 패스 specular 항목 추가 — `Render_Config` → `Base_Pass.Configure` 훅 → `RGB_Pass`가 `glLightfv`/`glMaterialfv` 적용
+- [x] 전역 `ASSET_CACHE` 기반 `Resolve_meshes`와 `Render_Config.output_layout` 도입으로 `target` 그룹 자식 순회 + 객체별 N프레임 캡처 파이프라인 구축
+- [x] RGB 패스 specular 경로 연결 — `Render_Config` → `Base_Pass.Configure` → `RGB_Pass`의 `glLightfv`/`glMaterialfv` 적용
 
 ### 3차 — graphics/core 통합
 
-- [x] 트리 순회 통합 — `Walk_gl(root, on_node)` 헬퍼로 push/mult/pop + is_renderable 체크 일원화
-- [x] ID 패스 통합 — `Id_Pass_Driver`로 인코딩/매핑 단일화. segmentation과 viewport 픽킹이 동일 드라이버 위임
-- [x] Phong 조명 헬퍼 분리 — `Apply_phong_lighting`로 viewport `Initialize`와 `RGB_Pass._On_setup`이 동일 진입점 사용
+- [x] `Walk_gl` 트리 순회 헬퍼, `Id_Pass_Driver` ID 인코딩/매핑, `Apply_phong_lighting` 조명 헬퍼로 viewport·패스·픽킹이 단일 진입점 공유
 
 ### 4차 — 캐시 일원화
 
-- [x] UI 측 `Asset_Cache` 인스턴스화 지점을 전역 `ASSET_CACHE` 싱글톤으로 마이그레이션 (capture와 캐시 일원화)
+- [x] UI `Asset_Cache` 인스턴스화를 전역 `ASSET_CACHE` 싱글톤으로 통합하여 capture와 편집기가 동일 캐시 사용
 
 ### 5차 — 서브모듈 분리 (spatial_toolbox)
 
-- [x] `data/`(노드·에셋·I/O) + `graphics/core/`(렌더 코어·패스)를 `submodules/spatial_toolbox/` 서브모듈로 추출
-- [x] `viewport/`·`simulation/`을 프로젝트 최상위 파트로 승격 (`graphics/viewport/` → `viewport/`, `graphics/render/` → `simulation/`)
-- [x] 의존 방향 재정립 — `spatial_toolbox ← {viewport, simulation} ← ui` 단방향 경계 확정
-- [x] 헤드리스 데이터셋 생성 진입점 분리 — `capture_cli.py` + `simulation.engine.Run_batch_capture` (Project_Template 기반)
-- [x] 랜덤화 구조 일반화 — 카메라/객체/광원 독립 `Randomize_Range` 도입 (`simulation.config`)
+- [x] `data/`·`graphics/core/`를 `spatial_toolbox` 서브모듈로 추출, `viewport/`·`simulation/`을 최상위로 승격, `spatial_toolbox ← {viewport, simulation} ← ui` 단방향 의존 확정
+- [x] 헤드리스 진입점(`capture_cli.py` + `Run_batch_capture`) 및 카메라/객체/광원 독립 `Randomize_Range` 도입
+
+### 6차 — 렌더 파이프라인 정합성 복구
+
+- [x] `Draw_mesh` 인자명(`draw_mode` → `mode`) 및 `_draw_mode` 기본값 누락 수정으로 `RGB_Pass`/`Depth_Pass` AttributeError 차단
+- [x] 월드 행렬 이중 적용 제거 — 행렬 스택 책임을 Pass로 일원화, `Draw_mesh`는 프리미티브 드로우만 담당
 
 ## 정적 편집기 기본 기능
 
@@ -51,11 +45,13 @@ FOCUS 프로젝트의 진행 사항 및 향후 과제 목록임.
 - [ ] `Render_Pipeline` 비대화 해소 — EGL/Qt 컨텍스트 관리 로직을 `simulation/context/` 하위 `Egl_Context`/`Qt_Context`/`Embedded_Context` 전략으로 분리
 - [ ] 패스 자동 발견 — `spatial_toolbox.graphics.openGL.pass_` 수동 import 제거 (`importlib` 순회 도입)
 - [ ] `selection.py` → `Scene_Renderer` 직접 의존 해소 — ID 패스 인터페이스 추상화 (BVH 픽킹의 선결 조건)
+- [ ] 프리미티브 확장 — `Draw_points`/`Draw_lines` 진입점 및 `Points`/`Line` 노드 타입 도입. `create_mesh_vbos`를 vertex/color 공통부와 프리미티브별 인덱스부로 분리하여 재사용
 
 ### viewport/ 도메인
 
 - [ ] `Gizmo_Controller` SRP 위반 해소 — Pick/Render/Drag 세 책임을 `Gizmo_Picker`/`Gizmo_Renderer`/`Gizmo_Dragger`로 분리
 - [ ] 와일드카드 임포트 제거 — `viewport/renderer.py`, `viewport/tool/camera_gizmo.py`의 `from OpenGL.GL import *` 제거
+- [ ] 렌더 모드 오버라이드 UI — 패스별 기본 `_draw_mode`를 런타임에 덮어쓰는 옵션 진입점 (뷰포트 전용 옵션 패널에 배치, 기본값은 패스 선언 유지)
 
 ### simulation/ · ui/ 도메인
 

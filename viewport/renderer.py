@@ -1,7 +1,7 @@
 from OpenGL.GL import *
 from spatial_toolbox.scene.node import Base_Node
-from spatial_toolbox.scene.node.mesh import Mesh
-from spatial_toolbox.scene.node.camera import Camera
+from spatial_toolbox.scene.node import Mesh
+from spatial_toolbox.scene.node import Camera
 from spatial_toolbox.scene.node.utils.traversal import walk_nodes
 from spatial_toolbox.graphics.openGL.renderer import OpenGL_Renderer
 

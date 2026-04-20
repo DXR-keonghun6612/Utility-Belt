@@ -6,7 +6,6 @@ from PySide6.QtOpenGL import QOpenGLFramebufferObject, QOpenGLFramebufferObjectF
 from spatial_toolbox.scene.node import Base_Node, Camera
 from simulation.config import Render_Config
 from spatial_toolbox.graphics.core.pass_ import Base_Pass
-from spatial_toolbox.graphics.registry import Pass_Registry
 
 
 class Render_Pipeline:

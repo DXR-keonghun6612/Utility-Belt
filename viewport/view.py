@@ -1,11 +1,11 @@
 import numpy as np
 from OpenGL.GL import (
-    glMatrixMode, glLoadIdentity, glLoadMatrixf, glTranslatef, glRotatef,
-    GL_PROJECTION, GL_MODELVIEW, glGetDoublev, glGetIntegerv, GL_VIEWPORT
+    glMatrixMode, glLoadIdentity, glLoadMatrixf,
+    GL_PROJECTION, GL_MODELVIEW
 )
 from OpenGL.GLU import gluLookAt
 
-from spatial_toolbox.scene.node.camera import Build_gl_projection
+from spatial_toolbox.scene.node import Build_gl_projection
 
 class Orbit_Camera:
     """극좌표계 기반의 3D 궤도 카메라(Orbit Camera) 제어 및 View/Projection 관리 클래스."""
