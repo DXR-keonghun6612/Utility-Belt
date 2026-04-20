@@ -1,13 +1,12 @@
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-    QTableWidget, QTableWidgetItem, QHeaderView, QFileDialog, QAbstractItemView
+    QHBoxLayout, QPushButton, QTableWidget, QTableWidgetItem,
+    QHeaderView, QFileDialog, QAbstractItemView
 )
-from PySide6.QtCore import Signal, Slot, Qt
+from PySide6.QtCore import Signal, Slot
+
 from spatial_toolbox.scene import ASSET_CACHE
-from spatial_toolbox.scene.asset import Mesh as Mesh_Asset
-from spatial_toolbox.scene.node import Base_Node
 from spatial_toolbox.scene.file import Load_and_register
-from ui.editor.sidebar.panels.asset.duplicate_dialog import Duplicate_Dialog
+from ui.editor.panels.asset.duplicate_dialog import Duplicate_Dialog
 from ui.core.base_panel import Base_Panel
 
 class Asset_Browser_Panel(Base_Panel):
@@ -22,10 +21,7 @@ class Asset_Browser_Panel(Base_Panel):
         self.bus.scene_loaded.connect(self.Clear_assets)
 
     def _setup_ui(self):
-        _layout = QVBoxLayout(self)
-        _layout.setContentsMargins(5, 5, 5, 5)
-
-        # 1. 제어 버튼 영역
+        # [수정] QVBoxLayout(self) 중복 선언 제거, 부모 main_layout 재사용
         _btn_layout = QHBoxLayout()
         self.btn_load = QPushButton("Import Asset")
         self.btn_remove = QPushButton("Remove")
@@ -33,21 +29,18 @@ class Asset_Browser_Panel(Base_Panel):
         _btn_layout.addWidget(self.btn_load)
         _btn_layout.addWidget(self.btn_remove)
         _btn_layout.addWidget(self.btn_duplicates)
+        
         self.main_layout.addLayout(_btn_layout)
 
-        # 2. 에셋 목록 테이블 영역
         self.table = QTableWidget(0, 2)
         self.table.setHorizontalHeaderLabels(["Name", "Path"])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-
-        # 읽기 전용 및 행 단위 선택 설정
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
 
         self.main_layout.addWidget(self.table)
 
-        # 3. 이벤트 와이어링
         self.btn_load.clicked.connect(self._on_load_clicked)
         self.btn_remove.clicked.connect(self._on_remove_clicked)
         self.btn_duplicates.clicked.connect(self._on_find_duplicates_clicked)
@@ -55,39 +48,34 @@ class Asset_Browser_Panel(Base_Panel):
 
     @Slot()
     def _on_load_clicked(self):
-        """파일을 선택하여 에셋 캐시에 등록하고 목록에 표시함."""
         _files, _ = QFileDialog.getOpenFileNames(
             self, "Import 3D Asset", "", "OBJ (*.obj)",
             options=QFileDialog.Option.DontUseNativeDialog
         )
         for _f in _files:
-            # 캐시에 이미 있으면 스킵
             if ASSET_CACHE.Get(_f) is not None:
                 continue
 
             _asset_keys = Load_and_register(_f)
             if _asset_keys:
-                # 첫 번째 에셋의 label을 대표명으로 사용
                 for _key in _asset_keys:
                     self._update_table(_key, _f)
 
     @Slot(QTableWidgetItem)
     def _on_item_double_clicked(self, item: QTableWidgetItem):
-        """목록의 에셋을 더블 클릭 시, Scene_Node로 변환하여 씬 배치를 요청함."""
+        """목록 더블클릭 시 도메인 계층으로 인스턴스화 이벤트를 방출함."""
         _row = item.row()
         _path_item = self.table.item(_row, 1)
         if not _path_item:
             return
 
         _path_key = _path_item.text()
-        # io를 통해 Scene_Node 트리로 변환하여 씬에 전달
-        _node = load_as_node(_path_key)
-        if _node:
-            self.bus.asset_instantiate_requested.emit(_node)
+        
+        # [수정] 환각 함수(load_as_node) 제거 및 이벤트 버스로 키 전달
+        self.bus.asset_instantiate_requested.emit(_path_key)
 
     @Slot()
     def _on_remove_clicked(self):
-        """선택된 에셋을 라이브러리에서 제거함."""
         _selected = self.table.selectedItems()
         if not _selected: return
 
@@ -103,19 +91,15 @@ class Asset_Browser_Panel(Base_Panel):
 
     @Slot()
     def Clear_assets(self) -> None:
-        """씬이 초기화될 때 모든 에셋 데이터를 캐시에서 해제하고 UI를 비움."""
         ASSET_CACHE.Clear()
         self.table.setRowCount(0)
 
     @Slot()
     def _on_find_duplicates_clicked(self) -> None:
-        """중복 에셋 검출 다이얼로그를 표시함."""
         Duplicate_Dialog(parent=self).exec()
 
     def _update_table(self, name: str, path: str):
-        """성공적으로 로드된 정보를 UI에 반영함."""
         _row = self.table.rowCount()
         self.table.insertRow(_row)
         self.table.setItem(_row, 0, QTableWidgetItem(name))
         self.table.setItem(_row, 1, QTableWidgetItem(path))
-

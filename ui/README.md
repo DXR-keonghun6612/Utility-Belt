@@ -14,25 +14,33 @@ UI는 도메인을 호출만 하고, 도메인은 UI를 알지 못함. 위젯 �
 
 ## 구조
 
-```
+```text
 ui/
-├── style.py                          # QSS 스타일 정의
+├── style.py                            # 전역 QSS 스타일
+├── README.md                           # UI 아키텍처 문서 (갱신 필요)
+├── core/                               # 도메인 독립적 코어 모듈
+│   ├── event_bus.py                    # 전역 시그널 허브 (Pub/Sub)
+│   ├── base_panel.py                   # 규격화된 패널 베이스 클래스
+│   └── __init__.py
 └── editor/
-    ├── main.py                       # Main_Window — 레이아웃 사령탑 + Mediator
-    ├── viewer.py                     # Viewer_Panel — QOpenGLWidget 3D 뷰포트
-    └── sidebar/
-        ├── widget.py                 # Main_Sidebar — 크기 조절 가능한 컨테이너
-        └── panels/
-            ├── engine.py             #   Navigation / Page_Config — Activity Bar 엔진
-            ├── scene/
-            │   ├── page.py           #   Scene_Explorer_Page (Outliner + Inspector)
-            │   ├── scene_tree.py     #   Scene_Tree_Widget — 트리 + visible 토글 + 인라인 편집
-            │   └── property.py       #   Property_Panel — 선택 노드 속성 인스펙터
-            ├── asset/
-            │   ├── browser.py        #   Asset_Browser_Panel — 임포트/인스턴스화
-            │   └── duplicate_dialog.py # Duplicate_Dialog — 유사도 기반 중복 감지 다이얼로그
-            └── viewport/
-                └── camera.py         #   Orbit_Camera_Panel — 뷰포트 카메라 파라미터 패널
+    ├── main.py                         # [수정됨] 레이아웃 사령탑 (모든 패널 인스턴스화 및 DI 주입)
+    ├── viewer.py                       # 3D 뷰포트 어댑터
+    ├── sidebar/
+    │   └── container.py                # [신규/통합] 기존 widget.py + engine.py 병합 (순수 뷰어 컨테이너)
+    │
+    └── panels/                         # [격상/이동됨] 사이드바 밖으로 독립한 도메인 패널 계층
+        ├── scene/
+        │   ├── page.py                 # Scene Explorer 래퍼
+        │   ├── scene_tree.py           # 아웃라이너 트리 위젯
+        │   ├── property.py             # [수정됨] 레이아웃 충돌 해소 및 쿼터니언 호환성 확보
+        │   └── add_asset_dialog.py
+        ├── asset/
+        │   ├── browser.py              # [수정됨] 환각 함수(load_as_node) 제거 및 이벤트 버스 연동
+        │   └── duplicate_dialog.py     # 중복 에셋 감지
+        ├── viewport/
+        │   └── camera.py               # Orbit 카메라 파라미터 제어
+        └── simulation/
+            └── page.py                 # [수정됨] 문법 에러(port) 수정 및 스레드 시그널 안정화
 ```
 
 ## main.py — Main_Window

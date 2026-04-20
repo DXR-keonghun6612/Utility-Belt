@@ -6,46 +6,52 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QDoubleSpinBox, QGroupBox, QPushButton
 )
-from PySide6.QtCore import Signal, Qt
+from PySide6.QtCore import Qt
 
 from viewport.view import Orbit_Camera
 from ui.style import (
     SPIN_BOX, Axis_label, LABEL, HEADER, GROUP_BOX, BUTTON, AXIS_COLORS
 )
+from ui.core.base_panel import Base_Panel
 
 
-class Orbit_Camera_Panel(QWidget):
-    """Orbit Camera의 시점/렌즈/민감도를 사이드바에서 직접 조작하는 패널."""
+class Orbit_Camera_Panel(Base_Panel):
+    """
+    Orbit Camera의 시점/렌즈/민감도를 독립적으로 조작하는 도메인 패널.
 
-    # 카메라 값 변경 시 뷰어 갱신용
-    camera_changed = Signal()
+    Attributes:
+        _camera (Orbit_Camera | None): 바인딩된 뷰포트 카메라 인스턴스.
+        _block (bool): UI 업데이트 중 시그널 무한 루프 방지 플래그.
+    """
 
     def __init__(self, parent: QWidget | None = None):
-        super().__init__(parent)
+        """초기화 및 부모 클래스 규격 상속."""
         self._camera: Orbit_Camera | None = None
         self._block = False
-        self._Setup_ui()
+        super().__init__(parent)
 
     def Bind_camera(self, camera: Orbit_Camera) -> None:
-        """Viewer의 Orbit_Camera 인스턴스를 바인딩하고 UI에 현재 값을 반영함."""
+        """
+        Viewer의 Orbit_Camera 인스턴스를 바인딩하고 UI 상태를 동기화함.
+
+        Args:
+            camera: 조작 대상 카메라 인스턴스.
+        """
         self._camera = camera
         self._Sync_from_camera()
 
     # ==========================================
-    # UI 구성
+    # UI 구성 (Base_Panel 훅 오버라이드)
     # ==========================================
 
-    def _Setup_ui(self) -> None:
-        _layout = QVBoxLayout(self)
-        _layout.setContentsMargins(10, 10, 10, 10)
-        _layout.setSpacing(12)
-        _layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-
+    def _setup_ui(self) -> None:
+        """위젯 생성 및 self.main_layout 부착."""
+        
         _header = QLabel("Viewport Camera")
         _header.setStyleSheet(HEADER)
-        _layout.addWidget(_header)
+        self.main_layout.addWidget(_header)
 
-        # --- 시점 (Orbit) ---
+        # --- 시점 (Orbit) 그룹 ---
         _orbit_group = QGroupBox("Orbit")
         _orbit_group.setStyleSheet(GROUP_BOX)
         _og = QVBoxLayout(_orbit_group)
@@ -56,9 +62,9 @@ class Orbit_Camera_Panel(QWidget):
         self.pitch_spin = self._Create_row("Pitch", -89.0, 89.0, 30.0, 1.0, _og)
         self.yaw_spin = self._Create_row("Yaw", -9999.0, 9999.0, 45.0, 1.0, _og)
 
-        _layout.addWidget(_orbit_group)
+        self.main_layout.addWidget(_orbit_group)
 
-        # --- 렌즈 (Lens) ---
+        # --- 렌즈 (Lens) 그룹 ---
         _lens_group = QGroupBox("Lens")
         _lens_group.setStyleSheet(GROUP_BOX)
         _lg = QVBoxLayout(_lens_group)
@@ -68,9 +74,9 @@ class Orbit_Camera_Panel(QWidget):
         self.near_spin = self._Create_row("Near", 0.001, 1000.0, 0.1, 0.01, _lg)
         self.far_spin = self._Create_row("Far", 1.0, 100000.0, 1000.0, 10.0, _lg)
 
-        _layout.addWidget(_lens_group)
+        self.main_layout.addWidget(_lens_group)
 
-        # --- 민감도 (Sensitivity) ---
+        # --- 민감도 (Sensitivity) 그룹 ---
         _sens_group = QGroupBox("Sensitivity")
         _sens_group.setStyleSheet(GROUP_BOX)
         _sg = QVBoxLayout(_sens_group)
@@ -80,13 +86,16 @@ class Orbit_Camera_Panel(QWidget):
         self.rot_speed_spin = self._Create_row("Rotate", 0.01, 5.0, 0.5, 0.05, _sg)
         self.zoom_speed_spin = self._Create_row("Zoom", 0.01, 5.0, 0.5, 0.05, _sg)
 
-        _layout.addWidget(_sens_group)
+        self.main_layout.addWidget(_sens_group)
 
         # --- 리셋 버튼 ---
         self.btn_reset = QPushButton("Reset Camera")
         self.btn_reset.setStyleSheet(BUTTON)
         self.btn_reset.clicked.connect(self._On_reset_clicked)
-        _layout.addWidget(self.btn_reset)
+        self.main_layout.addWidget(self.btn_reset)
+        
+        # 여백 확보
+        self.main_layout.addStretch()
 
     # ==========================================
     # 위젯 생성 헬퍼
@@ -96,6 +105,7 @@ class Orbit_Camera_Panel(QWidget):
         self, label: str, min_v: float, max_v: float,
         default: float, step: float, parent: QVBoxLayout
     ) -> QDoubleSpinBox:
+        """단일 파라미터 스핀박스 UI 행 생성."""
         _row = QHBoxLayout()
         _row.setSpacing(4)
 
@@ -119,6 +129,7 @@ class Orbit_Camera_Panel(QWidget):
     def _Create_xyz_row(
         self, label: str, parent: QVBoxLayout
     ) -> list[QDoubleSpinBox]:
+        """XYZ 3축 파라미터 스핀박스 UI 행 생성."""
         _row = QHBoxLayout()
         _row.setSpacing(4)
 
@@ -148,14 +159,15 @@ class Orbit_Camera_Panel(QWidget):
         return _spins
 
     # ==========================================
-    # 데이터 바인딩
+    # 데이터 바인딩 및 이벤트
     # ==========================================
 
     def _Sync_from_camera(self) -> None:
-        """카메라 인스턴스의 현재 값을 UI에 반영함."""
+        """카메라 인스턴스의 현재 값을 UI 스핀박스에 동기화함."""
         if not self._camera:
             return
-        self._block = True
+        
+        self._block = True # 시그널 무한 루프 차단
 
         _c = self._camera
         for i in range(3):
@@ -175,13 +187,12 @@ class Orbit_Camera_Panel(QWidget):
         self._block = False
 
     def _On_value_edited(self) -> None:
-        """UI 스핀박스 값 변경 시 카메라에 즉시 반영."""
+        """스핀박스 값 변경 이벤트를 카메라 객체에 반영하고 전역 시그널을 발행함."""
         if self._block or not self._camera:
             return
         _c = self._camera
 
-        _c.target = np.array(
-            [s.value() for s in self.target_spins], dtype=np.float32)
+        _c.target = np.array([s.value() for s in self.target_spins], dtype=np.float32)
         _c.distance = self.distance_spin.value()
         _c.pitch = self.pitch_spin.value()
         _c.yaw = self.yaw_spin.value()
@@ -197,10 +208,11 @@ class Orbit_Camera_Panel(QWidget):
         self.bus.camera_changed.emit()
 
     def _On_reset_clicked(self) -> None:
-        """카메라를 기본값으로 초기화."""
+        """카메라 파라미터를 초기 기본값으로 복원함."""
         if not self._camera:
             return
         _c = self._camera
+        
         _c.target = np.array([0.0, 0.0, 0.0], dtype=np.float32)
         _c.distance = 15.0
         _c.pitch = 30.0
@@ -216,5 +228,5 @@ class Orbit_Camera_Panel(QWidget):
         self.bus.camera_changed.emit()
 
     def Refresh(self) -> None:
-        """외부에서 카메라 값이 변경된 후 UI 동기화용."""
+        """마우스 조작 등 외부 요인으로 카메라 값이 변경되었을 때 UI를 동기화함."""
         self._Sync_from_camera()
