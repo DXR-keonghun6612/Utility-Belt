@@ -60,7 +60,7 @@ class Scene_Renderer:
         from spatial_toolbox.scene import ASSET_CACHE
 
         if isinstance(node, Mesh) and node.source_key is not None:
-            _asset = ASSET_CACHE.Get(node.source_key, share=True)
+            _asset = ASSET_CACHE.Get(node.source_key, is_hold=True)
             if _asset is None or _asset.geometry is None:
                 return
 
