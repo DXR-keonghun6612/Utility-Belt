@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 
+from spatial_toolbox.scene import Controller as Stage_Controller
 from spatial_toolbox.scene.node import Base_Node, Camera as Camera_Node
 from ui.style import (
     SPIN_BOX, Spin_box_accented, Axis_label, LABEL,
@@ -14,9 +15,13 @@ from ui.style import (
 from ui.core.base_panel import Base_Panel
 
 class Property_Panel(Base_Panel):
-    """선택된 3D 객체의 속성을 표시하며, 회전은 Quaternion(W, X, Y, Z) 기반으로 제어함."""
+    """선택된 3D 객체의 속성을 표시하며, 회전은 Quaternion(W, X, Y, Z) 기반으로 제어함.
 
-    def __init__(self, parent: QWidget | None = None):
+    루트(Stage) 노드 선택 시에는 Transform 대신 stage 단위 편집 UI를 노출함.
+    """
+
+    def __init__(self, stage: Stage_Controller, parent: QWidget | None = None):
+        self.stage = stage
         self.current_node: Base_Node | None = None
         super().__init__(parent) # Base_Panel이 self.bus를 주입함
 
@@ -47,6 +52,29 @@ class Property_Panel(Base_Panel):
 
         self.main_layout.addWidget(self.transform_group)
 
+        # Stage 루트 전용 편집 그룹 (루트 선택 시에만 노출)
+        self.stage_group = QGroupBox("Stage")
+        self.stage_group.setStyleSheet(GROUP_BOX)
+        _sg_layout = QVBoxLayout(self.stage_group)
+
+        _unit_row = QHBoxLayout(); _unit_row.setSpacing(4)
+        _unit_lbl = QLabel("Unit Length (m)")
+        _unit_lbl.setFixedWidth(110); _unit_lbl.setStyleSheet(LABEL)
+        _unit_row.addWidget(_unit_lbl)
+
+        self.unit_length_spin = QDoubleSpinBox()
+        self.unit_length_spin.setRange(1e-6, 1e6)
+        self.unit_length_spin.setDecimals(6)
+        self.unit_length_spin.setSingleStep(0.001)
+        self.unit_length_spin.setValue(1.0)
+        self.unit_length_spin.setStyleSheet(SPIN_BOX)
+        self.unit_length_spin.valueChanged.connect(self._On_unit_length_edited)
+        _unit_row.addWidget(self.unit_length_spin)
+        _sg_layout.addLayout(_unit_row)
+
+        self.stage_group.setVisible(False)
+        self.main_layout.addWidget(self.stage_group)
+
         self.camera_group = QGroupBox("Camera Intrinsic (K model)")
         self.camera_group.setStyleSheet(GROUP_BOX)
         _cg_layout = QVBoxLayout(self.camera_group)
@@ -57,8 +85,8 @@ class Property_Panel(Base_Panel):
         self.fy_spin = self._Create_single_row("fy", 1, 100000, 1000, 1, 3, _cg_layout)
         self.cx_spin = self._Create_single_row("cx", 0, 16384, 960, 1, 3, _cg_layout)
         self.cy_spin = self._Create_single_row("cy", 0, 16384, 540, 1, 3, _cg_layout)
-        self.near_spin = self._Create_single_row("Near Clip", 0.001, 1000, 0.1, 0.01, 3, _cg_layout)
-        self.far_spin = self._Create_single_row("Far Clip", 1, 100000, 1000, 10, 1, _cg_layout)
+        self.near_spin = self._Create_single_row("Near Clip (m)", 0.001, 1000, 0.1, 0.01, 3, _cg_layout)
+        self.far_spin = self._Create_single_row("Far Clip (m)", 1, 100000, 1000, 10, 1, _cg_layout)
 
         self.lbl_fov_x = QLabel("FOV X: —"); self.lbl_fov_x.setStyleSheet(LABEL); _cg_layout.addWidget(self.lbl_fov_x)
         self.lbl_fov_y = QLabel("FOV Y: —"); self.lbl_fov_y.setStyleSheet(LABEL); _cg_layout.addWidget(self.lbl_fov_y)
@@ -92,14 +120,29 @@ class Property_Panel(Base_Panel):
         self.current_node = node
         if not node:
             self.lbl_node_name.setText("No Selection"); self.lbl_node_type.setText("Type: None")
-            self.camera_group.setVisible(False); self.setEnabled(False)
+            self.transform_group.setVisible(True)
+            self.camera_group.setVisible(False)
+            self.stage_group.setVisible(False)
+            self.setEnabled(False)
             return
 
         self.setEnabled(True)
         self.lbl_node_name.setText(node.label)
         self.lbl_node_type.setText(f"Type: {node.prim_type}")
 
-        _loc, _quat, _scale = self._TRS_from(node.local_matrix)
+        # 루트(Stage) 노드는 Transform 대신 stage 단위 편집을 노출
+        _is_root = node is self.stage.root
+        self.transform_group.setVisible(not _is_root)
+        self.stage_group.setVisible(_is_root)
+        if _is_root:
+            self.camera_group.setVisible(False)
+            self._Block_spin_signals(True)
+            self.unit_length_spin.setValue(float(self.stage.unit_length))
+            self._Block_spin_signals(False)
+            return
+
+        _loc, _quat = self._LR_from(node.local_rigid)
+        _scale = node.scale.tolist()
         self._Block_spin_signals(True)
 
         for i in range(3):
@@ -121,23 +164,18 @@ class Property_Panel(Base_Panel):
     def _Block_spin_signals(self, block: bool):
         for _spins in [self.loc_spins, self.rot_spins, self.scale_spins]:
             for _s in _spins: _s.blockSignals(block)
-        for _s in [self.res_w_spin, self.res_h_spin, self.fx_spin, self.fy_spin, self.cx_spin, self.cy_spin, self.near_spin, self.far_spin]:
+        for _s in [self.res_w_spin, self.res_h_spin, self.fx_spin, self.fy_spin, self.cx_spin, self.cy_spin, self.near_spin, self.far_spin, self.unit_length_spin]:
             _s.blockSignals(block)
 
-    def _TRS_from(self, matrix: np.ndarray) -> tuple[list, list, list]:
+    def _LR_from(self, matrix: np.ndarray) -> tuple[list, list]:
+        """rigid 행렬에서 Location과 Quaternion(WXYZ)을 분해함."""
         _loc = matrix[:3, 3].tolist()
-        _sx, _sy, _sz = np.linalg.norm(matrix[:3, 0]), np.linalg.norm(matrix[:3, 1]), np.linalg.norm(matrix[:3, 2])
-        _m = np.eye(3)
-        _m[:, 0] = matrix[:3, 0] / _sx if _sx > 1e-6 else [1, 0, 0]
-        _m[:, 1] = matrix[:3, 1] / _sy if _sy > 1e-6 else [0, 1, 0]
-        _m[:, 2] = matrix[:3, 2] / _sz if _sz > 1e-6 else [0, 0, 1]
-
         try:
-            _r = R.from_matrix(_m).as_quat() # SciPy 디폴트: XYZW
+            _r = R.from_matrix(matrix[:3, :3]).as_quat() # SciPy 디폴트: XYZW
             _quat = [_r[3], _r[0], _r[1], _r[2]] # WXYZ로 변환
         except ValueError:
             _quat = [1.0, 0.0, 0.0, 0.0]
-        return _loc, _quat, [_sx, _sy, _sz]
+        return _loc, _quat
 
     def _On_value_edited(self):
         if not self.current_node: return
@@ -151,10 +189,11 @@ class Property_Panel(Base_Panel):
             _rot = np.eye(3)
 
         _mat = np.eye(4, dtype=np.float32)
-        for i in range(3): _mat[:3, i] = _rot[:, i] * _s[i]
+        _mat[:3, :3] = _rot
         _mat[:3, 3] = _l
-        
-        self.current_node.local_matrix = _mat
+
+        self.current_node.local_rigid = _mat
+        self.current_node.scale = np.array(_s, dtype=np.float32)
         self.bus.property_changed.emit() # [수정] 전역 버스 시그널 호출
 
     def _On_camera_value_edited(self):
@@ -165,6 +204,11 @@ class Property_Panel(Base_Panel):
         _in.cx = self.cx_spin.value(); _in.cy = self.cy_spin.value()
         _in.near_clip = self.near_spin.value(); _in.far_clip = self.far_spin.value()
         self._Refresh_fov_labels(_in)
+        self.bus.property_changed.emit()
+
+    def _On_unit_length_edited(self):
+        """Stage 단위 편집: Controller setter가 하위 노드의 unit_scale 재계산을 트리거함."""
+        self.stage.unit_length = self.unit_length_spin.value()
         self.bus.property_changed.emit()
 
     def _Refresh_fov_labels(self, intrinsic):

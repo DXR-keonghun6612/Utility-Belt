@@ -36,7 +36,7 @@ FOCUS 프로젝트의 진행 사항 및 향후 과제 목록임.
 
 - [x] 기본 구조 (데이터 입출력, 공간 배치, pose 편집)
 - [x] 멀티패스 렌더링 파이프라인 (RGB, Depth, Segmentation, Normal)
-- [ ] 편집 결과 저장 및 읽기 (`*.usd`) — 단위 체계 선결
+- [ ] 씬 번들 영속화 (커스텀 JSON + NPY, ZIP 컨테이너) — 현재는 씬 그래프 JSON만 저장되어 외부 에셋 파일이 유실되면 복원 불가. 번들 구성: `graph.json`(노드 트리 + `unit_length`), `assets/<id>.npy`(지오메트리 버퍼), `meta.json`(에셋별 `unit_length` 등 메타). 저장 시 `ASSET_CACHE` 키(절대경로 기반)를 번들 내부 식별자로 리매핑하고, 로드 시 역방향 복원 수행. 이후 `*.usd` 출력은 별개 과제로 분리
 
 ## 진행 중 리팩토링
 

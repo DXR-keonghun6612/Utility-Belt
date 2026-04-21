@@ -214,6 +214,6 @@ class Gizmo_Controller:
 
         glPopMatrix()
 
-        node.local_matrix = Transform_Math.Apply_delta(
-            node.local_matrix, _delta_mat
+        node.local_rigid = Transform_Math.Apply_delta(
+            node.local_rigid, _delta_mat
         )

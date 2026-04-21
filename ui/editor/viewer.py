@@ -33,7 +33,7 @@ class Viewer_Panel(QOpenGLWidget):
         self.timer.start(16)
 
         # 4. 이벤트 버스 구독
-        EVENT_BUS.property_changed.connect(self.update)
+        EVENT_BUS.property_changed.connect(self._On_property_changed)
         EVENT_BUS.scene_mutated.connect(self.update)
         EVENT_BUS.scene_loaded.connect(self._On_scene_loaded)
         EVENT_BUS.camera_changed.connect(self._On_camera_changed)
@@ -41,15 +41,29 @@ class Viewer_Panel(QOpenGLWidget):
 
     def _On_scene_loaded(self):
         self.selection.selected_node = None
+        self._Refresh_projection()
         self.update()
 
     def _On_camera_changed(self):
-        self.camera.Update_projection(self.width(), self.height())
+        # fov/near/far 변경 등 렌즈 파라미터 갱신을 커버
+        self._Refresh_projection()
+        self.update()
+
+    def _On_property_changed(self):
+        # stage.unit_length 편집 반영을 위해 투영 재빌드
+        self._Refresh_projection()
         self.update()
 
     def _On_selection_changed(self, nodes: list):
         self.selection.selected_node = nodes[0] if len(nodes) == 1 else None
         self.update()
+
+    def _Refresh_projection(self) -> None:
+        """현재 stage.unit_length 기준으로 Orbit_Camera 투영 행렬 재계산."""
+        self.makeCurrent()
+        self.camera.Update_projection(
+            self.width(), self.height(), self.stage.unit_length
+        )
 
     # ==========================================
     # Qt OpenGL 파이프라인 오버라이딩
@@ -61,7 +75,7 @@ class Viewer_Panel(QOpenGLWidget):
 
     def resizeGL(self, w: int, h: int):
         """위젯의 크기가 변경될 때 호출됨."""
-        self.camera.Update_projection(w, h)
+        self.camera.Update_projection(w, h, self.stage.unit_length)
 
     def paintGL(self):
         """매 프레임 화면을 그림 (Timer에 의해 트리거됨)."""

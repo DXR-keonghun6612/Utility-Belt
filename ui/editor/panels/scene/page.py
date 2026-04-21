@@ -101,7 +101,7 @@ class Scene_Explorer_Page(Base_Panel):
         self.splitter = QSplitter(Qt.Orientation.Vertical)
         
         self.outliner = Outliner_Panel(self.stage)
-        self.inspector = Property_Panel()
+        self.inspector = Property_Panel(self.stage)
 
         self.splitter.addWidget(self.outliner)
         self.splitter.addWidget(self.inspector)

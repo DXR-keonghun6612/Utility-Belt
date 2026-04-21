@@ -19,6 +19,7 @@ class Orbit_Camera:
 
         # 2. 렌즈(투영) 설정
         self.fov = 45.0
+        # near/far clip — [m] 고정. Update_projection에서 unit_length로 환산됨.
         self.near_clip = 0.1
         self.far_clip = 1000.0
 
@@ -75,11 +76,14 @@ class Orbit_Camera:
     # OpenGL 파이프라인 상태 주입
     # ==========================================
 
-    def Update_projection(self, width: int, height: int) -> None:
+    def Update_projection(self, width: int, height: int, unit_length: float = 1.0) -> None:
         """창 크기 변경 시 호출되어 Projection 행렬을 갱신함.
 
         Orbit_Camera는 K 모델이 아닌 fov 중심으로 조작되므로, fov_y로부터
         fx/fy를 역산하여 씬 카메라와 동일한 빌더 경로를 공유함.
+
+        Args:
+            unit_length: stage 1단위당 m. near/far(m) → stage 단위 환산에 사용됨.
         """
         if height == 0: height = 1  # 0으로 나누기 방지
 
@@ -91,7 +95,7 @@ class Orbit_Camera:
 
         _proj = Build_gl_projection(
             _fx, _fy, _cx, _cy, width, height,
-            self.near_clip, self.far_clip
+            self.near_clip / unit_length, self.far_clip / unit_length
         )
 
         glMatrixMode(GL_PROJECTION)

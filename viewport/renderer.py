@@ -117,11 +117,11 @@ class Scene_Renderer:
         from spatial_toolbox.scene import ASSET_CACHE
         for node in walk_nodes(root_node, lambda x: isinstance(x, Mesh)):
             if node.source_key is not None:
-                _asset = ASSET_CACHE.Get(node.source_key, share=True)
+                _asset = ASSET_CACHE.Get(node.source_key, is_hold=True)
                 if _asset is not None and _asset.geometry is not None:
                     glPushMatrix()
                     glMultMatrixf(node.world_matrix.T)
-                    self._renderer.Draw_mesh(_asset.geometry, draw_mode="id_color", node=node)
+                    self._renderer.Draw_mesh(_asset.geometry, mode="id_color", node=node)
                     glPopMatrix()
 
         glFlush()

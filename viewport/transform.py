@@ -117,9 +117,9 @@ class Transform_Math:
         return _delta_mat
 
     @staticmethod
-    def Apply_delta(local_matrix: np.ndarray, delta_matrix: np.ndarray) -> np.ndarray:
+    def Apply_delta(local_rigid: np.ndarray, delta_matrix: np.ndarray) -> np.ndarray:
         """
-        기존 로컬 행렬에 변화량 행렬을 적용(우측 곱셈)하여 반환함.
+        기존 rigid 변환 행렬에 변화량 행렬을 적용(우측 곱셈)하여 반환함.
         수식: M_new = M_old @ M_delta (객체의 로컬 좌표계 기준 변환)
         """
-        return local_matrix @ delta_matrix
+        return local_rigid @ delta_matrix

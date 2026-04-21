@@ -39,6 +39,8 @@ class Orbit_Camera_Panel(Base_Panel):
         """
         self._camera = camera
         self._Sync_from_camera()
+        # 뷰포트 마우스 조작 → 패널 스핀박스 역방향 동기화
+        self.bus.camera_moved.connect(self.Refresh)
 
     # ==========================================
     # UI 구성 (Base_Panel 훅 오버라이드)
@@ -71,8 +73,8 @@ class Orbit_Camera_Panel(Base_Panel):
         _lg.setSpacing(6)
 
         self.fov_spin = self._Create_row("FOV", 1.0, 179.0, 45.0, 1.0, _lg)
-        self.near_spin = self._Create_row("Near", 0.001, 1000.0, 0.1, 0.01, _lg)
-        self.far_spin = self._Create_row("Far", 1.0, 100000.0, 1000.0, 10.0, _lg)
+        self.near_spin = self._Create_row("Near (m)", 0.001, 1000.0, 0.1, 0.01, _lg)
+        self.far_spin = self._Create_row("Far (m)", 1.0, 100000.0, 1000.0, 10.0, _lg)
 
         self.main_layout.addWidget(_lens_group)
 
