@@ -1,0 +1,211 @@
+{
+  "version": 1,
+  "scene": [
+    {
+      "model": "conveyor",
+      "instanceId": "main_conveyor",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "children": [
+        {
+          "model": "elbow",
+          "instanceId": "elbow_1",
+          "transform": {
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0.628318530717959,
+              0
+            ]
+          },
+          "attachTo": "main_conveyor.surface"
+        },
+        {
+          "model": "elbow",
+          "instanceId": "elbow_2",
+          "transform": {
+            "position": [
+              4,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              -0.678584013175395,
+              0
+            ]
+          },
+          "attachTo": "main_conveyor.surface"
+        },
+        {
+          "model": "elbow",
+          "instanceId": "elbow_3",
+          "transform": {
+            "position": [
+              8,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          },
+          "attachTo": "main_conveyor.surface"
+        },
+        {
+          "model": "elbow",
+          "instanceId": "elbow_4",
+          "transform": {
+            "position": [
+              12,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              1.47026536188002,
+              0
+            ]
+          },
+          "attachTo": "main_conveyor.surface"
+        },
+        {
+          "model": "elbow",
+          "instanceId": "elbow_98",
+          "transform": {
+            "position": [
+              16,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0.628318530717959,
+              0
+            ]
+          },
+          "attachTo": "main_conveyor.surface"
+        },
+        {
+          "model": "elbow",
+          "instanceId": "elbow_2904",
+          "transform": {
+            "position": [
+              20,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              2.72690242331594,
+              0
+            ]
+          },
+          "attachTo": "main_conveyor.surface"
+        }
+      ]
+    },
+    {
+      "model": "camera_3lens",
+      "instanceId": "inspection_camera",
+      "transform": {
+        "position": [
+          -8,
+          12,
+          0
+        ],
+        "rotation": [
+          1.57,
+          0,
+          1.57
+        ]
+      }
+    },
+    {
+      "model": "robot_base",
+      "instanceId": "base_left",
+      "transform": {
+        "position": [
+          6,
+          0,
+          -5
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "children": [
+        {
+          "model": "vision_robot",
+          "instanceId": "robot_left",
+          "transform": {
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          },
+          "attachTo": "base_left.mount"
+        }
+      ]
+    },
+    {
+      "model": "robot_base",
+      "instanceId": "base_right",
+      "transform": {
+        "position": [
+          2,
+          0,
+          5
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "children": [
+        {
+          "model": "vision_robot",
+          "instanceId": "robot_right",
+          "transform": {
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              3.14159,
+              0
+            ]
+          },
+          "attachTo": "base_right.mount"
+        }
+      ]
+    }
+  ]
+}

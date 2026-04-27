@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "scene": [
+    {
+      "model": "chamber",
+      "instanceId": "chamber_0",
+      "transform": { "position": [0, 0, 0], "rotation": [0, 0, 0] },
+      "children": [
+        {
+          "model": "vision_robot",
+          "instanceId": "robot_0",
+          "attachTo": "chamber_0.ceiling",
+          "transform": { "position": [0, 0, 0], "rotation": [3.14159, 0, 0] },
+          "children": [
+            {
+              "model": "camera_3lens",
+              "instanceId": "camera_0",
+              "attachTo": "robot_0.j6",
+              "transform": { "position": [0, 0, 0.2], "rotation": [0, 0, 0] }
+            }
+          ]
+        },
+        {
+          "model": "elbow",
+          "instanceId": "elbow_target",
+          "attachTo": "chamber_0.floor",
+          "transform": { "position": [0, 0, 0], "rotation": [0, 0, 0] }
+        }
+      ]
+    }
+  ]
+}

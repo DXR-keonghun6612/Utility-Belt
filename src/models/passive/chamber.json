@@ -1,0 +1,136 @@
+{
+  "id": "chamber",
+  "type": "GROUP",
+  "label": "Chamber (10x10x10)",
+  "transform": { "position": [0, 0, 0], "rotation": [0, 0, 0] },
+  "metadata": { "width": 10, "height": 10, "depth": 10 },
+  "children": [
+    {
+      "id": "chamber.frame",
+      "type": "LINK",
+      "label": "Aluminum Frame",
+      "geometry": {
+        "shape": "Box",
+        "width": 10,
+        "height": 0.2,
+        "depth": 10,
+        "color": "#cfd8dc"
+      },
+      "transform": { "position": [0, 0, 0], "rotation": [0, 0, 0] },
+      "metadata": { "note": "4 pillars + top/bottom/lower horizontal rails" }
+    },
+    {
+      "id": "chamber.ceiling",
+      "type": "JOINT",
+      "label": "Ceiling Mount Point",
+      "layout": { "kind": "single" },
+      "transform": { "position": [0, 20.2, 0], "rotation": [0, 0, 0] },
+      "children": [
+        {
+          "id": "chamber.ceiling.body",
+          "type": "LINK",
+          "label": "Ceiling Plate",
+          "geometry": {
+            "shape": "Box",
+            "width": 10,
+            "height": 0.2,
+            "depth": 10,
+            "color": "#cfd8dc"
+          },
+          "transform": { "position": [0, 0, 0], "rotation": [0, 0, 0] }
+        }
+      ]
+    },
+    {
+      "id": "chamber.floor",
+      "type": "JOINT",
+      "label": "Floor Mount Point",
+      "layout": { "kind": "single" },
+      "transform": { "position": [0, 9.7, 0], "rotation": [0, 0, 0] },
+      "children": [
+        {
+          "id": "chamber.floor.body",
+          "type": "LINK",
+          "label": "Floor Plate",
+          "geometry": {
+            "shape": "Box",
+            "width": 10,
+            "height": 0.2,
+            "depth": 10,
+            "color": "#90a4ae"
+          },
+          "transform": { "position": [0, 0, 0], "rotation": [0, 0, 0] }
+        }
+      ]
+    },
+    {
+      "id": "chamber.shelf",
+      "type": "LINK",
+      "label": "Lower Shelf",
+      "geometry": {
+        "shape": "Box",
+        "width": 10,
+        "height": 0.2,
+        "depth": 10,
+        "color": "#607d8b"
+      },
+      "transform": { "position": [0, 0.9, 0], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "chamber.glass_front",
+      "type": "LINK",
+      "label": "Glass Front",
+      "geometry": {
+        "shape": "Box",
+        "width": 9.2,
+        "height": 9.6,
+        "depth": 0.05,
+        "color": "#e1f5fe",
+        "opacity": 0.25
+      },
+      "transform": { "position": [0, 15, 4.8], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "chamber.glass_back",
+      "type": "LINK",
+      "label": "Glass Back",
+      "geometry": {
+        "shape": "Box",
+        "width": 9.2,
+        "height": 9.6,
+        "depth": 0.05,
+        "color": "#e1f5fe",
+        "opacity": 0.25
+      },
+      "transform": { "position": [0, 15, -4.8], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "chamber.glass_left",
+      "type": "LINK",
+      "label": "Glass Left",
+      "geometry": {
+        "shape": "Box",
+        "width": 0.05,
+        "height": 9.6,
+        "depth": 9.2,
+        "color": "#e1f5fe",
+        "opacity": 0.25
+      },
+      "transform": { "position": [-4.8, 15, 0], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "chamber.glass_right",
+      "type": "LINK",
+      "label": "Glass Right",
+      "geometry": {
+        "shape": "Box",
+        "width": 0.05,
+        "height": 9.6,
+        "depth": 9.2,
+        "color": "#e1f5fe",
+        "opacity": 0.25
+      },
+      "transform": { "position": [4.8, 15, 0], "rotation": [0, 0, 0] }
+    }
+  ]
+}

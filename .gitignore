@@ -1,0 +1,227 @@
+# Git Ignore Settings
+# 이 파일은 Git 추적에서 제외할 파일과 디렉토리를 정의합니다.
+
+# ==============================================================================
+# 1. 컴파일 및 아티팩트 (Compiled Artifacts)
+# ==============================================================================
+# Python 바이트코드 및 최적화 파일
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Python C 확장 모듈
+*.so
+
+# C/C++ 컴파일된 오브젝트 파일
+*.o
+*.ko
+*.obj
+*.elf
+
+# ==============================================================================
+# 2. 빌드 및 배포 (Build and Distribution)
+# ==============================================================================
+# Python 패키징 결과물
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# C/C++ 라이브러리 및 실행 파일
+*.a
+*.lib
+*.dll
+*.dylib
+*.exe
+*.out
+*.app
+
+# C/C++ CMake 관련 임시 파일
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CMakeScripts/
+compile_commands.json
+
+# Node.js 주요 프레임워크 빌드 캐시 (.next, .nuxt 등)
+.next/
+.nuxt/
+out/
+
+# ==============================================================================
+# 3. 가상 환경 및 패키지 의존성 (Environments & Dependencies)
+# ==============================================================================
+# Python 가상 환경
+.venv/
+venv/
+ENV/
+env/
+env.bak/
+venv.bak/
+
+# Node.js 패키지 의존성
+node_modules/
+
+# ==============================================================================
+# 4. 테스트 및 커버리지 (Testing and Coverage)
+# ==============================================================================
+.cache
+.pytest_cache/
+.coverage
+.coverage.*
+.hypothesis/
+htmlcov/
+coverage.xml
+*.cover
+nosetests.xml
+
+# ==============================================================================
+# 5. IDE 및 에디터 (IDE and Editor Settings)
+# ==============================================================================
+# Visual Studio Code
+.vscode/
+
+# IntelliJ / PyCharm
+.idea/
+
+# 임시 파일 및 스왑 파일 (Vim, etc.)
+*.swp
+*.swo
+*~
+
+# ==============================================================================
+# 6. 운영체제 관련 파일 (OS Specific Files - Windows & Linux)
+# ==============================================================================
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+Ehthumbs.db
+[Dd]esktop.ini
+
+# Linux
+.fuse_hidden*
+.directory
+.trash
+
+# ==============================================================================
+# 7. 이미지 및 미디어 파일 (Images and Media)
+# ==============================================================================
+# 일반적인 이미지 포맷
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.tiff
+*.tif
+
+# 최신/압축 이미지 포맷
+*.webp
+*.heic
+*.heif
+*.avif
+
+# 벡터 그래픽 및 디자인 파일
+*.svg
+*.eps
+*.ai
+*.psd
+
+# 영상 및 오디오 (필요 시)
+*.mp4
+*.avi
+*.mov
+*.mp3
+*.wav
+
+# ==============================================================================
+# 8. 데이터, 로그 및 실험 결과 (Data, Logs and Results)
+# ==============================================================================
+# 대용량 데이터 및 모델 가중치 파일
+*.csv
+*.h5
+*.npy
+*.npz
+*.pth
+*.pt
+*.pkl
+*.pickle
+*.ckpt
+*.weights
+
+# 실험 및 데이터셋 디렉토리
+exp/
+result/
+results/
+dataset*/
+dataset*
+
+# 일반 및 패키지 매니저 로그 파일 (Python, npm, yarn)
+log/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Node.js REPL 기록
+.node_repl_history
+
+# 설정 파일
+*config*/
+*cfg*/
+
+# ==============================================================================
+# 9. AI 툴 및 기계학습 설정 (AI Tools and ML Settings)
+# ==============================================================================
+# 보안 파일 (API Keys, Secrets)
+# 절대 Git에 업로드하지 마세요.
+.env
+.env.*
+.secret
+.secrets
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*/.ipynb_checkpoints/*
+
+# ML 실험 관리 도구
+wandb/
+mlruns/
+lightning_logs/
+runs/
+logs/
+
+# 모델 캐시 및 허깅페이스
+.cache/huggingface/
+.cache/torch/
+.cache/clip/
+
+# AI 코드 어시스턴트 설정 (Cursor, Windsurf 등)
+.cursor/
+.windsurf/
+GEMINI*.*
+.claude/
+CLAUDE*.*
+
+# ==============================================================================
+# 10. 화이트리스트 (Whitelists)
+# ==============================================================================
+# .gitignore는 아래에 명시된 규칙이 위를 덮어씁니다.
+# 특정 파일이나 폴더를 예외적으로 추적하고 싶다면 아래에 '!'를 붙여 추가하세요.
+# 예: !dataset/sample.csv
+# 예: !pychart/assets/logo.png

@@ -1,0 +1,22 @@
+{
+  "id": "elbow",
+  "type": "GROUP",
+  "label": "Pipe Elbow",
+  "transform": { "position": [0, 0, 0], "rotation": [0, 0, 0] },
+  "metadata": {
+    "pathRadius": 1.2,
+    "outerRadius": 0.6,
+    "innerRadius": 0.45
+  },
+  "children": [
+    {
+      "id": "elbow.object",
+      "type": "LINK",
+      "label": "Pipe Elbow",
+      "geometry": {
+        "shape": "Elbow",
+        "color": "#ff5722"
+      }
+    }
+  ]
+}

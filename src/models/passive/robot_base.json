@@ -1,0 +1,106 @@
+{
+  "id": "robot_base",
+  "type": "GROUP",
+  "label": "Robot Control Base",
+  "transform": { "position": [0, 0, 0], "rotation": [0, 0, 0] },
+  "children": [
+    {
+      "id": "robot_base.bottom",
+      "type": "LINK",
+      "label": "Bottom Plate",
+      "geometry": {
+        "shape": "Box",
+        "width": 4.0,
+        "height": 0.2,
+        "depth": 4.0,
+        "color": "#455a64"
+      },
+      "transform": { "position": [0, 0.1, 0], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "robot_base.top",
+      "type": "LINK",
+      "label": "Top Plate",
+      "geometry": {
+        "shape": "Box",
+        "width": 4.0,
+        "height": 0.2,
+        "depth": 4.0,
+        "color": "#455a64"
+      },
+      "transform": { "position": [0, 3.9, 0], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "robot_base.pillar_fl",
+      "type": "LINK",
+      "label": "Corner Pillar FL",
+      "geometry": {
+        "shape": "Box",
+        "width": 0.2,
+        "height": 3.6,
+        "depth": 0.2,
+        "color": "#78909c"
+      },
+      "transform": { "position": [-1.9, 2.0, 1.9], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "robot_base.pillar_fr",
+      "type": "LINK",
+      "label": "Corner Pillar FR",
+      "geometry": {
+        "shape": "Box",
+        "width": 0.2,
+        "height": 3.6,
+        "depth": 0.2,
+        "color": "#78909c"
+      },
+      "transform": { "position": [1.9, 2.0, 1.9], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "robot_base.pillar_bl",
+      "type": "LINK",
+      "label": "Corner Pillar BL",
+      "geometry": {
+        "shape": "Box",
+        "width": 0.2,
+        "height": 3.6,
+        "depth": 0.2,
+        "color": "#78909c"
+      },
+      "transform": { "position": [-1.9, 2.0, -1.9], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "robot_base.pillar_br",
+      "type": "LINK",
+      "label": "Corner Pillar BR",
+      "geometry": {
+        "shape": "Box",
+        "width": 0.2,
+        "height": 3.6,
+        "depth": 0.2,
+        "color": "#78909c"
+      },
+      "transform": { "position": [1.9, 2.0, -1.9], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "robot_base.pc",
+      "type": "LINK",
+      "label": "Control Unit",
+      "geometry": {
+        "shape": "Box",
+        "width": 1.2,
+        "height": 2.5,
+        "depth": 2.8,
+        "color": "#263238"
+      },
+      "transform": { "position": [0, 1.45, 0], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "robot_base.mount",
+      "type": "JOINT",
+      "label": "Robot Mount Point",
+      "layout": { "kind": "single" },
+      "transform": { "position": [0, 4.0, 0], "rotation": [0, 0, 0] }
+    }
+  ]
+}
