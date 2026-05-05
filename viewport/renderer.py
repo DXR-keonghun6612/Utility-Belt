@@ -3,7 +3,7 @@ from spatial_toolbox.scene.node import Base_Node, Mesh, Camera
 from spatial_toolbox.scene.node.utils.traversal import walk_nodes
 from spatial_toolbox.render.openGL import OpenGL_Renderer
 
-from .view import Orbit_Camera
+from .orbit_cam import Orbit_Camera
 from .node.grid import Ground_Grid
 from .node.camera_frustum import Camera_Frustum
 

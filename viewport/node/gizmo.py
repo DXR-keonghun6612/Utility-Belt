@@ -2,7 +2,7 @@ import numpy as np
 from OpenGL.GL import *
 from OpenGL.GLU import gluProject
 from spatial_toolbox.scene.node import Base_Node
-from ..view import Orbit_Camera
+from ..orbit_cam import Orbit_Camera
 
 
 class _Transform_Math:

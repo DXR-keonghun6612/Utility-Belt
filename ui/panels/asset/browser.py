@@ -8,8 +8,8 @@ from PySide6.QtCore import Qt, Signal, Slot
 
 from spatial_toolbox.scene.asset.cache import ASSET_CACHE
 from spatial_toolbox.scene.file import Load_and_register
-from ui.editor.panels.asset.duplicate_dialog import Duplicate_Dialog
-from ui.core.base_panel import Base_Panel
+from ui.panels.asset.duplicate_dialog import Duplicate_Dialog
+from ui.panels._base import Base_Panel
 
 
 # Unit 프리셋: (표기, 1단위당 미터 수)

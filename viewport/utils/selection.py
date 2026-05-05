@@ -1,6 +1,6 @@
 from OpenGL.GL import glReadPixels, GL_RGB, GL_UNSIGNED_BYTE
 from spatial_toolbox.scene.node import Base_Node
-from ..view import Orbit_Camera
+from ..orbit_cam import Orbit_Camera
 from ..renderer import Scene_Renderer
 
 

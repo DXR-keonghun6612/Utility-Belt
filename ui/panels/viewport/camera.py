@@ -8,12 +8,12 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 
-from viewport.view import Orbit_Camera
+from viewport.orbit_cam import Orbit_Camera
 from viewport.node.grid import Viewer_Config
 from ui.style import (
     SPIN_BOX, Axis_label, LABEL, HEADER, GROUP_BOX, BUTTON, AXIS_COLORS
 )
-from ui.core.base_panel import Base_Panel
+from ui.panels._base import Base_Panel
 
 
 class Orbit_Camera_Panel(Base_Panel):
