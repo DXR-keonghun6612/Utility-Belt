@@ -1,7 +1,3 @@
-[submodule "submodules/python_toolbox"]
-	path = submodules/python_toolbox
-	url = https://github.com/DXR-keonghun6612/ToolBox.git
-	branch = python_toolbox
 [submodule "submodules/spatial_toolbox"]
 	path = submodules/spatial_toolbox
 	url = https://github.com/DXR-keonghun6612/ToolBox.git
