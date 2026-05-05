@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 
 from viewport.view import Orbit_Camera
+from viewport.node.grid import Viewer_Config
 from ui.style import (
     SPIN_BOX, Axis_label, LABEL, HEADER, GROUP_BOX, BUTTON, AXIS_COLORS
 )
@@ -25,22 +26,19 @@ class Orbit_Camera_Panel(Base_Panel):
     """
 
     def __init__(self, parent: QWidget | None = None):
-        """초기화 및 부모 클래스 규격 상속."""
         self._camera: Orbit_Camera | None = None
+        self._viewer_config: Viewer_Config | None = None
         self._block = False
         super().__init__(parent)
 
     def Bind_camera(self, camera: Orbit_Camera) -> None:
-        """
-        Viewer의 Orbit_Camera 인스턴스를 바인딩하고 UI 상태를 동기화함.
-
-        Args:
-            camera: 조작 대상 카메라 인스턴스.
-        """
         self._camera = camera
         self._Sync_from_camera()
-        # 뷰포트 마우스 조작 → 패널 스핀박스 역방향 동기화
         self.bus.camera_moved.connect(self.Refresh)
+
+    def Bind_viewer_config(self, config: Viewer_Config) -> None:
+        self._viewer_config = config
+        self._Sync_grid_from_config()
 
     # ==========================================
     # UI 구성 (Base_Panel 훅 오버라이드)
@@ -90,6 +88,27 @@ class Orbit_Camera_Panel(Base_Panel):
 
         self.main_layout.addWidget(_sens_group)
 
+        # --- 그리드 (Grid) 그룹 ---
+        _grid_group = QGroupBox("Grid")
+        _grid_group.setStyleSheet(GROUP_BOX)
+        _gg = QVBoxLayout(_grid_group)
+        _gg.setSpacing(6)
+
+        self.grid_spacing_spin = self._Create_row(
+            "Spacing (m)", 0.01, 1000.0, 1.0, 0.5, _gg,
+            callback=self._On_grid_edited,
+        )
+        self.grid_range_spin = self._Create_row(
+            "Range", 1.0, 500.0, 10.0, 1.0, _gg,
+            callback=self._On_grid_edited,
+        )
+        self.grid_linewidth_spin = self._Create_row(
+            "Line Width", 0.1, 10.0, 1.0, 0.1, _gg,
+            callback=self._On_grid_edited,
+        )
+
+        self.main_layout.addWidget(_grid_group)
+
         # --- 리셋 버튼 ---
         self.btn_reset = QPushButton("Reset Camera")
         self.btn_reset.setStyleSheet(BUTTON)
@@ -105,14 +124,15 @@ class Orbit_Camera_Panel(Base_Panel):
 
     def _Create_row(
         self, label: str, min_v: float, max_v: float,
-        default: float, step: float, parent: QVBoxLayout
+        default: float, step: float, parent: QVBoxLayout,
+        callback=None,
     ) -> QDoubleSpinBox:
         """단일 파라미터 스핀박스 UI 행 생성."""
         _row = QHBoxLayout()
         _row.setSpacing(4)
 
         _lbl = QLabel(label)
-        _lbl.setFixedWidth(65)
+        _lbl.setFixedWidth(75)
         _lbl.setStyleSheet(LABEL)
         _row.addWidget(_lbl)
 
@@ -122,7 +142,7 @@ class Orbit_Camera_Panel(Base_Panel):
         _spin.setSingleStep(step)
         _spin.setValue(default)
         _spin.setStyleSheet(SPIN_BOX)
-        _spin.valueChanged.connect(self._On_value_edited)
+        _spin.valueChanged.connect(callback or self._On_value_edited)
         _row.addWidget(_spin)
 
         parent.addLayout(_row)
@@ -228,6 +248,24 @@ class Orbit_Camera_Panel(Base_Panel):
 
         self._Sync_from_camera()
         self.bus.camera_changed.emit()
+
+    def _On_grid_edited(self) -> None:
+        if self._block or self._viewer_config is None:
+            return
+        self._viewer_config.grid_spacing = self.grid_spacing_spin.value()
+        self._viewer_config.grid_range = int(self.grid_range_spin.value())
+        self._viewer_config.grid_line_width = self.grid_linewidth_spin.value()
+        self.bus.viewer_config_changed.emit()
+
+    def _Sync_grid_from_config(self) -> None:
+        if self._viewer_config is None:
+            return
+        self._block = True
+        _c = self._viewer_config
+        self.grid_spacing_spin.setValue(_c.grid_spacing)
+        self.grid_range_spin.setValue(float(_c.grid_range))
+        self.grid_linewidth_spin.setValue(_c.grid_line_width)
+        self._block = False
 
     def Refresh(self) -> None:
         """마우스 조작 등 외부 요인으로 카메라 값이 변경되었을 때 UI를 동기화함."""

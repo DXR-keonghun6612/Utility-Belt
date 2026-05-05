@@ -19,6 +19,9 @@ class _Event_Bus(QObject):
     camera_changed = Signal()                 # 카메라 렌즈/파라미터 값 변경 (UI에서 조작)
     camera_moved = Signal()                   # 카메라 물리적 위치/각도 변경 (마우스 드래그 조작)
     
+    # 뷰포트 표시 설정 시그널
+    viewer_config_changed = Signal()            # 그리드 간격·범위 등 뷰포트 표시 설정 변경
+
     # 에셋 관련 시그널
     asset_instantiate_requested = Signal(object) # 에셋 브라우저에서 특정 에셋 노드를 씬에 추가 요청
 

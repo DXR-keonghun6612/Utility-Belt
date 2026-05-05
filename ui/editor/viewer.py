@@ -5,8 +5,8 @@ from PySide6.QtGui import QMouseEvent, QWheelEvent
 from spatial_toolbox.scene import Controller as Stage_Controller
 from viewport.view import Orbit_Camera
 from viewport.renderer import Scene_Renderer
-from viewport.tool.selection import Selection_Controller
-from viewport.tool.gizmo import Gizmo_Controller
+from viewport.utils.selection import Selection_Controller
+from viewport.node.gizmo import Transform_Gizmo
 
 from ui.core.event_bus import EVENT_BUS
 
@@ -22,7 +22,7 @@ class Viewer_Panel(QOpenGLWidget):
         self.camera = Orbit_Camera()
         self.renderer = Scene_Renderer()
         self.selection = Selection_Controller()
-        self.gizmo = Gizmo_Controller()
+        self.gizmo = Transform_Gizmo()
 
         # 2. UI 상태 변수
         self._last_mouse_pos = None
@@ -38,6 +38,7 @@ class Viewer_Panel(QOpenGLWidget):
         EVENT_BUS.scene_loaded.connect(self._On_scene_loaded)
         EVENT_BUS.camera_changed.connect(self._On_camera_changed)
         EVENT_BUS.selection_changed.connect(self._On_selection_changed)
+        EVENT_BUS.viewer_config_changed.connect(self.update)
 
     def _On_scene_loaded(self):
         self.selection.selected_node = None
@@ -87,7 +88,7 @@ class Viewer_Panel(QOpenGLWidget):
         
         # 2. 선택된 객체가 있다면 그 위에 기즈모 오버레이 렌더링
         if _selected:
-            self.gizmo.Render_overlay(self.camera, _selected)
+            self.gizmo.Draw(self.camera, _selected)
 
     # ==========================================
     # 입력 이벤트 라우팅
@@ -103,7 +104,7 @@ class Viewer_Panel(QOpenGLWidget):
             self.makeCurrent() # OpenGL 컨텍스트 활성화
             
             # 1. 먼저 기즈모의 축(핸들)을 클릭했는지 판별
-            _axis = self.gizmo.Pick_gizmo_axis(
+            _axis = self.gizmo.Pick_axis(
                 _x, _y, self.camera, self.selection.selected_node)
             
             # 2. 기즈모를 클릭하지 않았다면 씬 내부의 일반 객체 픽킹 시도
@@ -116,28 +117,28 @@ class Viewer_Panel(QOpenGLWidget):
     def mouseMoveEvent(self, event: QMouseEvent):
         """드래그 시 기즈모 변환 또는 카메라 조작 처리."""
         _current_pos = event.position().toPoint()
-        
+
         if self._last_mouse_pos:
-            _dx = _current_pos.x() - self._last_mouse_pos.x()
-            _dy = _current_pos.y() - self._last_mouse_pos.y()
+            _dx = float(_current_pos.x() - self._last_mouse_pos.x())
+            _dy = float(_current_pos.y() - self._last_mouse_pos.y())
 
             if event.buttons() & Qt.MouseButton.LeftButton:
                 if self.gizmo.active_axis and self.selection.selected_node:
                     self.makeCurrent()
                     _sx = float(_current_pos.x())
                     _sy = float(self.height() - _current_pos.y())
-                    self.gizmo.Apply_transform_drag(
-                        self.selection.selected_node,
-                        float(_dx), float(_dy), _sx, _sy
+                    self.gizmo.Apply_drag(
+                        self.selection.selected_node, _dx, _dy, _sx, _sy
                     )
-                else:
-                    # 기즈모 비활성 상태라면 카메라 궤도 회전
-                    self.camera.Rotate(float(_dx), float(_dy))
-                    EVENT_BUS.camera_moved.emit()
 
             elif event.buttons() & Qt.MouseButton.MiddleButton:
-                # 휠 클릭 드래그는 카메라 패닝
-                self.camera.Pan(float(_dx), float(_dy))
+                _mods = event.modifiers()
+                if _mods & Qt.KeyboardModifier.ShiftModifier:
+                    # Shift+Middle = Pan (AutoCAD 관례)
+                    self.camera.Pan(_dx, _dy)
+                else:
+                    # Middle = Orbit
+                    self.camera.Rotate(_dx, _dy)
                 EVENT_BUS.camera_moved.emit()
 
         self._last_mouse_pos = _current_pos
@@ -145,10 +146,14 @@ class Viewer_Panel(QOpenGLWidget):
 
     def mouseReleaseEvent(self, event: QMouseEvent):
         """드래그 종료 시 기즈모 활성 상태 해제."""
-        self.gizmo.Deactivate_axis()
+        self.gizmo.Deactivate()
 
     def wheelEvent(self, event: QWheelEvent):
-        """마우스 휠 스크롤 시 카메라 줌 처리."""
-        _delta = event.angleDelta().y() / 120.0 # 일반적인 마우스 휠 1틱
-        self.camera.Zoom(_delta)
+        """마우스 휠 스크롤 시 커서 방향으로 줌 처리."""
+        _delta = event.angleDelta().y() / 120.0
+        _pos = event.position()
+        _ndc_x = (2.0 * _pos.x() / self.width()) - 1.0
+        _ndc_y = 1.0 - (2.0 * _pos.y() / self.height())
+        _aspect = self.width() / max(self.height(), 1)
+        self.camera.Zoom_to_cursor(_delta, _ndc_x, _ndc_y, _aspect)
         EVENT_BUS.camera_moved.emit()

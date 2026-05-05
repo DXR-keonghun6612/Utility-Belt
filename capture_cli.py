@@ -1,7 +1,7 @@
 """헤드리스 데이터셋 생성 진입점.
 
 Usage:
-    python capture_cli.py --capture path/to/render_config.json
+    python capture_cli.py --render_cfg path/to/sim_config.json
 """
 
 import sys
@@ -17,7 +17,7 @@ def _Build_arg_parser() -> argparse.ArgumentParser:
     )
     _parser.add_argument(
         "--render_cfg", type=Path, default="result/render.json",
-        help="Render_Config JSON 파일 경로 (배치 캡처)"
+        help="Sim_Config JSON 파일 경로 (배치 캡처)"
     )
     return _parser
 

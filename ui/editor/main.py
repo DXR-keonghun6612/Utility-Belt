@@ -38,8 +38,8 @@ class Main_Window(QMainWindow):
         self.camera_page = Orbit_Camera_Panel()
         self.simulation_page = Simulation_Page(self.stage)
 
-        # 뷰포트 카메라 패널 바인딩 (동일 계층에서 처리되므로 결합도가 낮아짐)
         self.camera_page.Bind_camera(self.viewer.camera)
+        self.camera_page.Bind_viewer_config(self.viewer.renderer.config)
 
         # 2. 범용 사이드바 컨테이너에 페이지 주입 (Dependency Injection)
         _pages = [
