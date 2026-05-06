@@ -269,6 +269,11 @@ class Generate_Config_Dialog(QDialog):
             elif _node.prim_type == "Xform" and _node is not self.stage.root:
                 self._groups.append(_node)
                 self.cb_target.addItem(_node.label)
+                if any(
+                    isinstance(_desc, Camera_Node)
+                    for _desc in walk_nodes(_node, lambda n: isinstance(n, Camera_Node))
+                ):
+                    self.cb_camera.addItem(_node.label)
 
         _idx = self.cb_target.findText("target")
         if _idx >= 0:

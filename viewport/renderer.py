@@ -31,6 +31,10 @@ class Scene_Renderer:
         self._renderer.light_position = [0.0, 1.0, 0.0, 0.0]
         self._renderer.light_ambient  = [1.0, 1.0, 1.0, 1.0]
 
+    def Clear_resources(self) -> None:
+        """Releases cached OpenGL draw resources before widget teardown."""
+        self._renderer.Clear_resources()
+
     # ==========================================
     # 메인 렌더 패스
     # ==========================================
@@ -61,6 +65,9 @@ class Scene_Renderer:
 
     def _On_main_node(self, node: Base_Node) -> None:
         from spatial_toolbox.scene import ASSET_CACHE
+
+        if not node.is_renderable:
+            return
 
         if isinstance(node, Mesh) and node.source_key is not None:
             _asset = ASSET_CACHE.Get(node.source_key, is_hold=True)
@@ -115,7 +122,7 @@ class Scene_Renderer:
         self._renderer.Reset_id_state()
 
         from spatial_toolbox.scene import ASSET_CACHE
-        for node in walk_nodes(root_node, lambda x: isinstance(x, Mesh)):
+        for node in walk_nodes(root_node, lambda x: isinstance(x, Mesh) and x.is_renderable):
             if node.source_key is not None:
                 _asset = ASSET_CACHE.Get(node.source_key, is_hold=True)
                 if _asset is not None and _asset.geometry is not None:

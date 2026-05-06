@@ -50,6 +50,7 @@ FOCUS 프로젝트의 향후 과제 목록임.
 
 ### 리팩토링
 
+- [ ] **노드 Transform 표현을 TQS(Translation / Quaternion / Scale) 분리 저장으로 전환** — 현재 `Base_Node.local_rigid`(4×4 행렬) + `scale`(vec3) 구조에서 `translation`(vec3) + `quaternion`(vec4 WXYZ) + `scale`(vec3)으로 변경. 회전을 행렬로 변환 후 다시 분해하는 round-trip이 없어져 scipy normalize에 의한 값 변형이 사라짐. Inspector 쿼터니언 편집 시 `_writing` 플래그로 피드백 루프를 차단하는 현 workaround(`ui/panels/scene/property.py`)의 근본 해소 조건임. World-matrix 캐시(`_Mark_dirty` / Dirty Flag 패턴)와 `Export_usd`/`Import_usd` 변환 로직 수정 필요.
 - [ ] `I_Renderer` 인터페이스 분리 — `Render(queue, camera) → dict` 단일 계약만 정의. 현재 `Base_Renderer`는 이를 상속하는 multi-pass 생명주기 구현체로 격하. `Blender_Renderer`는 multi-pass 우회가 필요하므로 `I_Renderer`를 직접 구현 (`Base_Pass` 인터페이스 분리와 동일한 방향)
 - [ ] 패스 자동 발견 — `graphics.openGL.pass_` 수동 import 제거 (`importlib` 순회 도입)
 - [ ] `selection.py` → `Scene_Renderer` 직접 의존 해소 — ID 패스 인터페이스 추상화 (BVH 픽킹의 선결 조건)
@@ -99,6 +100,16 @@ FOCUS 프로젝트의 향후 과제 목록임.
 **simulation/ 도메인**
 
 - [ ] `Render_Pipeline` 비대화 해소 — EGL/Qt 컨텍스트 관리 로직을 `simulation/context/` 하위 `Egl_Context`/`Qt_Context`/`Embedded_Context` 전략으로 분리
+- [ ] simulation 패턴 분리 — 현재 한 `Sim_Config` 안에 섞여 있는 rigid-body drop 단계와 image rendering/capture 단계를 별도 패턴으로 분해
+  `Drop Simulation`, `Image Capture Simulation`처럼 목적이 다른 실행 흐름을 독립 패턴으로 정의하고, 필요 시 순차 조합 가능하게 재구성
+- [ ] `Sim_Config` 구조 재설계 — 단일 평면 설정 대신 `simulation_pattern` 또는 `stages[]` 기반 구성으로 확장
+  각 패턴이 요구하는 필드만 선언적으로 가지게 하고, drop 전용 설정(ground/collision/settle)과 capture 전용 설정(camera/output/channels/sample)을 분리
+- [ ] UI의 sim_config 생성기를 패턴 선택형으로 개편
+  config 생성 시 먼저 simulation 패턴을 고르고, 선택한 패턴에 맞는 입력 폼만 노출하도록 재구성
+- [ ] physics settle을 pre-capture 옵션이 아니라 명시적 simulation stage로 승격
+  "drop 후 render"는 하나의 숨은 플래그 조합이 아니라 `Drop -> Capture` 파이프라인으로 읽히게 명문화
+- [ ] simulation 실행 진입점 정리 — `Run_batch_capture`를 패턴/스테이지 해석기 역할로 축소하고, 실제 실행은 패턴별 runner로 위임
+  향후 `Drop Only`, `Capture Only`, `Drop + Capture`, `Analysis` 계열 simulation 추가를 수용 가능한 구조로 전환
 
 **viewport/ 도메인**
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "focus"
-version = "0.1.0"
+version = "0.1.1"
 description = "3D virtual simulation environment for algorithm pre-validation and AI training-data generation."
 requires-python = ">=3.11"
 dependencies = [
@@ -13,9 +13,6 @@ dependencies = [
     "Pillow",
     "PyOpenGL",
     "PySide6",
-    "bpy>=4.1.0",
-    "usd-core",
-    "python_toolbox @ git+https://github.com/DXR-keonghun6612/ToolBox.git@python_toolbox",
     "spatial_toolbox @ git+https://github.com/DXR-keonghun6612/ToolBox.git@spatial_toolbox",
 ]
 
@@ -29,4 +26,4 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-exclude = ["submodules*", "data*", "result*", "config*"]
+exclude = ["data*", "result*", "config*"]

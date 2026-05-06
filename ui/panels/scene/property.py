@@ -23,6 +23,7 @@ class Property_Panel(Base_Panel):
     def __init__(self, stage: Stage_Controller, parent: QWidget | None = None):
         self.stage = stage
         self.current_node: Base_Node | None = None
+        self._writing = False
         super().__init__(parent) # Base_Panel이 self.bus를 주입함
 
     def _setup_ui(self) -> None:
@@ -117,6 +118,9 @@ class Property_Panel(Base_Panel):
         return _s
 
     def Update_info(self, node: Base_Node | None):
+        if self._writing:
+            return
+        _same_node = node is self.current_node
         self.current_node = node
         if not node:
             self.lbl_node_name.setText("No Selection"); self.lbl_node_type.setText("Type: None")
@@ -146,8 +150,13 @@ class Property_Panel(Base_Panel):
         self._Block_spin_signals(True)
 
         for i in range(3):
-            self.loc_spins[i].setValue(_loc[i]); self.scale_spins[i].setValue(_scale[i])
-        for i in range(4): self.rot_spins[i].setValue(_quat[i])
+            if not _same_node or not self.loc_spins[i].lineEdit().isModified():
+                self.loc_spins[i].setValue(_loc[i])
+            if not _same_node or not self.scale_spins[i].lineEdit().isModified():
+                self.scale_spins[i].setValue(_scale[i])
+        for i in range(4):
+            if not _same_node or not self.rot_spins[i].lineEdit().isModified():
+                self.rot_spins[i].setValue(_quat[i])
 
         _is_cam = isinstance(node, Camera_Node) and node.intrinsic is not None
         self.camera_group.setVisible(_is_cam)
@@ -173,6 +182,9 @@ class Property_Panel(Base_Panel):
         try:
             _r = R.from_matrix(matrix[:3, :3]).as_quat() # SciPy 디폴트: XYZW
             _quat = [_r[3], _r[0], _r[1], _r[2]] # WXYZ로 변환
+            # q와 -q는 같은 회전이므로 표시 부호를 고정해 UI 점프를 막음.
+            if _quat[0] < 0:
+                _quat = [-_v for _v in _quat]
         except ValueError:
             _quat = [1.0, 0.0, 0.0, 0.0]
         return _loc, _quat
@@ -194,7 +206,9 @@ class Property_Panel(Base_Panel):
 
         self.current_node.local_rigid = _mat
         self.current_node.scale = np.array(_s, dtype=np.float32)
-        self.bus.property_changed.emit() # [수정] 전역 버스 시그널 호출
+        self._writing = True
+        self.bus.property_changed.emit()
+        self._writing = False
 
     def _On_camera_value_edited(self):
         if not isinstance(self.current_node, Camera_Node) or not self.current_node.intrinsic: return
@@ -204,12 +218,16 @@ class Property_Panel(Base_Panel):
         _in.cx = self.cx_spin.value(); _in.cy = self.cy_spin.value()
         _in.near_clip = self.near_spin.value(); _in.far_clip = self.far_spin.value()
         self._Refresh_fov_labels(_in)
+        self._writing = True
         self.bus.property_changed.emit()
+        self._writing = False
 
     def _On_unit_length_edited(self):
         """Stage 단위 편집: Controller setter가 하위 노드의 unit_scale 재계산을 트리거함."""
         self.stage.unit_length = self.unit_length_spin.value()
+        self._writing = True
         self.bus.property_changed.emit()
+        self._writing = False
 
     def _Refresh_fov_labels(self, intrinsic):
         self.lbl_fov_x.setText(f"FOV X: {intrinsic.fov_x:.2f}°")

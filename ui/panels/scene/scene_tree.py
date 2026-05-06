@@ -6,7 +6,7 @@ from PySide6.QtCore import Qt, QPoint
 from PySide6.QtGui import QAction, QDropEvent, QIcon, QPixmap, QPainter, QFont
 
 from spatial_toolbox.scene import Controller as Stage_Controller
-from spatial_toolbox.scene.asset.file import Load_and_register
+from spatial_toolbox.scene.asset.cache import ASSET_CACHE
 from spatial_toolbox.scene.node import Base_Node, Group
 
 from ui.event_bus import EVENT_BUS # [수정] 누락된 이벤트 버스 임포트
@@ -102,8 +102,15 @@ class Scene_Tree_Widget(QTreeWidget):
         if column != _COL_VIS: return
         if _node := self._Get_node(item):
             _node.visible = not _node.visible
-            item.setIcon(_COL_VIS, _Make_eye_icon(_node.visible))
+            self._Sync_visibility_icons(item)
             EVENT_BUS.property_changed.emit() # [수정] 가시성 변경 시 뷰포트 갱신
+
+    def _Sync_visibility_icons(self, item: QTreeWidgetItem) -> None:
+        """Updates the clicked item's full subtree to match propagated visibility."""
+        if (_node := self._Get_node(item)) is not None:
+            item.setIcon(_COL_VIS, _Make_eye_icon(_node.visible))
+        for _idx in range(item.childCount()):
+            self._Sync_visibility_icons(item.child(_idx))
 
     def dropEvent(self, event: QDropEvent):
         _dragged = self.selectedItems()
@@ -188,13 +195,16 @@ class Scene_Tree_Widget(QTreeWidget):
         if _dialog.exec() != Add_Asset_Dialog.DialogCode.Accepted: return
         _paths = _dialog.Get_selected_paths()
         if not _paths: return
+        _total = len(_paths)
+        EVENT_BUS.loading_progress.emit(0, _total, "Load Asset")
         _is_changed = False
-        for _path in _paths:
-            if not (_keys := Load_and_register(str(_path))): continue
-            for _key in _keys:
+        for _idx, _path in enumerate(_paths, start=1):
+            _key = str(_path)
+            if ASSET_CACHE.Get(_key) is not None:
                 _node = self.stage.Build_node_from_cache(_key)
                 self.stage.Add_node(_node, parent)
-            _is_changed = True
+                _is_changed = True
+            EVENT_BUS.loading_progress.emit(_idx, _total, "Load Asset")
         if _is_changed:
             self.Refresh_ui()
             EVENT_BUS.scene_mutated.emit()

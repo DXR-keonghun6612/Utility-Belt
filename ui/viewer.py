@@ -1,6 +1,6 @@
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
-from PySide6.QtGui import QMouseEvent, QWheelEvent
+from PySide6.QtGui import QCloseEvent, QMouseEvent, QWheelEvent
 
 from spatial_toolbox.scene import Controller as Stage_Controller
 from viewport.orbit_cam import Orbit_Camera
@@ -23,6 +23,7 @@ class Viewer_Panel(QOpenGLWidget):
         self.renderer = Scene_Renderer()
         self.selection = Selection_Controller()
         self.gizmo = Transform_Gizmo()
+        self._is_cleaned_up = False
 
         self._last_mouse_pos = None
 
@@ -57,6 +58,23 @@ class Viewer_Panel(QOpenGLWidget):
     def _Refresh_projection(self) -> None:
         self.makeCurrent()
         self.camera.Update_projection(self.width(), self.height(), self.stage.unit_length)
+        self.doneCurrent()
+
+    def _Cleanup_gl_resources(self) -> None:
+        """Stops repaint activity and frees cached GL resources once."""
+        if self._is_cleaned_up:
+            return
+        self._is_cleaned_up = True
+
+        self.timer.stop()
+        if self.context() is None:
+            return
+
+        self.makeCurrent()
+        try:
+            self.renderer.Clear_resources()
+        finally:
+            self.doneCurrent()
 
     # ==========================================
     # Qt OpenGL 파이프라인 오버라이딩
@@ -127,3 +145,7 @@ class Viewer_Panel(QOpenGLWidget):
         _ndc_y = 1.0 - (2.0 * _pos.y() / self.height())
         self.camera.Zoom_to_cursor(_delta, _ndc_x, _ndc_y, self.width() / max(self.height(), 1))
         EVENT_BUS.camera_moved.emit()
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        self._Cleanup_gl_resources()
+        super().closeEvent(event)

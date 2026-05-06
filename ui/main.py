@@ -1,4 +1,5 @@
-from PySide6.QtWidgets import QMainWindow, QWidget, QHBoxLayout
+from PySide6.QtCore import Slot
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QMainWindow, QVBoxLayout, QWidget
 from spatial_toolbox.scene import Controller as Stage_Controller
 
 from ui.viewer import Viewer_Panel
@@ -26,7 +27,12 @@ class Main_Window(QMainWindow):
         self.holder = QWidget()
         self.setCentralWidget(self.holder)
 
-        _main_layout = QHBoxLayout(self.holder)
+        _root_layout = QVBoxLayout(self.holder)
+        _root_layout.setContentsMargins(0, 0, 0, 0)
+        _root_layout.setSpacing(0)
+
+        self.content_holder = QWidget()
+        _main_layout = QHBoxLayout(self.content_holder)
         _main_layout.setContentsMargins(0, 0, 0, 0)
         _main_layout.setSpacing(0)
 
@@ -52,3 +58,34 @@ class Main_Window(QMainWindow):
         _main_layout.addWidget(self.viewer)
         _main_layout.setStretch(0, 0)
         _main_layout.setStretch(1, 1)
+
+        self.status_label = QLabel("Ready")
+        self.status_label.setWordWrap(False)
+        self.status_label.setFixedHeight(20)
+        self.status_label.setStyleSheet(
+            "padding: 1px 8px; font-size: 11px; border-top: 1px solid #2c2c2c; background: #171717; color: #d8d8d8;"
+        )
+
+        _root_layout.addWidget(self.content_holder)
+        _root_layout.addWidget(self.status_label)
+
+        self.asset_page.bus.loading_progress.connect(self._On_loading_progress)
+        self.asset_page.bus.simulation_progress.connect(self._On_simulation_progress)
+
+    @Slot(int, int, str)
+    def _On_loading_progress(self, current: int, total: int, message: str) -> None:
+        if total > 0:
+            _current = max(0, min(current, total))
+            self.status_label.setText(f"{message} ({_current}/{total})")
+        else:
+            self.status_label.setText(message)
+        QApplication.processEvents()
+
+    @Slot(int, int, str)
+    def _On_simulation_progress(self, current: int, total: int, message: str) -> None:
+        if total > 0:
+            _current = max(0, min(current, total))
+            self.status_label.setText(f"Simulation: {message} ({_current}/{total})")
+        else:
+            self.status_label.setText(f"Simulation: {message}")
+        QApplication.processEvents()

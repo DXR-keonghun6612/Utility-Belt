@@ -44,6 +44,9 @@ def test_run_batch_capture_loads_config_imports_scene_and_calls_engine(monkeypat
             _captured["import_path"] = path
 
     class _Fake_Engine:
+        def __init__(self, channels=None):
+            _captured["channels"] = channels
+
         def Capture(self, scene, config, output_dir, progress_callback=None):
             _captured["capture_scene"] = scene
             _captured["capture_config"] = config
@@ -58,6 +61,7 @@ def test_run_batch_capture_loads_config_imports_scene_and_calls_engine(monkeypat
     Run_batch_capture(Path("config.json"), progress_callback=_progress)
 
     assert _captured["import_path"] == _scene_path.resolve()
+    assert _captured["channels"] == ["rgb", "depth", "normal", "segmentation"]
     assert _captured["capture_scene"] is _captured["scene_instance"]
     assert _captured["capture_output_dir"] == _scene_path.parent / _scene_path.stem
     assert _captured["capture_progress_callback"] is _progress
@@ -78,6 +82,9 @@ def test_run_batch_capture_uses_scene_stem_as_output_dir(monkeypatch, tmp_path):
             return None
 
     class _Fake_Engine:
+        def __init__(self, channels=None):
+            _outputs.append(channels)
+
         def Capture(self, scene, config, output_dir, progress_callback=None):
             _outputs.append(output_dir)
 
@@ -87,4 +94,4 @@ def test_run_batch_capture_uses_scene_stem_as_output_dir(monkeypatch, tmp_path):
 
     Run_batch_capture(Path("render_cfg.json"))
 
-    assert _outputs == [_scene_path.parent / "sample_scene"]
+    assert _outputs == [["rgb", "depth", "normal", "segmentation"], _scene_path.parent / "sample_scene"]

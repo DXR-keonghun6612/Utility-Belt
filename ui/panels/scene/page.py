@@ -79,14 +79,17 @@ class Outliner_Panel(Base_Panel):
 
     def _On_save_scene_clicked(self):
         _path, _ = QFileDialog.getSaveFileName(
-            self, "Save Scene", "", "Scene Files (*.json)", options=QFileDialog.Option.DontUseNativeDialog)
-        if _path: self.stage.Save(Path(_path))
+            self, "Save Scene", "", "Scene Files (*.json *.usd *.usda *.usdc)", options=QFileDialog.Option.DontUseNativeDialog)
+        if _path:
+            self.stage.Export(Path(_path))
+            self.bus.scene_path_changed.emit(str(Path(_path)))
 
     def _On_load_scene_clicked(self):
         _path, _ = QFileDialog.getOpenFileName(
-            self, "Load Scene", "", "Scene Files (*.json)", options=QFileDialog.Option.DontUseNativeDialog)
+            self, "Load Scene", "", "Scene Files (*.json *.usd *.usda *.usdc)", options=QFileDialog.Option.DontUseNativeDialog)
         if _path:
-            self.stage.Load(Path(_path))
+            self.stage.Import(Path(_path))
+            self.bus.scene_path_changed.emit(str(Path(_path)))
             self.bus.scene_loaded.emit()
 
 class Scene_Explorer_Page(Base_Panel):
@@ -111,8 +114,13 @@ class Scene_Explorer_Page(Base_Panel):
 
     def _connect_signals(self):
         self.bus.selection_changed.connect(self._On_selection_changed)
+        self.bus.property_changed.connect(self._Refresh_inspector)
         self.bus.scene_loaded.connect(lambda: self.inspector.Update_info(None))
 
     @Slot(list)
     def _On_selection_changed(self, nodes: list):
         self.inspector.Update_info(nodes[0] if len(nodes) == 1 else None)
+
+    @Slot()
+    def _Refresh_inspector(self) -> None:
+        self.inspector.Update_info(self.inspector.current_node)

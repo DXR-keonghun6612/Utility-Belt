@@ -4,6 +4,7 @@ from pathlib import Path
 
 from spatial_toolbox.scene import Controller
 from spatial_toolbox.simulation import Sim_Config
+from ui.event_bus import EVENT_BUS
 from ui.panels.simulation.page import Simulation_Page
 
 
@@ -21,7 +22,57 @@ def test_simulation_page_select_config_enables_run(monkeypatch, qapp, tmp_path):
 
     assert _page.config_path == _cfg
     assert _page.btn_run.isEnabled() is True
-    assert _page.config_path_label.text() == str(_cfg)
+    assert _page.config_path_label.text() == f"Render Config: {_cfg}"
+
+
+def test_simulation_page_generate_config_saves_and_enables_run(monkeypatch, qapp, tmp_path):
+    class _Dummy_Dialog:
+        def __init__(self, stage, parent=None):
+            pass
+
+        def exec(self):
+            from PySide6.QtWidgets import QDialog
+            return QDialog.DialogCode.Accepted
+
+        def Get_config(self):
+            return Sim_Config(num_samples=3)
+
+    monkeypatch.setattr("ui.panels.simulation.page.Generate_Config_Dialog", _Dummy_Dialog)
+    monkeypatch.setattr(
+        "ui.panels.simulation.page.QFileDialog.getSaveFileName",
+        lambda *args, **kwargs: (str(tmp_path / "render_config.json"), "JSON Files (*.json)"),
+    )
+    monkeypatch.setattr("spatial_toolbox.simulation.Sim_Config.Write_to", lambda *args, **kwargs: None)
+
+    _page = Simulation_Page(Controller())
+    _page.current_scene_path = tmp_path / "scene.usda"
+    _page._generate_config()
+
+    assert _page.config_path == tmp_path / "render_config.json"
+    assert _page.btn_run.isEnabled() is True
+    assert _page.config_path_label.text() == f"Render Config: {tmp_path / 'render_config.json'}"
+
+
+def test_simulation_page_generate_config_requires_scene_path(monkeypatch, qapp):
+    _warnings: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(
+        "ui.panels.simulation.page.QMessageBox.warning",
+        lambda parent, title, text: _warnings.append((title, text)),
+    )
+
+    _page = Simulation_Page(Controller())
+    _page._generate_config()
+
+    assert _warnings
+    assert "scene 경로" in _warnings[0][1]
+
+
+def test_simulation_page_tracks_scene_path_from_event(qapp, tmp_path):
+    _page = Simulation_Page(Controller())
+    _scene = tmp_path / "scene.usda"
+    EVENT_BUS.scene_path_changed.emit(str(_scene))
+    assert _page.current_scene_path == _scene
 
 
 def test_simulation_page_run_disables_controls_and_starts_worker(monkeypatch, qapp, tmp_path):
@@ -58,41 +109,9 @@ def test_simulation_page_run_disables_controls_and_starts_worker(monkeypatch, qa
     assert _page.btn_select_config.isEnabled() is False
     assert _page.status_label.text() == "시뮬레이션 초기화 중..."
 
-
-def test_simulation_page_generate_config_uses_base_config_write_to(monkeypatch, qapp, tmp_path):
-    _saved: dict[str, object] = {}
-
-    class _Dummy_Dialog:
-        def __init__(self, stage, parent=None):
-            pass
-
-        def exec(self):
-            from PySide6.QtWidgets import QDialog
-            return QDialog.DialogCode.Accepted
-
-        def Get_config(self):
-            return Sim_Config(num_samples=3)
-
-    def _capture_write(self, name: str, save_dir: Path, encoding_type: str = "UTF-8"):
-        _saved["name"] = name
-        _saved["save_dir"] = Path(save_dir)
-        _saved["scene_path"] = self.scene_path
-        _saved["num_samples"] = self.num_samples
-
-    _out = tmp_path / "render_config.json"
-    monkeypatch.setattr("ui.panels.simulation.page.Generate_Config_Dialog", _Dummy_Dialog)
-    monkeypatch.setattr(
-        "ui.panels.simulation.page.QFileDialog.getSaveFileName",
-        lambda *args, **kwargs: (str(_out), "JSON Files (*.json)"),
-    )
-    monkeypatch.setattr("spatial_toolbox.simulation.Sim_Config.Write_to", _capture_write)
-
+def test_simulation_page_tracks_scene_path_from_event_updates_label(qapp, tmp_path):
     _page = Simulation_Page(Controller())
-    _page._generate_config()
-
-    assert _saved["name"] == "render_config.json"
-    assert _saved["save_dir"] == tmp_path
-    assert _saved["scene_path"] == str(tmp_path / "scene.json")
-    assert _saved["num_samples"] == 3
-    assert _page.config_path == _out
-    assert _page.btn_run.isEnabled() is True
+    _scene = tmp_path / "scene.usda"
+    EVENT_BUS.scene_path_changed.emit(str(_scene))
+    assert _page.current_scene_path == _scene
+    assert _page.scene_path_label.text() == f"Scene: {_scene}"

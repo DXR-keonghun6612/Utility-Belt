@@ -9,8 +9,11 @@ from PySide6.QtCore import QObject, Signal
 class _Event_Bus(QObject):
     # Scene 조작 시그널
     scene_loaded = Signal()                   # 새로운 씬이 완전히 로드됨
+    scene_path_changed = Signal(str)          # 현재 scene 파일 경로가 변경됨
     scene_mutated = Signal()                  # 씬의 구조(노드 추가/삭제)가 변경됨
     selection_changed = Signal(list)          # 아웃라이너나 뷰포트에서 노드가 선택됨 (list[Base_Node])
+    loading_progress = Signal(int, int, str)  # 파일/mesh 로드 진행 상태
+    simulation_progress = Signal(int, int, str)  # 시뮬레이션 진행 상태
     
     # 노드 속성 변경 시그널
     property_changed = Signal()               # 인스펙터 등에서 노드의 속성(Transform 등)이 변경됨
@@ -21,9 +24,6 @@ class _Event_Bus(QObject):
     
     # 뷰포트 표시 설정 시그널
     viewer_config_changed = Signal()            # 그리드 간격·범위 등 뷰포트 표시 설정 변경
-
-    # 에셋 관련 시그널
-    asset_instantiate_requested = Signal(object) # 에셋 브라우저에서 특정 에셋 노드를 씬에 추가 요청
 
 # 싱글톤 인스턴스 전역 노출
 EVENT_BUS = _Event_Bus()

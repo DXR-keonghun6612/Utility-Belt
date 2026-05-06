@@ -19,7 +19,7 @@ _UNIT_PRESETS: list[tuple[str, float]] = [
     ("cm", 0.01),
     ("mm", 0.001),
 ]
-_UNIT_DEFAULT_INDEX = 1  # "m"
+_UNIT_DEFAULT_INDEX = 3  # "mm"
 
 
 class Asset_Browser_Panel(Base_Panel):
@@ -64,7 +64,6 @@ class Asset_Browser_Panel(Base_Panel):
         self.btn_load.clicked.connect(self._on_load_clicked)
         self.btn_remove.clicked.connect(self._on_remove_clicked)
         self.btn_duplicates.clicked.connect(self._on_find_duplicates_clicked)
-        self.tree.itemDoubleClicked.connect(self._on_item_double_clicked)
 
     @Slot()
     def _on_load_clicked(self):
@@ -75,20 +74,19 @@ class Asset_Browser_Panel(Base_Panel):
         if not _files:
             return
 
-        for _f in _files:
+        _targets = [_f for _f in _files if ASSET_CACHE.Get(_f) is None]
+        _total = len(_targets)
+        if _total == 0:
+            return
+
+        self.bus.loading_progress.emit(0, _total, "Load Asset")
+        for _idx, _f in enumerate(_targets, start=1):
             if ASSET_CACHE.Get(_f) is not None:
                 continue
-            Load_and_register(_f)
+            Load_and_register(_f, unit_length=0.001)
+            self.bus.loading_progress.emit(_idx, _total, "Load Asset")
 
         self._Rebuild_tree()
-
-    @Slot(QTreeWidgetItem, int)
-    def _on_item_double_clicked(self, item: QTreeWidgetItem, column: int):
-        """리프 항목 더블클릭 시 도메인 계층으로 인스턴스화 이벤트를 방출함."""
-        _key = item.data(0, Qt.ItemDataRole.UserRole)
-        if not _key:
-            return
-        self.bus.asset_instantiate_requested.emit(_key)
 
     @Slot()
     def _on_remove_clicked(self):
