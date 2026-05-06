@@ -1,38 +1,83 @@
-# FOCUS — 3D Simulation
+# FOCUS
 
-3D 가상 시뮬레이션 환경을 구축하고, 알고리즘 사전 검증 및 학습 데이터 생성을 수행함.
+FOCUS는 3D 씬을 편집하고, 같은 장면으로 실시간 검토와 오프라인 데이터셋 캡처를 수행하는 Python 기반 도구임.
 
-## 프로젝트 목표
+핵심 구성은 세 파트로 나뉨.
 
-- **정적 편집기**: 3D 객체를 배치/교체/편집하고, 멀티패스 렌더링으로 학습 데이터셋(RGB, Depth, Segmentation, Normal + 메타데이터)을 생성함.
-- **동적 분석기**: 3D 객체 모델을 단위시간 간격으로 시뮬레이션하고 결과를 확인함. (미구현)
-- **AI 모델 학습기**: 시뮬레이션 환경에서 생성된 데이터를 활용한 모델 학습. (미구현)
+- `viewport/`: 편집기 내부의 실시간 OpenGL 뷰포트
+- `simulation/`: `Sim_Config` 기반 오프라인 캡처 진입점
+- `ui/`: PySide6 편집기 레이어
 
-## 설계 이념
+실제 씬 그래프, 렌더 백엔드, 캡처 엔진의 기반 코어는 `submodules/spatial_toolbox/`가 제공함.
 
-- **단방향 의존**: `spatial_toolbox ← {viewport, simulation} ← ui`. 순환 참조 없음. 상위 레이어가 하위만 소비하며, 하위는 상위를 알지 못함.
-- **서브모듈 도메인 격리**: 씬 그래프 / 에셋 캐시 / OpenGL 렌더 코어는 `submodules/spatial_toolbox/` 서브모듈이 제공함. 프로젝트 최상위는 어댑터 성격의 `viewport/`(편집기 뷰포트)·`simulation/`(오프라인 캡처 파이프라인)·`ui/`(PySide6 편집기)만 보유함.
-- **Zero-dependency 지향**: 표준 라이브러리와 네이티브 기능을 우선함. 외부 라이브러리는 명확한 이득이 있을 때만 도입함.
-- **Mediator 기반 UI**: 위젯 간 직접 참조를 금지하고, `Main_Window`가 시그널을 중계하여 결합도를 낮춤.
-- **재사용 가능한 코어**: 렌더 패스 구현체(`rgb`/`depth`/`segmentation`/`normal`)가 `spatial_toolbox.graphics.openGL.pass_`에 집약되어, 편집기 뷰포트와 오프라인 파이프라인이 동일 코드를 공유함.
-- **캐시·풀링 우선**: 변환 행렬은 Dirty Flag로, GPU 리소스는 `id(mesh)` 키 기반 VBO 캐시로 누수와 중복 전송을 차단함.
-- **확장 가능한 등록 구조**: 노드/에셋/렌더 패스는 데코레이터 기반 레지스트리로 등록되어, 새 타입 추가 시 파이프라인 코드 수정이 불필요함.
+```text
+submodules/spatial_toolbox
+    ├── scene/
+    ├── render/
+    └── simulation/
+             ▲
+             │
+    viewport/ simulation/
+             ▲
+             │
+            ui/
+```
 
-## 환경
+## 설계 경계
 
-- Python ≥ 3.11
-- UI: PySide6
-- 3D 시각화: OpenGL 고정 파이프라인 (PyOpenGL, EGL)
-- 3D 데이터 처리: numpy, scipy (KDTree, rotation), trimesh
-- 이미지 입출력: PIL (PySide6 비의존)
+- `spatial_toolbox`는 재사용 가능한 코어 라이브러리이고, FOCUS는 이를 소비하는 애플리케이션 계층임
+- `viewport/`는 편집기 전용 실시간 검토 도구이며, scene graph 저장 규약에는 관여하지 않음
+- `simulation/`은 캡처 실행 진입점만 담당하고, 샘플링/저장 규약은 `spatial_toolbox.simulation`에 둠
+- `ui/`는 `EVENT_BUS` 기반으로 패널을 느슨하게 연결함
+
+## 패키지 구조
+
+```text
+FOCUS/
+├── app.py
+├── capture_cli.py
+├── README.md
+├── COOKBOOK.md
+├── ui/
+│   ├── README.md
+│   └── COOKBOOK.md
+├── viewport/
+│   ├── README.md
+│   └── COOKBOOK.md
+├── simulation/
+│   ├── README.md
+│   └── COOKBOOK.md
+└── submodules/
+    └── spatial_toolbox/
+```
+
+## 실행
+
+Python `3.11+` 기준.
+
+```bash
+pip install -e .
+python app.py
+```
+
+헤드리스 배치 캡처는 아래처럼 실행함.
+
+```bash
+python capture_cli.py --render_cfg path/to/sim_config.json
+```
 
 ## 문서
 
-- [ROADMAP.md](ROADMAP.md) — 진행 사항 및 향후 과제
-- [COOKBOOK.md](COOKBOOK.md) — 실행 방법 및 사용 예시
-- [ARCHITECTURE.md](ARCHITECTURE.md) — 구조 의사결정·확장 지점
-- [viewport/README.md](viewport/README.md) — 편집기 실시간 뷰포트
-- [simulation/README.md](simulation/README.md) — 오프라인 멀티패스 캡처 파이프라인
-- [ui/README.md](ui/README.md) — PySide6 편집기 UI 및 Mediator 시그널 흐름
-- [submodules/spatial_toolbox/spatial_toolbox/scene/README.md](submodules/spatial_toolbox/spatial_toolbox/scene/README.md) — 씬 그래프·에셋 캐시·파일 I/O 레이어
-- [submodules/spatial_toolbox/spatial_toolbox/graphics/COOKBOOK.md](submodules/spatial_toolbox/spatial_toolbox/graphics/COOKBOOK.md) — OpenGL 렌더 코어 사용법
+| 문서 | 역할 |
+|---|---|
+| [COOKBOOK.md](./COOKBOOK.md) | 상위 실행 흐름과 빠른 시작 |
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | 설계 의사결정 및 구조 메모 |
+| [ROADMAP.md](./ROADMAP.md) | 진행 현황과 TODO |
+| [ui/README.md](./ui/README.md) | 편집기 UI 레이어 개요 |
+| [ui/COOKBOOK.md](./ui/COOKBOOK.md) | UI 실행/이벤트/패널 확장 예제 |
+| [viewport/README.md](./viewport/README.md) | 실시간 뷰포트 코어 개요 |
+| [viewport/COOKBOOK.md](./viewport/COOKBOOK.md) | 카메라/픽킹/기즈모 사용 예제 |
+| [simulation/README.md](./simulation/README.md) | 오프라인 캡처 진입점 개요 |
+| [simulation/COOKBOOK.md](./simulation/COOKBOOK.md) | CLI/코드 기반 배치 캡처 예제 |
+| [submodules/spatial_toolbox/README.md](./submodules/spatial_toolbox/README.md) | 코어 라이브러리 전체 개요 |
+| [submodules/spatial_toolbox/COOKBOOK.md](./submodules/spatial_toolbox/COOKBOOK.md) | 코어 라이브러리 빠른 시작 |

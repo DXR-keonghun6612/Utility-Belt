@@ -5,7 +5,11 @@ from PySide6.QtWidgets import (
     QTabWidget, QWidget, QCheckBox,
 )
 
-from spatial_toolbox.simulation import Sim_Config, Randomize_Range
+from spatial_toolbox.simulation import (
+    Physics_Drop_Config,
+    Randomize_Range,
+    Sim_Config,
+)
 from spatial_toolbox.scene import Controller as Stage_Controller
 from spatial_toolbox.scene.node import Camera as Camera_Node
 from spatial_toolbox.scene.node.utils import walk_nodes
@@ -39,6 +43,7 @@ class Generate_Config_Dialog(QDialog):
 
         _layout.addWidget(self._Build_scene_group())
         _layout.addWidget(self._Build_randomize_tabs())
+        _layout.addWidget(self._Build_physics_group())
 
         _btn = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -91,6 +96,97 @@ class Generate_Config_Dialog(QDialog):
         _tabs.addTab(_cam_tab, "카메라 변환")
 
         return _tabs
+
+    def _Build_physics_group(self) -> QGroupBox:
+        _group = QGroupBox("Physics Drop")
+        _form = QFormLayout(_group)
+        _form.setSpacing(6)
+
+        self.chk_physics_drop = QCheckBox("사용")
+        self.chk_ground_plane = QCheckBox("바닥 plane 추가")
+        self.chk_ground_plane.setChecked(True)
+        self.chk_collide_with_scene = QCheckBox("scene mesh와 충돌")
+        self.chk_collide_with_scene.setChecked(True)
+
+        self.spin_floor_z = QDoubleSpinBox()
+        self.spin_floor_z.setRange(-9999.0, 9999.0)
+        self.spin_floor_z.setDecimals(4)
+        self.spin_floor_z.setValue(0.0)
+
+        self.spin_settle_frames = QSpinBox()
+        self.spin_settle_frames.setRange(1, 10000)
+        self.spin_settle_frames.setValue(24)
+
+        self.cb_collision_shape = QComboBox()
+        self.cb_collision_shape.addItems(["CONVEX_HULL", "MESH", "BOX"])
+
+        self.spin_mass = QDoubleSpinBox()
+        self.spin_mass.setRange(0.001, 10000.0)
+        self.spin_mass.setDecimals(4)
+        self.spin_mass.setValue(1.0)
+
+        self.spin_friction = QDoubleSpinBox()
+        self.spin_friction.setRange(0.0, 1.0)
+        self.spin_friction.setDecimals(4)
+        self.spin_friction.setValue(0.5)
+
+        self.spin_restitution = QDoubleSpinBox()
+        self.spin_restitution.setRange(0.0, 1.0)
+        self.spin_restitution.setDecimals(4)
+        self.spin_restitution.setValue(0.0)
+
+        self.spin_steps_per_second = QSpinBox()
+        self.spin_steps_per_second.setRange(1, 10000)
+        self.spin_steps_per_second.setValue(120)
+
+        self.spin_solver_iterations = QSpinBox()
+        self.spin_solver_iterations.setRange(1, 1000)
+        self.spin_solver_iterations.setValue(20)
+
+        self.spin_linear_damping = QDoubleSpinBox()
+        self.spin_linear_damping.setRange(0.0, 1.0)
+        self.spin_linear_damping.setDecimals(4)
+        self.spin_linear_damping.setValue(0.04)
+
+        self.spin_angular_damping = QDoubleSpinBox()
+        self.spin_angular_damping.setRange(0.0, 1.0)
+        self.spin_angular_damping.setDecimals(4)
+        self.spin_angular_damping.setValue(0.1)
+
+        _controls = [
+            self.chk_ground_plane,
+            self.chk_collide_with_scene,
+            self.spin_floor_z,
+            self.spin_settle_frames,
+            self.cb_collision_shape,
+            self.spin_mass,
+            self.spin_friction,
+            self.spin_restitution,
+            self.spin_steps_per_second,
+            self.spin_solver_iterations,
+            self.spin_linear_damping,
+            self.spin_angular_damping,
+        ]
+        self.chk_physics_drop.toggled.connect(
+            lambda enabled: [control.setEnabled(enabled) for control in _controls]
+        )
+        self.chk_physics_drop.setChecked(False)
+
+        _form.addRow("물리 드롭:", self.chk_physics_drop)
+        _form.addRow("바닥 높이:", self.spin_floor_z)
+        _form.addRow("정착 프레임:", self.spin_settle_frames)
+        _form.addRow("충돌 shape:", self.cb_collision_shape)
+        _form.addRow("질량:", self.spin_mass)
+        _form.addRow("마찰:", self.spin_friction)
+        _form.addRow("반발:", self.spin_restitution)
+        _form.addRow("초당 스텝:", self.spin_steps_per_second)
+        _form.addRow("solver 반복:", self.spin_solver_iterations)
+        _form.addRow("선형 damping:", self.spin_linear_damping)
+        _form.addRow("회전 damping:", self.spin_angular_damping)
+        _form.addRow("", self.chk_ground_plane)
+        _form.addRow("", self.chk_collide_with_scene)
+
+        return _group
 
     def _Build_dof_tab(self) -> tuple[QWidget, dict]:
         """위치(m) / 회전(°) 두 그룹으로 나뉜 6-DoF 입력 탭을 생성함."""
@@ -208,4 +304,19 @@ class Generate_Config_Dialog(QDialog):
             seed=self.spin_seed.value() if self.chk_seed.isChecked() else None,
             obj=self._Extract_randomize_range(self._obj_controls),
             cam=self._Extract_randomize_range(self._cam_controls),
+            physics_drop=Physics_Drop_Config(
+                enabled=self.chk_physics_drop.isChecked(),
+                floor_z=self.spin_floor_z.value(),
+                use_ground_plane=self.chk_ground_plane.isChecked(),
+                settle_frames=self.spin_settle_frames.value(),
+                steps_per_second=self.spin_steps_per_second.value(),
+                solver_iterations=self.spin_solver_iterations.value(),
+                mass=self.spin_mass.value(),
+                friction=self.spin_friction.value(),
+                restitution=self.spin_restitution.value(),
+                linear_damping=self.spin_linear_damping.value(),
+                angular_damping=self.spin_angular_damping.value(),
+                collision_shape=self.cb_collision_shape.currentText(),
+                collide_with_scene=self.chk_collide_with_scene.isChecked(),
+            ),
         )

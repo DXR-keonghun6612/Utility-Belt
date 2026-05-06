@@ -6,8 +6,8 @@ from PySide6.QtCore import Qt, QPoint
 from PySide6.QtGui import QAction, QDropEvent, QIcon, QPixmap, QPainter, QFont
 
 from spatial_toolbox.scene import Controller as Stage_Controller
+from spatial_toolbox.scene.asset.file import Load_and_register
 from spatial_toolbox.scene.node import Base_Node, Group
-from spatial_toolbox.scene.file import Load_and_register
 
 from ui.event_bus import EVENT_BUS # [수정] 누락된 이벤트 버스 임포트
 from .add_asset_dialog import Add_Asset_Dialog

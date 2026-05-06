@@ -6,8 +6,8 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal, Slot
 
-from spatial_toolbox.scene.asset.cache import ASSET_CACHE
-from spatial_toolbox.scene.file import Load_and_register
+from spatial_toolbox.scene.asset.cache import ASSET_CACHE, Parse_key
+from spatial_toolbox.scene.asset.file import Load_and_register
 from ui.panels.asset.duplicate_dialog import Duplicate_Dialog
 from ui.panels._base import Base_Panel
 
@@ -123,17 +123,17 @@ class Asset_Browser_Panel(Base_Panel):
             _type_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
             self.tree.addTopLevelItem(_type_item)
 
-            for _key_tuple, _asset in _bucket.items():
-                _path, _fragment = _key_tuple
+            for _key_str, _asset in _bucket.items():
+                _path, _fragment = Parse_key(_key_str)
                 _name = Path(_path).stem
                 _display = _name if _fragment is None else f"{_name}#{_fragment}"
-                _key_str = _path if _fragment is None else f"{_path}#{_fragment}"
+                _cache_key = _path if _fragment is None else f"{_path}#{_fragment}"
 
                 _child = QTreeWidgetItem([_display, _path, ""])
-                _child.setData(0, Qt.ItemDataRole.UserRole, _key_str)
+                _child.setData(0, Qt.ItemDataRole.UserRole, _cache_key)
                 _type_item.addChild(_child)
 
-                _combo = self._Build_unit_combo(_asset.unit_length, _key_str)
+                _combo = self._Build_unit_combo(_asset.unit_length, _cache_key)
                 self.tree.setItemWidget(_child, 2, _combo)
 
             _type_item.setExpanded(True)

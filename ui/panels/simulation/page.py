@@ -1,5 +1,4 @@
 """시뮬레이션 패널 메인 레이아웃 및 제어 모듈."""
-import json
 from pathlib import Path
 
 from PySide6.QtWidgets import (
@@ -83,8 +82,8 @@ class Simulation_Page(Base_Panel):
         
         if _path:
             _out_path = Path(_path)
-            _cfg.scene_path = str(_out_path.parent / "scene.json") 
-            _out_path.write_text(json.dumps(_cfg.Serialize(), indent=4), encoding="utf-8")
+            _cfg.scene_path = str(_out_path.parent / "scene.json")
+            _cfg.Write_to(_out_path.name, _out_path.parent)
             
             self.config_path = _out_path
             self.config_path_label.setText(str(self.config_path))
