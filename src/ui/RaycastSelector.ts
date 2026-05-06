@@ -9,6 +9,7 @@ export class RaycastSelector {
     private camera: THREE.Camera;
     private renderer: THREE.WebGLRenderer;
     private onSelect: (node: SceneNode) => void;
+    private _boundOnClick: (e: MouseEvent) => void;
 
     constructor(
         scene: THREE.Scene,
@@ -16,11 +17,12 @@ export class RaycastSelector {
         renderer: THREE.WebGLRenderer,
         onSelect: (node: SceneNode) => void,
     ) {
-        this.scene    = scene;
-        this.camera   = camera;
-        this.renderer = renderer;
-        this.onSelect = onSelect;
-        renderer.domElement.addEventListener('click', this._onClick.bind(this));
+        this.scene          = scene;
+        this.camera         = camera;
+        this.renderer       = renderer;
+        this.onSelect       = onSelect;
+        this._boundOnClick  = this._onClick.bind(this);
+        renderer.domElement.addEventListener('click', this._boundOnClick);
     }
 
     private _onClick(e: MouseEvent): void {
@@ -50,6 +52,6 @@ export class RaycastSelector {
     }
 
     dispose(): void {
-        this.renderer.domElement.removeEventListener('click', this._onClick.bind(this));
+        this.renderer.domElement.removeEventListener('click', this._boundOnClick);
     }
 }

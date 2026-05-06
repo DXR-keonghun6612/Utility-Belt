@@ -4,12 +4,13 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { SceneNode } from './core/SceneNode';
 import { NodeRegistry } from './core/NodeRegistry';
 import { SceneDeserializer } from './core/SceneDeserializer';
-import { NodeAssembler, type SceneSnapshot } from './core/NodeAssembler';
+import { type SceneSnapshot, type NodeDescriptor } from './core/NodeAssembler';
 import { AssetManager } from './core/AssetManager';
+import { BROADCAST_CHANNEL } from './ui/AssetEditorApp';
 
 import { TabManager }      from './ui/TabManager';
 import { SceneGraphPanel } from './ui/SceneGraphPanel';
-import { PropertiesPanel } from './ui/PropertiesPanel';
+import { InstancePanel }   from './ui/InstancePanel';
 import { RaycastSelector } from './ui/RaycastSelector';
 import { PresetPanel }     from './ui/PresetPanel';
 import { BuilderPanel }    from './ui/BuilderPanel';
@@ -22,11 +23,11 @@ export class SceneEditorApp {
 
     private sceneRoot!: SceneNode;
 
-    private tabManager!:   TabManager;
-    private graphPanel!:   SceneGraphPanel;
-    private propsPanel!:   PropertiesPanel;
-    private presetPanel!:  PresetPanel;
-    private builderPanel!: BuilderPanel;
+    private tabManager!:    TabManager;
+    private graphPanel!:    SceneGraphPanel;
+    private instancePanel!: InstancePanel;
+    private presetPanel!:   PresetPanel;
+    private builderPanel!:  BuilderPanel;
 
     private assetManager: AssetManager;
 
@@ -50,7 +51,10 @@ export class SceneEditorApp {
 
     // ── THREE.js ─────────────────────────────────────
 
-    private w(): number { return window.innerWidth - 300; }
+    private w(): number {
+        const panel = document.getElementById('scene-panel');
+        return window.innerWidth - (panel?.offsetWidth ?? 300);
+    }
     private h(): number { return window.innerHeight; }
 
     private initEngine(): void {
@@ -103,13 +107,17 @@ export class SceneEditorApp {
         this.graphPanel = new SceneGraphPanel(
             this.tabManager.sceneTreePane,
             (node) => this.onSelect(node),
-            (node) => this.onAddToJoint(node),
+            undefined,
             (node) => this.onRemoveNode(node),
             (node, newParent) => this.onReparentNode(node, newParent),
         );
 
-        this.propsPanel = new PropertiesPanel(this.tabManager.sceneInspectorPane);
-        this.propsPanel.clear();
+        this.instancePanel = new InstancePanel(
+            this.tabManager.sceneInspectorPane,
+            this.assetManager,
+            () => this.refreshPanels(),
+        );
+        this.instancePanel.clear();
 
         this.presetPanel = new PresetPanel(
             this.tabManager.sceneActionPane,
@@ -117,10 +125,11 @@ export class SceneEditorApp {
             (root) => this.onSceneReloaded(root),
         );
 
-        this.builderPanel = new BuilderPanel(this.tabManager.tabs['builder'], () => {
-            // Apply or tree changes in BuilderPanel should update Scene UI
-            this.refreshPanels();
-        });
+        this.builderPanel = new BuilderPanel(
+            this.tabManager.tabs['builder'],
+            this.assetManager,
+            () => this.refreshPanels(),
+        );
 
         new RaycastSelector(
             this.scene,
@@ -138,14 +147,10 @@ export class SceneEditorApp {
             return;
         }
         node.parent.removeChild(node);
-        
-        // Remove from registry recursively
-        const nodesToRemove = node.flatten();
-        for (const n of nodesToRemove) {
-            NodeRegistry.unregister(n);
-        }
-        
-        this.propsPanel.clear();
+
+        for (const n of node.flatten()) NodeRegistry.unregister(n);
+
+        this.instancePanel.clear();
         this.refreshPanels();
     }
 
@@ -170,38 +175,6 @@ export class SceneEditorApp {
         this.onSelect(node);
     }
 
-    private async onAddToJoint(jointNode: SceneNode): Promise<void> {
-        const available = this.assetManager.getAllModelNames();
-        const msg = `Select a model to attach to [${jointNode.label}].\n\nAvailable models:\n${available.join('\n')}`;
-        const chosen = prompt(msg);
-        if (!chosen) return;
-
-        if (!available.includes(chosen)) {
-            alert(`Model '${chosen}' not found.`);
-            return;
-        }
-
-        try {
-            const descriptor = this.assetManager.getModel(chosen);
-            const instanceId = `${chosen}_${Math.floor(Math.random() * 10000)}`;
-            
-            // SceneDeserializer 대신 NodeAssembler를 직접 사용하여 'scene' 중복 ID 방지
-            const newGroup = NodeAssembler.load(descriptor, instanceId);
-            
-            // 모델 출처 기록 — SceneSerializer가 나중에 저장할 때 사용
-            newGroup.metadata._modelName = chosen;
-
-            jointNode.addChild(newGroup);
-            
-            // Re-render panels
-            this.refreshPanels();
-            this.onSelect(newGroup);
-        } catch (err) {
-            console.error('Failed to attach model:', err);
-            alert(`Failed to attach model: ${(err as Error).message}`);
-        }
-    }
-
     private async loadScene(snapshot: SceneSnapshot): Promise<void> {
         NodeRegistry.clear();
         this.sceneRoot = await SceneDeserializer.load(
@@ -216,7 +189,7 @@ export class SceneEditorApp {
         this.scene.remove(this.sceneRoot.object3D);
         this.sceneRoot = root;
         this.scene.add(root.object3D);
-        this.propsPanel.clear();
+        this.instancePanel.clear();
         this.refreshPanels();
     }
 
@@ -229,7 +202,7 @@ export class SceneEditorApp {
     // ── Selection ────────────────────────────────────
 
     private onSelect(node: SceneNode): void {
-        this.propsPanel.show(node);
+        this.instancePanel.show(node);
         this.graphPanel.highlight(node);
         this.tabManager.switchTo('scene');
     }
@@ -237,11 +210,35 @@ export class SceneEditorApp {
     // ── Loop ─────────────────────────────────────────
 
     private bindEvents(): void {
-        window.addEventListener('resize', () => {
+        const syncRenderer = () => {
             this.camera.aspect = this.w() / this.h();
             this.camera.updateProjectionMatrix();
             this.renderer.setSize(this.w(), this.h());
+        };
+        window.addEventListener('resize', syncRenderer);
+        new ResizeObserver(syncRenderer).observe(this.tabManager.panel);
+
+        // Asset Editor 탭에서 전송된 에셋을 AssetManager에 등록
+        const channel = new BroadcastChannel(BROADCAST_CHANNEL);
+        channel.addEventListener('message', (e: MessageEvent) => {
+            if (e.data?.type !== 'ASSET_SAVED') return;
+            const { name, descriptor } = e.data as { name: string; descriptor: NodeDescriptor };
+            this.assetManager.registerModel(name, descriptor);
+            this._showToast(`Asset "${name}" registered`);
         });
+    }
+
+    private _showToast(msg: string): void {
+        const el = document.createElement('div');
+        el.style.cssText = `
+            position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+            background: #004d5f; border: 1px solid #00bcd4; color: #00bcd4;
+            font-family: monospace; font-size: 12px; padding: 6px 16px;
+            border-radius: 4px; z-index: 9999; pointer-events: none;
+        `;
+        el.textContent = msg;
+        document.body.appendChild(el);
+        setTimeout(() => el.remove(), 2500);
     }
 
     private animate(): void {

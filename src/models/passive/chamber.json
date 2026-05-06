@@ -21,7 +21,7 @@
     },
     {
       "id": "chamber.ceiling",
-      "type": "JOINT",
+      "type": "ANCHOR",
       "label": "Ceiling Mount Point",
       "layout": { "kind": "single" },
       "transform": { "position": [0, 20.2, 0], "rotation": [0, 0, 0] },
@@ -43,7 +43,7 @@
     },
     {
       "id": "chamber.floor",
-      "type": "JOINT",
+      "type": "ANCHOR",
       "label": "Floor Mount Point",
       "layout": { "kind": "single" },
       "transform": { "position": [0, 9.7, 0], "rotation": [0, 0, 0] },

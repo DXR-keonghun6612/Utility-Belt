@@ -1,16 +1,38 @@
 import * as THREE from 'three';
 import { SceneNode, NodeType } from './SceneNode';
-import { NodeFactory, GeometryDescriptor, LayoutDescriptor } from './NodeFactory';
+import { NodeFactory, GeometryDescriptor } from './NodeFactory';
 import { NodeRegistry } from './NodeRegistry';
+
+export interface SlotConfig {
+    model?: string;
+    transform?: {
+        position?: [number, number, number];
+        rotation?: [number, number, number];
+    };
+    locked?: boolean;
+}
+
+export interface AnchorLayout {
+    kind: 'single' | 'array';
+    count?: number;
+    gap?: number;
+    axis?: 'x' | 'y' | 'z';
+    defaultModel?: string;
+    randomize?: {
+        components: ('px' | 'py' | 'pz' | 'rx' | 'ry' | 'rz')[];
+        ranges: Partial<Record<'px' | 'py' | 'pz' | 'rx' | 'ry' | 'rz', [number, number]>>;
+    };
+    slots?: Record<number, SlotConfig>;
+}
 
 export interface NodeDescriptor {
     id: string;
     type: string;
     label?: string;
-    /** LINK 전용 — 다른 타입에서는 무시된다. */
+    /** LINK 전용 */
     geometry?: GeometryDescriptor | null;
-    /** JOINT 전용 — 다른 타입에서는 무시된다. */
-    layout?: LayoutDescriptor | null;
+    /** ANCHOR 전용 */
+    layout?: AnchorLayout | null;
     transform?: {
         position?: [number, number, number];
         rotation?: [number, number, number];
@@ -83,7 +105,7 @@ export class NodeAssembler {
         // 타입에 따라 적절한 디스크립터만 보존한다.
         if (type === NodeType.LINK) {
             node.metadata._geometryDescriptor = desc.geometry ?? null;
-        } else if (type === NodeType.JOINT) {
+        } else if (type === NodeType.ANCHOR) {
             node.metadata._layoutDescriptor = desc.layout ?? { kind: 'single' };
         }
 
@@ -94,11 +116,11 @@ export class NodeAssembler {
             node.addChild(child);
         }
 
-        // JOINT만 자식 배치 적용 (자식이 모두 붙은 뒤)
-        if (type === NodeType.JOINT) {
+        // ANCHOR만 자식 배치 적용 (자식이 모두 붙은 뒤)
+        if (type === NodeType.ANCHOR) {
             NodeFactory.applyLayout(
                 node.object3D,
-                node.metadata._layoutDescriptor as LayoutDescriptor | null,
+                node.metadata._layoutDescriptor as AnchorLayout | null,
             );
         }
 

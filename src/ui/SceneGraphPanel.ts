@@ -2,6 +2,7 @@ import { SceneNode, NodeType } from '../core/SceneNode';
 
 const BADGE_CLASS: Record<NodeType, string> = {
     [NodeType.GROUP]:   'badge-GROUP',
+    [NodeType.ANCHOR]:  'badge-ANCHOR',
     [NodeType.JOINT]:   'badge-JOINT',
     [NodeType.LINK]:    'badge-LINK',
 };
@@ -9,7 +10,6 @@ const BADGE_CLASS: Record<NodeType, string> = {
 export class SceneGraphPanel {
     private container: HTMLElement;
     private onSelect: (node: SceneNode) => void;
-    private onAddChild?: (node: SceneNode) => void;
     private onRemoveNode?: (node: SceneNode) => void;
     private onReparentNode?: (node: SceneNode, newParent: SceneNode) => void;
     private expanded = new Set<string>();
@@ -19,13 +19,12 @@ export class SceneGraphPanel {
     constructor(
         container: HTMLElement,
         onSelect: (node: SceneNode) => void,
-        onAddChild?: (node: SceneNode) => void,
+        _onAddChild?: (node: SceneNode) => void,
         onRemoveNode?: (node: SceneNode) => void,
         onReparentNode?: (node: SceneNode, newParent: SceneNode) => void,
     ) {
         this.container = container;
         this.onSelect = onSelect;
-        this.onAddChild = onAddChild;
         this.onRemoveNode = onRemoveNode;
         this.onReparentNode = onReparentNode;
     }
@@ -84,20 +83,6 @@ export class SceneGraphPanel {
         badge.textContent = node.type;
         row.appendChild(badge);
 
-        if (node.type === NodeType.JOINT) {
-            const addBtn = document.createElement('span');
-            addBtn.className = 'tree-add-btn';
-            addBtn.textContent = '+';
-            addBtn.title = 'Mount model to this joint';
-            addBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                if (this.onAddChild) {
-                    this.onAddChild(node);
-                }
-            });
-            row.appendChild(addBtn);
-        }
-
         if (node.type === NodeType.GROUP && node.parent) {
             const removeBtn = document.createElement('span');
             removeBtn.className = 'tree-remove-btn';
@@ -133,7 +118,7 @@ export class SceneGraphPanel {
             });
         }
 
-        if (node.type === NodeType.GROUP || node.type === NodeType.JOINT) {
+        if (node.type === NodeType.GROUP || node.type === NodeType.ANCHOR || node.type === NodeType.JOINT) {
             row.addEventListener('dragover', (e) => {
                 e.preventDefault();
                 if (this.dragSourceNode && this.dragSourceNode !== node && !this._isDescendant(this.dragSourceNode, node)) {
@@ -197,25 +182,27 @@ export class SceneGraphPanel {
     }
 
     private _getVisibleChildren(node: SceneNode): SceneNode[] {
-        if (node.type === NodeType.GROUP) {
-            const flatList: SceneNode[] = [];
-            const traverse = (n: SceneNode) => {
-                for (const child of n.children) {
-                    if (child.type === NodeType.GROUP) {
-                        flatList.push(child);
-                        // Do not traverse into nested GROUPs
-                    } else if (child.type === NodeType.JOINT) {
-                        flatList.push(child);
-                        traverse(child); // Continue traversing to find other joints/groups
-                    } else { // LINK
-                        traverse(child);
-                    }
+        if (node.type !== NodeType.GROUP && node.type !== NodeType.JOINT) return [];
+
+        const flatList: SceneNode[] = [];
+        const traverse = (n: SceneNode) => {
+            for (const child of n.children) {
+                if (child.type === NodeType.GROUP) {
+                    flatList.push(child);
+                    // Do not traverse into nested GROUPs (separate model roots)
+                } else if (child.type === NodeType.ANCHOR) {
+                    flatList.push(child);
+                    // Do not traverse into ANCHOR children (slot models)
+                } else if (child.type === NodeType.JOINT) {
+                    flatList.push(child);
+                    traverse(child);
+                } else { // LINK — transparent, traverse through
+                    traverse(child);
                 }
-            };
-            traverse(node);
-            return flatList;
-        }
-        return [];
+            }
+        };
+        traverse(node);
+        return flatList;
     }
 
     private _ensureVisible(target: SceneNode): void {

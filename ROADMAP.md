@@ -1,385 +1,187 @@
-# Sandbox Refactoring Roadmap
+# ROADMAP
 
-## 개요
+## 현재 상태
 
-Three.js 기반 3D 뷰어를 범용 씬 편집 도구로 확장한다.
-크게 두 영역으로 나뉜다.
-
-- **A. 백엔드 모듈**: 3D 요소를 노드 그래프로 추상화하고 직렬화
-- **B. 프론트엔드 UI**: 노드 트리 기반 3탭 관리 패널
-
----
-
-## A. 백엔드 모듈
-
-### 핵심 방향
-
-모델 구조(부모-자식 관계, 조인트 축, 형상 파라미터)는 **JSON 데이터**로 정의한다.
-코드는 그 데이터를 읽어 조립하는 역할만 한다.
-새 모델을 추가할 때 코드 파일은 건드리지 않고 **JSON 파일 하나만 추가**하면 된다.
-
-```
-JSON (관계 · 형상 정의)
-    ↓ NodeAssembler.load(json)
-SceneNode 트리 (부모-자식 관계)
-    ↓ NodeFactory.build(descriptor)
-THREE.Group (실제 3D 메쉬)
-    ↓ scene.add(node.object3D)
-씬
-```
+- Three.js + TypeScript + Vite 기반 3D 씬 에디터 기본 동작
+- 노드 타입: GROUP / JOINT / LINK
+- JOINT가 동역학 관절과 정적 마운트 포인트를 겸용 → 시맨틱 혼재
+- JOINT에 배열 layout이 있으나 GROUP에 있어야 적절함
+- Builder 탭이 에셋 생성과 씬 편집을 혼재
+- 씬에 모델 추가 시 native `prompt()` 사용
 
 ---
 
-### A-1. 코어 시스템 (고정 파일)
+## 목표 상태
 
-새 모델이 추가되어도 이 파일들은 변경되지 않는다.
-
-#### SceneNode 구조
-
-```
-SceneNode
-├── id: string              (고유 식별자, e.g. "robot.j2")
-├── label: string           (표시 이름, e.g. "J2 Shoulder")
-├── type: NodeType          (ROOT | JOINT | LINK | PART | CAMERA | FIXTURE)
-├── object3D: THREE.Group
-├── parent: SceneNode | null
-├── children: SceneNode[]
-└── metadata: Record<string, any>   (축, 범위, 치수 등 도메인 정보)
-```
-
-#### 경계 캡슐화 원칙
-
-씬은 각 모델의 root node만 `scene.add()` 한다.
-내부 계층은 JSON 정의에서만 다룬다.
-
-```
-ChamberApp (씬)
-├── chamber   → root SceneNode
-└── robot     → root SceneNode
-                ├── base        [LINK]
-                ├── j1          [JOINT]
-                │   └── j2      [JOINT]
-                │       ├── link_upper  [LINK]
-                │       └── j3  [JOINT]
-                │           └── ...
-                └── camera      [CAMERA]
-```
-
-#### 구현 파일
-
-| 파일 | 역할 |
-|---|---|
-| `src/core/SceneNode.ts` | 노드 클래스 — id, type, parent/children 관계, object3D 보유 |
-| `src/core/NodeFactory.ts` | geometry descriptor → `THREE.Group` (CADUtils 호출 담당) |
-| `src/core/NodeRegistry.ts` | 전체 노드 id 관리 (중복 방지, id로 노드 조회) |
-| `src/core/NodeAssembler.ts` | JSON 노드 정의 → SceneNode 트리 재귀 조립 |
+- 노드 타입 4종으로 시맨틱 명확화
+- ANCHOR 기반 배열 배치 및 무작위 transform 변이 지원
+- Asset Editor를 별도 탭(새 브라우저 탭)으로 분리
+- 메인 패널은 씬 조작과 ANCHOR 편집에 집중
 
 ---
 
-### A-2. 모델 정의 (데이터 파일)
+## 노드 타입 정의
 
-새 모델 추가 = JSON 파일 하나 추가. 코드 변경 없음.
+| 타입 | 역할 | 주요 속성 |
+|------|------|-----------|
+| **GROUP** | 모델 루트 컨테이너 | transform |
+| **ANCHOR** | 부착 지점 + 배열 레이아웃 | transform, layout |
+| **JOINT** | 순수 동역학 관절 | transform, axis, min, max |
+| **LINK** | 강체 지오메트리 | transform, geometry |
 
-```
-src/models/
-├── vision_robot.json
-├── chamber.json
-├── conveyor.json
-└── elbow.json
-```
-
-#### 포맷 예시 (`vision_robot.json` 발췌)
+### ANCHOR layout 스키마
 
 ```jsonc
-{
-  "id": "robot",
-  "type": "ROOT",
-  "geometry": { "shape": "Cylinder", "radiusTop": 0.6, "radiusBottom": 0.65, "height": 0.2, "color": "#d8dbe2" },
-  "transform": { "position": [0, 0, 0], "rotation": [0, 0, 0] },
-  "children": [
-    {
-      "id": "robot.j1",
-      "type": "JOINT",
-      "geometry": { "shape": "Capsule", "radius": 0.45, "length": 0.8, "color": "#d8dbe2" },
-      "transform": { "position": [0, 0.2, 0], "rotation": [0, 0, 0] },
-      "metadata": { "axis": "y", "min": -3.14, "max": 3.14, "label": "J1 Base (Yaw)" },
-      "children": [
-        {
-          "id": "robot.j2",
-          "type": "JOINT",
-          "geometry": { "shape": "JointCapsule", "radius": 0.4, "length": 1.0, "bodyColor": "#d8dbe2", "capColor": "#00bcd4" },
-          "transform": { "position": [0, 0.8, 0], "rotation": [0.52, 0, 0] },
-          "metadata": { "axis": "x", "min": -3.14, "max": 3.14, "label": "J2 Shoulder (Pitch)" },
-          "children": ["..."]
-        }
-      ]
-    }
-  ]
+"layout": {
+  "kind": "single" | "array",
+
+  // array 전용
+  "count": 6,
+  "gap": 4.0,
+  "axis": "x" | "y" | "z",
+
+  // 슬롯에 기본 배치될 모델
+  "defaultModel": "elbow",
+
+  // 무작위 변이 설정
+  "randomize": {
+    "components": ["ry"],              // 변이 적용 성분
+    "ranges": { "ry": [-3.14, 3.14] } // 성분별 범위
+  },
+
+  // 슬롯 개별 override (index → 설정)
+  "slots": {
+    "2": { "model": "camera_3lens", "transform": { "rotation": [0, 0, 0] } },
+    "5": { "locked": true }
+  }
 }
 ```
 
----
-
-### A-3. 직렬화 (Read / Write)
-
-#### 모델 vs 씬 구분
-
-| 개념 | 파일 위치 | 역할 |
-|---|---|---|
-| **Model** | `src/models/*.json` | 독립 3D 객체 정의. 자기 자신의 노드 구조·형상만 기술 |
-| **Scene** | `src/presets/*.json` | 모델 인스턴스 배치 + 인스턴스 간 부착 관계 기술 |
-
-모델 파일은 다른 모델을 참조하지 않는다.
-씬 파일은 "어떤 모델을, 어디에, 무엇에 붙여서" 배치할지만 기술한다.
-
-#### 씬 스냅샷 포맷 (`SceneSnapshot`)
-
-```jsonc
-{
-  "version": 1,
-  "scene": [
-    {
-      "model": "chamber",
-      "instanceId": "chamber_0",
-      "transform": { "position": [0, 0, 0], "rotation": [0, 0, 0] },
-      "children": [
-        {
-          "model": "robot_ur5e",
-          "instanceId": "robot_0",
-          "attachTo": "chamber_0.ceiling",     // 챔버 천장 노드에 부착
-          "transform": { "position": [0, 0, 0], "rotation": [3.14, 0, 0] },
-          "overrides": {
-            "robot_0.j1": { "rotation": [0, 0.5, 0] }
-          },
-          "children": [
-            {
-              "model": "camera_3lens",
-              "instanceId": "camera_0",
-              "attachTo": "robot_0.j6",        // 로봇 j6에 카메라 부착
-              "transform": { "position": [0, 0, 0.2], "rotation": [0, 0, 0] }
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "model": "conveyor",
-      "instanceId": "conveyor_0",
-      "transform": { "position": [15, 0, 0], "rotation": [0, 0, 0] },
-      "children": [
-        {
-          "model": "elbow",
-          "instanceId": "elbow_0",
-          "attachTo": "conveyor_0.surface",    // 컨베이어 표면에 부품 적재
-          "transform": { "position": [-3, 0, 0], "rotation": [0, 0.5, 0] }
-        },
-        {
-          "model": "elbow",
-          "instanceId": "elbow_1",
-          "attachTo": "conveyor_0.surface",    // 같은 모델 여러 인스턴스
-          "transform": { "position": [0, 0, 0], "rotation": [0, 1.2, 0] }
-        }
-      ]
-    }
-  ]
-}
+**transform 계층 (array 슬롯 기준):**
+```
+ANCHOR 노드 transform       (부모 공간 내 앵커 위치)
+  + index * gap * axis      (배열 기준 슬롯 offset)
+  + slots[i].transform      (슬롯 개별 override)
+  + randomize 변이           (locked=true 슬롯 제외)
 ```
 
-#### instanceId와 노드 id 네임스페이스
-
-같은 모델을 여러 번 인스턴스화할 때 노드 id 충돌을 방지한다.
-`NodeAssembler.load(descriptor, instanceId)` 호출 시 모델 내부의 모든 노드 id가
-`<model_root_id>.*` → `<instanceId>.*` 로 치환된다.
-
-```
-모델 "elbow" (root id: "elbow")를 instanceId "elbow_0"으로 로드
-  → NodeRegistry에 "elbow_0" 으로 등록
-
-모델 "robot_ur5e" (root id: "robot")를 instanceId "robot_0"으로 로드
-  → "robot"    → "robot_0"
-  → "robot.j1" → "robot_0.j1"
-  → "robot.j6" → "robot_0.j6"   ← attachTo 타겟이 됨
-```
-
-#### 구현 파일
-
-| 파일 | 역할 |
-|---|---|
-| `src/core/SceneSerializer.ts` | 현재 SceneNode 트리 상태 → SceneSnapshot JSON |
-| `src/core/SceneDeserializer.ts` | SceneSnapshot → 재귀 모델 인스턴스화 + attachTo 연결 |
-| `src/presets/chamber_default.json` | ChamberApp 기본 씬 프리셋 |
-| `src/presets/conveyor_line.json` | CADViewerApp 씬 프리셋 |
+**populate 흐름:**
+- 씬에 모델 최초 추가 시 → defaultModel + randomize로 slots 자동 생성 → 씬 snapshot에 SceneEntry로 저장
+- 이후 씬 로드 시 → snapshot의 SceneEntry를 그대로 읽음 (재계산 없음)
+- Re-randomize 버튼 → locked 슬롯 제외하고 재생성 → snapshot 덮어씀
 
 ---
 
-## B. 프론트엔드 UI
+## 씬 구조 원칙
 
-lil-gui 단순 슬라이더 나열에서 벗어나 노드 계층 구조를 탐색하고 제어할 수 있는 3탭 패널을 만든다.
-
-### 탭 구조
+씬 루트는 평면 리스트. ANCHOR는 모델 내부에만 존재.
 
 ```
-┌────────────────────────────────────────┐
-│  [ Scene Graph ] [ Inspector ] [ Builder ]
-├────────────────────────────────────────┤
-│              탭별 내용                  │
-└────────────────────────────────────────┘
+Scene Root
+├── chamber_0  (GROUP)
+│   ├── LINK (frame)
+│   ├── ANCHOR (ceiling, kind=single) ← 로봇 부착
+│   └── ANCHOR (floor,   kind=single) ← 장비 부착
+└── conveyor_0 (GROUP)
+    ├── LINK (body)
+    └── ANCHOR (surface, kind=array, defaultModel="elbow")
 ```
-
-| 탭 | 역할 |
-|---|---|
-| **Scene Graph** | 전체 씬 노드 트리 탐색, 노드 선택 |
-| **Inspector** | 선택된 노드의 런타임 값 조작 (조인트 각도, 위치 등 — 이미 만들어진 것을 움직임) |
-| **Builder** | 노드의 구조/형상 자체를 편집 (새 노드 추가, 메쉬 파라미터, 조인트 축 설정 — 모델을 만들고 수정) |
 
 ---
 
-### B-1. Scene Graph 탭 + Inspector 탭
-
-#### Scene Graph 탭
+## UI 구조
 
 ```
-┌─────────────────────────────┐
-│  SCENE GRAPH            [−] │
-├─────────────────────────────┤
-│ ▼ chamber        [FIXTURE]  │
-│ ▼ robot          [ROOT]     │
-│   ▼ j1           [JOINT]    │
-│     ▼ j2         [JOINT]    │
-│       · link_upper [LINK]   │
-│       ▼ j3       [JOINT]    │
-│         ...                 │
-│   · camera       [CAMERA]   │
-└─────────────────────────────┘
+우측 패널
+├── SCENE 탭
+│   ├── SceneGraphPanel   — 씬 트리 탐색 (GROUP/ANCHOR/JOINT/LINK 배지 구분)
+│   ├── Save / Load Scene
+│   └── InstancePanel     — 선택 노드 편집
+│         GROUP  : transform 슬라이더
+│         ANCHOR : transform + 슬롯 에디터 (모델 교체, Re-randomize)
+│         JOINT  : 각도 슬라이더 (axis / range 표시)
+│         LINK   : transform + geometry 치수 조정
+│
+└── BUILDER 탭 (간소화)
+      씬에 배치된 모델에 ANCHOR 추가 / 편집
+      ANCHOR layout 설정 (kind / count / gap / defaultModel / randomize)
+      복잡한 에셋 조합은 Asset Editor 탭으로 위임
+
+별도 브라우저 탭 — Asset Editor
+├── NodeComposer   — 노드 트리 편집 (GROUP / ANCHOR / JOINT / LINK)
+├── GeometryEditor — shape / color / dimensions / joint config
+├── Save / Load Asset JSON
+└── BroadcastChannel → 메인 씬의 AssetManager에 등록
 ```
-
-- 노드 클릭 → Inspector 탭 갱신
-- 3D 씬에서 오브젝트 클릭 (raycasting) → 트리에서 해당 노드 하이라이트
-
-#### Inspector 탭
-
-```
-┌─────────────────────────────┐
-│  PROPERTIES                 │
-│  id     : robot.j2          │
-│  type   : JOINT             │
-│  ─────────────────────      │
-│  rotation.x  [━━●━━━] 0.52  │
-│  rotation.y  [━━━●━━] 0.00  │
-│  (axis: x / range: ±π)      │
-├─────────────────────────────┤
-│  PRESETS                    │
-│  [Load ▾]  [Save] [Export]  │
-└─────────────────────────────┘
-```
-
-- JOINT 노드: `metadata`의 축/범위를 읽어 슬라이더 자동 생성
-- FIXTURE/ROOT 노드: position / rotation 표시
-- Presets: `SceneSerializer`로 현재 상태 export, `SceneDeserializer`로 불러오기
-
-#### 구현 파일
-
-| 파일 | 역할 |
-|---|---|
-| `src/ui/SceneGraphPanel.ts` | 트리 렌더링 + 노드 선택 이벤트 |
-| `src/ui/PropertiesPanel.ts` | 선택 노드 기반 프로퍼티 슬라이더 자동 생성 |
-| `src/ui/PresetPanel.ts` | 저장/불러오기 버튼 |
-| `src/ui/RaycastSelector.ts` | 3D 씬 클릭 → 노드 선택 연동 |
 
 ---
 
-### B-2. Builder 탭
+## 구현 계획
 
-**목표**: 기존 노드를 조작하는 것이 아니라 새 노드를 설계하고 조립하는 탭.
-로봇 팔을 하나 추가하거나, 조인트 축 방향을 바꾸거나, 링크 메쉬의 크기/위치를 수정하는 작업을 GUI로 처리한다.
+### Phase 1 — 타입 / 스키마 ✅
 
-```
-┌────────────────────────────────────────┐
-│  TARGET NODE                           │
-│  robot  ▾  >  j3  ▾                   │  ← 편집할 노드 선택 (부모 기준 드릴다운)
-├────────────────────────────────────────┤
-│  NODE TREE  (선택된 노드 하위만 표시)   │
-│  ▼ j3              [JOINT]             │
-│    · link_lower    [LINK]   [+] [×]    │
-│    ▼ j4            [JOINT]  [+] [×]   │
-│      · link_wrist  [LINK]   [+] [×]   │
-│  [ + Add Child Node ]                  │
-├────────────────────────────────────────┤
-│  SELECTED: link_lower  [LINK]          │
-│                                        │
-│  ■ Geometry                            │
-│    Shape   [ Capsule ▾ ]               │  ← Capsule / Box / Cylinder / Torus
-│    radius  [━━●━━━━━] 0.30             │
-│    length  [━━━━●━━] 3.92              │
-│                                        │
-│  ■ Material                            │
-│    color   [■ #d8dbe2 ]                │
-│                                        │
-│  ■ Transform  (relative to parent)     │
-│    pos.x   [━━━●━━━] 0.00             │
-│    pos.y   [━━●━━━━] 1.96             │
-│    pos.z   [━━━━●━━] -0.25            │
-│    rot.x   [━━━●━━━] 0.00             │
-│    rot.y   [━━━●━━━] 0.00             │
-│    rot.z   [━━━●━━━] 0.00             │
-│                                        │
-│  ■ Joint Config  (type=JOINT일 때만)   │
-│    axis    [ X ▾ ]                     │
-│    min     [━●━━━━━] -3.14            │
-│    max     [━━━━━●━]  3.14            │
-├────────────────────────────────────────┤
-│  [ Rebuild Preview ]     [ Apply ]     │
-└────────────────────────────────────────┘
-```
+- [x] `SceneNode.ts`: `NodeType`에 `ANCHOR` 추가
+- [x] `NodeAssembler.ts`: `AnchorLayout` 인터페이스 정의, `NodeDescriptor`의 `layout` 필드를 ANCHOR 전용으로 이동, JOINT에서 `layout` 제거
+- [x] `NodeFactory.ts`: ANCHOR 타입 처리, `LayoutDescriptor` → `AnchorLayout` 교체
+- [x] `GeometryEditor.ts`: `_renderJoint` 에서 layout 분리 → `_renderAnchor` 신규, JOINT는 kinematic만
+- [x] `SceneGraphPanel.ts` / `NodeComposer.ts`: `badge-ANCHOR` 배지 추가
+- [x] `panel.css`: `badge-GROUP`, `badge-ANCHOR` 클래스 추가 (기존 누락 버그 픽스 포함)
 
-#### 핵심 동작
+### Phase 2 — AnchorPopulator ✅
 
-| 동작 | 설명 |
-|---|---|
-| **Target Node 선택** | 편집할 노드 범위를 좁힘. 범위 밖 오브젝트는 씬에서 반투명 처리 |
-| **Add Child Node** | 타입(JOINT / LINK / PART / CAMERA) 선택 후 새 SceneNode 생성, 트리에 즉시 반영 |
-| **Geometry 수정** | Shape 드롭다운 + 파라미터 입력 → `CADUtils` 호출로 메쉬 재생성 |
-| **Transform 수정** | 부모 기준 상대 좌표 / 회전 직접 입력 |
-| **Joint Config** | 회전축(x/y/z), 범위(min/max) → metadata 저장 → Inspector 탭 슬라이더에 자동 반영 |
-| **Rebuild Preview** | 변경 내용을 씬에 즉시 반영 (기존 메쉬 교체) |
-| **Apply** | 변경 내용을 SceneNode 트리에 확정 + 직렬화 가능 상태로 저장 |
+- [x] `core/AnchorPopulator.ts` 신규 작성
+  - `populate(anchor, modelLoader)` → 기존 자식 전부 제거 후 slots 재생성
+  - `repopulate(anchor, modelLoader)` → `_slotIndex` + `slots[i].locked` 기준으로 locked 슬롯 보존, 나머지 재생성
+  - randomize 로직: components 목록 기준 각 성분에 range 내 균등 난수 적용
+  - 슬롯 자식에 `_slotIndex`, `_modelName` metadata 저장
 
-#### 구현 파일
+### Phase 3 — Serializer / Deserializer ✅
 
-| 파일 | 역할 |
-|---|---|
-| `src/ui/BuilderPanel.ts` | Builder 탭 전체 컨트롤러 |
-| `src/ui/NodeComposer.ts` | 자식 노드 추가/삭제 트리 |
-| `src/ui/GeometryEditor.ts` | Shape 선택 + 파라미터 → `CADUtils` 연결 |
-| `src/ui/TabManager.ts` | 3탭 전환 관리 |
+- [x] `SceneDeserializer.ts`: `_loadEntry` 완료 후 `_autoPopulateAnchors` 호출 — 자식 없고 `defaultModel` 있는 ANCHOR 자동 populate. 다른 모델 루트 경계는 탐색하지 않음.
+- [x] `SceneSerializer.ts`: 변경 없음 — `traverseForChildren`이 이미 ANCHOR 자식을 `attachTo=anchorId`로 올바르게 직렬화함.
+- [x] `BuilderPanel.ts`: `applyDraftToNode` 및 `_serializeGroup`에서 JOINT layout → ANCHOR layout으로 정정
+
+### Phase 4 — Asset Editor (새 탭) ✅
+
+- [x] `vite.config.ts` multi-page 설정 (main + assetEditor 엔트리)
+- [x] `asset-editor.html` + `src/asset-editor.ts` Vite 엔트리 추가
+- [x] `src/core/NodeDescriptorExporter.ts` 신규 — SceneNode 트리 → NodeDescriptor 직렬화
+- [x] `src/ui/AssetEditorApp.ts` 신규 — Three.js 프리뷰 + NodeComposer + GeometryEditor + 파일 I/O
+- [x] `src/ui/asset-editor.css` 신규 — Asset Editor 전용 스타일
+- [x] `NodeComposer.ts`: ANCHOR 타입 추가, JOINT 초기화 수정 (axis/min/max), ANCHOR 초기화 추가
+- [x] `BroadcastChannel` 송신: Send to Scene 시 `{ type: 'ASSET_SAVED', name, descriptor }` 전송
+- [x] `SceneEditorApp.ts`: BroadcastChannel 수신 → `AssetManager.registerModel()` + 토스트 알림
+- [x] `TabManager.ts`: 탭 바에 "✦ ASSET" 버튼 추가 → `window.open('/asset-editor.html', '_blank')`
+
+### Phase 5 — 메인 패널 개편 ✅
+
+- [x] `ui/InstancePanel.ts` 신규 (PropertiesPanel 대체)
+  - ANCHOR (single): transform 슬라이더 + 모델 attach/detach UI
+  - ANCHOR (array): transform + 슬롯 리스트 (모델 교체 드롭다운, lock 토글) + Re-randomize 버튼
+  - JOINT: 각도 슬라이더 (axis/range 힌트 표시)
+  - GROUP / LINK: transform 슬라이더
+- [x] `ui/BuilderPanel.ts` 간소화
+  - 선택된 GROUP 노드에 ANCHOR 추가 기능
+  - ANCHOR layout 편집 (kind / count / gap / defaultModel / randomize 설정)
+  - NodeComposer / GeometryEditor 제거 (Asset Editor로 이전)
+- [x] `SceneEditorApp.ts`: PropertiesPanel → InstancePanel 교체, onAddToJoint 제거, BuilderPanel에 assetManager 전달
+- [x] `ui/SceneGraphPanel.ts`: JOINT의 "+" 버튼 제거, ANCHOR 노드 트리에 표시
+- [x] `ui/TabManager.ts`: BUILDER 탭 유지, Asset Editor 탭 열기 버튼 추가
+- [x] CSS: `badge-GROUP`, `badge-ANCHOR` 추가
+
+### Phase 6 — JSON 파일 수정 ✅
+
+- [x] `models/passive/chamber.json`: `ceiling`, `floor` → `JOINT` to `ANCHOR`
+- [x] `models/passive/conveyor.json`: `surface` → `JOINT` to `ANCHOR`, `kind: array`, `defaultModel: "elbow"`, `randomize: { ry: [-π, π] }` 추가, anchor 위치 중앙 정렬 (-4, 4.72, 0)
+- [x] `presets/chamber_default.json`: 변경 없음 (SceneEntry 구조 유지)
+- [x] `presets/conveyor_line.json`: 변경 없음
+- [x] `ui/InstancePanel.ts`: ANCHOR single 뷰에서 `_modelName` 있는 자식만 attached model로 인식 (구조적 LINK 자식 무시)
 
 ---
 
-## 작업 순서
+## 버그 픽스 ✅
 
-```
-Phase 1  코어 시스템 (A-1)
-  1-1. SceneNode + NodeRegistry
-  1-2. NodeFactory (geometry descriptor → THREE.Group)
-  1-3. NodeAssembler (JSON → SceneNode 트리)
-
-Phase 2  모델 정의 (A-2)
-  2-1. vision_robot.json
-  2-2. chamber.json
-  2-3. conveyor.json / elbow.json
-
-Phase 3  직렬화 (A-3)
-  3-1. SceneSerializer / SceneDeserializer
-  3-2. 프리셋 JSON 2종 (chamber_default, conveyor_line)
-
-Phase 4  UI — Scene Graph + Inspector (B-1)
-  4-1. TabManager + SceneGraphPanel
-  4-2. PropertiesPanel (노드 metadata 기반 슬라이더 자동 생성)
-  4-3. RaycastSelector (3D 클릭 → 노드 연동)
-  4-4. PresetPanel (저장/불러오기)
-
-Phase 5  UI — Builder (B-2)
-  5-1. NodeComposer (자식 추가/삭제 트리)
-  5-2. GeometryEditor (Shape 선택 + 파라미터)
-  5-3. BuilderPanel 통합 + Rebuild Preview / Apply
-```
+- [x] `badge-GROUP` CSS 클래스 누락
+- [x] `tree-remove-btn` CSS 클래스 누락 — `.tree-remove-btn` / `:hover` 추가
+- [x] `RaycastSelector.dispose()` bind 버그 — `_boundOnClick` 필드로 bound fn 보관
+- [x] 패널 가로 리사이즈 시 renderer 미동기화 — `w()` 가 DOM에서 실제 패널 폭 읽도록 변경 + `ResizeObserver` 로 드래그 리사이즈도 감지

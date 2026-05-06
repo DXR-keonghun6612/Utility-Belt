@@ -19,7 +19,7 @@
       "children": [
         {
           "model": "elbow",
-          "instanceId": "elbow_1",
+          "instanceId": "main_conveyor.surface_s0_c6de6",
           "transform": {
             "position": [
               0,
@@ -28,7 +28,7 @@
             ],
             "rotation": [
               0,
-              0.628318530717959,
+              2.866704509827592,
               0
             ]
           },
@@ -36,16 +36,16 @@
         },
         {
           "model": "elbow",
-          "instanceId": "elbow_2",
+          "instanceId": "main_conveyor.surface_s1_21f16",
           "transform": {
             "position": [
-              4,
+              3,
               0,
               0
             ],
             "rotation": [
               0,
-              -0.678584013175395,
+              2.1254572428579186,
               0
             ]
           },
@@ -53,16 +53,16 @@
         },
         {
           "model": "elbow",
-          "instanceId": "elbow_3",
+          "instanceId": "main_conveyor.surface_s2_b32b1",
           "transform": {
             "position": [
-              8,
+              6,
               0,
               0
             ],
             "rotation": [
               0,
-              0,
+              -1.490239146388928,
               0
             ]
           },
@@ -70,7 +70,24 @@
         },
         {
           "model": "elbow",
-          "instanceId": "elbow_4",
+          "instanceId": "main_conveyor.surface_s3_84065",
+          "transform": {
+            "position": [
+              9,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              -1.5064639841906926,
+              0
+            ]
+          },
+          "attachTo": "main_conveyor.surface"
+        },
+        {
+          "model": "elbow",
+          "instanceId": "main_conveyor.surface_s4_dbf9f",
           "transform": {
             "position": [
               12,
@@ -79,7 +96,7 @@
             ],
             "rotation": [
               0,
-              1.47026536188002,
+              -0.4773421587613256,
               0
             ]
           },
@@ -87,16 +104,16 @@
         },
         {
           "model": "elbow",
-          "instanceId": "elbow_98",
+          "instanceId": "main_conveyor.surface_s5_e1ac2",
           "transform": {
             "position": [
-              16,
+              15,
               0,
               0
             ],
             "rotation": [
               0,
-              0.628318530717959,
+              -2.623055007094044,
               0
             ]
           },
@@ -104,16 +121,67 @@
         },
         {
           "model": "elbow",
-          "instanceId": "elbow_2904",
+          "instanceId": "main_conveyor.surface_s6_d3e61",
           "transform": {
             "position": [
-              20,
+              18,
               0,
               0
             ],
             "rotation": [
               0,
-              2.72690242331594,
+              1.1412134016037871,
+              0
+            ]
+          },
+          "attachTo": "main_conveyor.surface"
+        },
+        {
+          "model": "elbow",
+          "instanceId": "main_conveyor.surface_s7_239ae",
+          "transform": {
+            "position": [
+              21,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              1.2163292042183604,
+              0
+            ]
+          },
+          "attachTo": "main_conveyor.surface"
+        },
+        {
+          "model": "elbow",
+          "instanceId": "main_conveyor.surface_s8_c2cb3",
+          "transform": {
+            "position": [
+              24,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0.8211489677048665,
+              0
+            ]
+          },
+          "attachTo": "main_conveyor.surface"
+        },
+        {
+          "model": "elbow",
+          "instanceId": "main_conveyor.surface_s9_922b",
+          "transform": {
+            "position": [
+              27,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              -0.09306454061324532,
               0
             ]
           },

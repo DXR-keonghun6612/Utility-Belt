@@ -1,5 +1,6 @@
 import { SceneNode, NodeType } from '../core/SceneNode';
-import { GeometryDescriptor, LayoutDescriptor, NodeFactory } from '../core/NodeFactory';
+import { GeometryDescriptor, NodeFactory } from '../core/NodeFactory';
+import { AnchorLayout } from '../core/NodeAssembler';
 
 interface ParamDef { key: string; label: string; min: number; max: number; default: number }
 
@@ -48,7 +49,7 @@ export class GeometryEditor {
     private container: HTMLElement;
     private node: SceneNode | null = null;
     private geometryDraft: GeometryDescriptor = { shape: 'Box', color: '#cccccc' };
-    private layoutDraft: LayoutDescriptor = { kind: 'single' };
+    private layoutDraft: AnchorLayout = { kind: 'single' };
     private onChange: (node: SceneNode) => void;
 
     constructor(container: HTMLElement, onChange: (node: SceneNode) => void) {
@@ -62,24 +63,25 @@ export class GeometryEditor {
         if (node.type === NodeType.LINK) {
             const saved = node.metadata['_geometryDescriptor'] as GeometryDescriptor | null;
             this.geometryDraft = saved ? { ...saved } : { shape: 'Box', color: '#cccccc' };
-        } else if (node.type === NodeType.JOINT) {
-            const saved = node.metadata['_layoutDescriptor'] as LayoutDescriptor | null;
+        } else if (node.type === NodeType.ANCHOR) {
+            const saved = node.metadata['_layoutDescriptor'] as AnchorLayout | null;
             this.layoutDraft = saved ? { ...saved } : { kind: 'single' };
         }
         this._render();
     }
 
     getGeometryDraft(): GeometryDescriptor { return { ...this.geometryDraft }; }
-    getLayoutDraft():   LayoutDescriptor   { return { ...this.layoutDraft }; }
+    getLayoutDraft():   AnchorLayout   { return { ...this.layoutDraft }; }
 
     private _render(): void {
         const node = this.node;
         if (!node) return;
         this.container.innerHTML = '';
 
-        if (node.type === NodeType.LINK)  this._renderLink(node);
-        if (node.type === NodeType.GROUP) this._renderGroup(node);
-        if (node.type === NodeType.JOINT) this._renderJoint(node);
+        if (node.type === NodeType.LINK)   this._renderLink(node);
+        if (node.type === NodeType.GROUP)  this._renderGroup(node);
+        if (node.type === NodeType.ANCHOR) this._renderAnchor(node);
+        if (node.type === NodeType.JOINT)  this._renderJoint(node);
     }
 
     // ── LINK: shape 편집 ───────────────────────────────
@@ -138,8 +140,8 @@ export class GeometryEditor {
         this._renderTransform(node);
     }
 
-    // ── JOINT: layout + transform + joint config ───────
-    private _renderJoint(node: SceneNode): void {
+    // ── ANCHOR: layout (kind/count/gap/axis) + transform ──
+    private _renderAnchor(node: SceneNode): void {
         this.container.appendChild(this._sectionTitle('Layout'));
 
         const kindRow = document.createElement('div');
@@ -185,6 +187,11 @@ export class GeometryEditor {
             }
         }
 
+        this._renderTransform(node);
+    }
+
+    // ── JOINT: transform + kinematic config (layout 없음) ──
+    private _renderJoint(node: SceneNode): void {
         this._renderTransform(node);
 
         this.container.appendChild(this._sectionTitle('Joint Config'));

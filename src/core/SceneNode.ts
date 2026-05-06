@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 
 export enum NodeType {
-    GROUP = 'GROUP',
-    LINK  = 'LINK',
-    JOINT = 'JOINT',
+    GROUP  = 'GROUP',
+    ANCHOR = 'ANCHOR',
+    JOINT  = 'JOINT',
+    LINK   = 'LINK',
 }
 
 export class SceneNode {

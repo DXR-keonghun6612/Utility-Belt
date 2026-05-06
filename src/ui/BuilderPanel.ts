@@ -1,40 +1,28 @@
+import * as THREE from 'three';
 import { SceneNode, NodeType } from '../core/SceneNode';
+import { NodeRegistry } from '../core/NodeRegistry';
 import { NodeFactory } from '../core/NodeFactory';
-import { NodeComposer } from './NodeComposer';
-import { GeometryEditor } from './GeometryEditor';
-import { NodeDescriptor } from '../core/NodeAssembler';
+import { AnchorLayout } from '../core/NodeAssembler';
+import { AnchorPopulator } from '../core/AnchorPopulator';
+import { AssetManager } from '../core/AssetManager';
 
-function applyDraftToNode(node: SceneNode, editor: GeometryEditor): void {
-    if (node.type === NodeType.LINK) {
-        const draft = editor.getGeometryDraft();
-        if (!draft.shape) return;
-        NodeFactory.rebuildInPlace(node.object3D, draft);
-        node.metadata['_geometryDescriptor'] = draft;
-    } else if (node.type === NodeType.JOINT) {
-        const draft = editor.getLayoutDraft();
-        NodeFactory.applyLayout(node.object3D, draft);
-        node.metadata['_layoutDescriptor'] = draft;
-    }
-    // GROUP: no shape/layout to persist; transform-only
-}
+type RandomizeComp = 'px' | 'py' | 'pz' | 'rx' | 'ry' | 'rz';
+const ALL_COMPS: RandomizeComp[] = ['px', 'py', 'pz', 'rx', 'ry', 'rz'];
 
 export class BuilderPanel {
-    private container: HTMLElement;
-    private roots: SceneNode[] = [];
-    private _targetNode: SceneNode | null = null;
-    private editNode:   SceneNode | null = null;
-    private onChange?: () => void;
+    private container:    HTMLElement;
+    private assetManager: AssetManager;
+    private onChanged:    () => void;
+    private roots:        SceneNode[] = [];
+    private targetNode:   SceneNode | null = null;
 
-    private targetEl!:   HTMLElement;
-    private composerEl!: HTMLElement;
-    private editorEl!:   HTMLElement;
+    private targetEl!: HTMLElement;
+    private formEl!:   HTMLElement;
 
-    private composer!:   NodeComposer;
-    private geoEditor!:  GeometryEditor;
-
-    constructor(container: HTMLElement, onChange?: () => void) {
-        this.container = container;
-        this.onChange = onChange;
+    constructor(container: HTMLElement, assetManager: AssetManager, onChanged: () => void) {
+        this.container    = container;
+        this.assetManager = assetManager;
+        this.onChanged    = onChanged;
         this._build();
     }
 
@@ -43,218 +31,315 @@ export class BuilderPanel {
         this._refreshTargetSelector();
     }
 
+    // ── 초기 DOM 구조 ────────────────────────────────────
+
     private _build(): void {
         this.container.innerHTML = '';
 
-        // ── Target selector ───────────────────────
         const targetSection = document.createElement('div');
         targetSection.className = 'panel-section';
         const targetTitle = document.createElement('div');
         targetTitle.className = 'panel-section-title';
         targetTitle.textContent = 'TARGET NODE';
         this.targetEl = document.createElement('div');
-        this.targetEl.className = 'builder-drilldown';
         targetSection.appendChild(targetTitle);
         targetSection.appendChild(this.targetEl);
         this.container.appendChild(targetSection);
 
-        // ── Node Composer ─────────────────────────
-        this.composerEl = document.createElement('div');
-        this.composerEl.style.flex = '1';
-        this.composerEl.style.overflowY = 'auto';
-        this.composerEl.style.minHeight = '150px';
-        this.composer = new NodeComposer(this.composerEl, (node) => {
-            this.editNode = node;
-            this.geoEditor.show(node);
-            this.editorEl.style.display = 'block';
-        }, this.onChange);
-        this.container.appendChild(this.composerEl);
-
-        // ── Geometry Editor ───────────────────────
-        this.editorEl = document.createElement('div');
-        this.editorEl.className = 'panel-section';
-        this.editorEl.style.display = 'none';
-        this.editorEl.style.flex = '1';
-        this.editorEl.style.overflowY = 'auto';
-        this.geoEditor = new GeometryEditor(this.editorEl, (_node) => {
-            // live: 슬라이더 이동은 transform/layout에 직접 반영됨 (no-op here)
-        });
-        this.container.appendChild(this.editorEl);
-
-        // ── Action buttons ────────────────────────
-        const actions = document.createElement('div');
-        actions.className = 'builder-actions';
-
-        const previewBtn = document.createElement('button');
-        previewBtn.className = 'preset-btn primary';
-        previewBtn.textContent = 'Rebuild Preview';
-        previewBtn.addEventListener('click', () => this._rebuild());
-
-        const applyBtn = document.createElement('button');
-        applyBtn.className = 'preset-btn';
-        applyBtn.textContent = 'Apply';
-        applyBtn.addEventListener('click', () => this._apply());
-
-        const saveAssetBtn = document.createElement('button');
-        saveAssetBtn.className = 'preset-btn primary';
-        saveAssetBtn.textContent = 'Save Asset';
-        saveAssetBtn.addEventListener('click', () => this._saveAsset());
-
-        actions.appendChild(previewBtn);
-        actions.appendChild(applyBtn);
-        actions.appendChild(saveAssetBtn);
-        this.container.appendChild(actions);
+        this.formEl = document.createElement('div');
+        this.formEl.style.overflowY = 'auto';
+        this.formEl.style.flex = '1';
+        this.container.appendChild(this.formEl);
     }
 
-    private _refreshTargetSelector(): void {
-        const oldTargetId = this._targetNode?.id;
+    // ── 타겟 셀렉터 ──────────────────────────────────────
 
+    private _refreshTargetSelector(): void {
+        const oldId = this.targetNode?.id;
         this.targetEl.innerHTML = '';
         if (this.roots.length === 0) return;
 
-        // 모든 GROUP 노드 수집
-        const allGroups: SceneNode[] = [];
+        const candidates: SceneNode[] = [];
         for (const root of this.roots) {
             for (const n of root.flatten()) {
-                if (n.type === NodeType.GROUP) {
-                    allGroups.push(n);
-                }
+                if (n.type === NodeType.GROUP || n.type === NodeType.ANCHOR) candidates.push(n);
             }
         }
 
-        // Group 선택 드롭다운
-        const groupSelect = document.createElement('select');
-        groupSelect.className = 'builder-select';
-        
-        for (const g of allGroups) {
+        const sel = document.createElement('select');
+        sel.className = 'builder-select';
+        candidates.forEach(n => {
             const opt = document.createElement('option');
-            opt.value = g.id;
-            opt.textContent = g.label;
-            groupSelect.appendChild(opt);
-        }
-
-        groupSelect.addEventListener('change', () => {
-            const node = allGroups.find(n => n.id === groupSelect.value) ?? null;
+            opt.value = n.id;
+            opt.textContent = `[${n.type}] ${n.label}`;
+            sel.appendChild(opt);
+        });
+        sel.addEventListener('change', () => {
+            const node = candidates.find(n => n.id === sel.value) ?? null;
             this._setTarget(node);
         });
+        this.targetEl.appendChild(sel);
 
-        this.targetEl.appendChild(groupSelect);
-        
-        const preservedTarget = allGroups.find(g => g.id === oldTargetId);
-        if (preservedTarget) {
-            groupSelect.value = preservedTarget.id;
-            if (this._targetNode !== preservedTarget) {
-                this._setTarget(preservedTarget);
-            } else {
-                // If it's the exact same target, just re-render composer to pick up tree changes
-                this.composer.render(this._targetNode);
-            }
-        } else if (allGroups.length > 0) {
-            this._setTarget(allGroups[0]);
-        } else {
-            this._setTarget(null);
+        const preserved = candidates.find(n => n.id === oldId);
+        if (preserved) {
+            sel.value = preserved.id;
+            this._setTarget(preserved);
+        } else if (candidates.length > 0) {
+            this._setTarget(candidates[0]);
         }
     }
 
     private _setTarget(node: SceneNode | null): void {
-        this._targetNode = node;
-        if (this._targetNode) {
-            this.composer.render(this._targetNode);
-            // 타겟 GROUP 자체의 layout을 바로 편집할 수 있도록 에디터를 연다.
-            this.editNode = this._targetNode;
-            this.geoEditor.show(this._targetNode);
-            this.editorEl.style.display = 'block';
-        } else {
-            this.editNode = null;
-            this.editorEl.style.display = 'none';
-            this.composerEl.innerHTML = '';
+        this.targetNode = node;
+        this._renderForm();
+    }
+
+    // ── 폼 렌더링 ────────────────────────────────────────
+
+    private _renderForm(): void {
+        this.formEl.innerHTML = '';
+        if (!this.targetNode) return;
+
+        if (this.targetNode.type === NodeType.GROUP) {
+            this._renderAddAnchorForm();
+        } else if (this.targetNode.type === NodeType.ANCHOR) {
+            this._renderEditAnchorForm(this.targetNode);
         }
     }
 
-    private _rebuild(): void {
-        if (!this.editNode) return;
-        applyDraftToNode(this.editNode, this.geoEditor);
+    // GROUP → ANCHOR 추가 폼
+    private _renderAddAnchorForm(): void {
+        const section = document.createElement('div');
+        section.className = 'panel-section';
+        const title = document.createElement('div');
+        title.className = 'panel-section-title';
+        title.textContent = 'ADD ANCHOR';
+        section.appendChild(title);
+
+        const labelInput = document.createElement('input');
+        labelInput.placeholder = 'anchor label';
+        labelInput.style.cssText = 'width:100%; background:#252a33; border:1px solid #2d3139; color:#dde1e7; font-family:inherit; font-size:11px; padding:4px 6px; border-radius:3px; margin-bottom:8px; box-sizing:border-box;';
+        section.appendChild(labelInput);
+
+        const layout: AnchorLayout = { kind: 'single' };
+        this._renderLayoutFields(section, layout);
+
+        const addBtn = document.createElement('button');
+        addBtn.className = 'preset-btn primary';
+        addBtn.style.cssText = 'width:100%; margin-top:10px;';
+        addBtn.textContent = 'Add ANCHOR';
+        addBtn.addEventListener('click', () => {
+            const label = labelInput.value.trim();
+            if (!label) { alert('Enter a label.'); return; }
+            this._addAnchor(label, layout);
+        });
+        section.appendChild(addBtn);
+        this.formEl.appendChild(section);
     }
 
-    private _apply(): void {
-        if (!this.editNode) return;
-        applyDraftToNode(this.editNode, this.geoEditor);
+    // ANCHOR 편집 폼
+    private _renderEditAnchorForm(anchor: SceneNode): void {
+        const section = document.createElement('div');
+        section.className = 'panel-section';
+        const title = document.createElement('div');
+        title.className = 'panel-section-title';
+        title.textContent = 'EDIT ANCHOR LAYOUT';
+        section.appendChild(title);
 
-        const pos = this.editNode.object3D.position;
-        const rot = this.editNode.object3D.rotation;
-        this.editNode.metadata['_defaultPosition'] = [pos.x, pos.y, pos.z];
-        this.editNode.metadata['_defaultRotation'] = [rot.x, rot.y, rot.z];
-
-        if (this.onChange) this.onChange();
-    }
-
-    private _saveAsset(): void {
-        if (!this._targetNode) return;
-        
-        const descriptor = this._serializeGroup(this._targetNode, true);
-        if (!descriptor) return;
-
-        const json = JSON.stringify(descriptor, null, 2);
-        const blob = new Blob([json], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${this._targetNode.label || 'asset'}.json`;
-        a.click();
-        URL.revokeObjectURL(url);
-    }
-
-    private _serializeGroup(node: SceneNode, isRoot: boolean): NodeDescriptor | null {
-        // 하위 GROUP 노드는 직렬화하지 않음
-        if (!isRoot && node.type === NodeType.GROUP) return null;
-
-        const pos = node.object3D.position;
-        const rot = node.object3D.rotation;
-        
-        const descriptor: NodeDescriptor = {
-            id: isRoot ? node.label || node.id : node.id.split('.').pop() || node.id,
-            type: node.type,
-            label: node.label,
+        const layout: AnchorLayout = {
+            ...((anchor.metadata['_layoutDescriptor'] as AnchorLayout) ?? { kind: 'single' }),
         };
+        this._renderLayoutFields(section, layout);
 
-        // root 노드가 아니거나 위치/회전값이 있는 경우에만 transform 추가
-        // root여도 내부적인 기본 transform이 있으면 포함
-        descriptor.transform = {
-            position: [pos.x, pos.y, pos.z],
-            rotation: [rot.x, rot.y, rot.z],
-        };
+        const btnRow = document.createElement('div');
+        btnRow.className = 'builder-actions';
 
-        const metadata = { ...node.metadata };
-        const geometry = metadata['_geometryDescriptor'];
-        const layout   = metadata['_layoutDescriptor'];
+        const applyBtn = document.createElement('button');
+        applyBtn.className = 'preset-btn primary';
+        applyBtn.textContent = 'Apply Layout';
+        applyBtn.addEventListener('click', () => {
+            anchor.metadata['_layoutDescriptor'] = layout;
+            NodeFactory.applyLayout(anchor.object3D, layout);
+            this.onChanged();
+        });
+        btnRow.appendChild(applyBtn);
 
-        delete metadata['_geometryDescriptor'];
-        delete metadata['_layoutDescriptor'];
-        delete metadata['_defaultPosition'];
-        delete metadata['_defaultRotation'];
-
-        if (node.type === NodeType.LINK && geometry) {
-            descriptor.geometry = geometry as any;
-        } else if (node.type === NodeType.JOINT && layout) {
-            descriptor.layout = layout as any;
+        if (layout.defaultModel) {
+            const popBtn = document.createElement('button');
+            popBtn.className = 'preset-btn';
+            popBtn.textContent = 'Populate Slots';
+            popBtn.addEventListener('click', async () => {
+                anchor.metadata['_layoutDescriptor'] = layout;
+                await AnchorPopulator.populate(anchor, n => this.assetManager.getModel(n));
+                this.onChanged();
+            });
+            btnRow.appendChild(popBtn);
         }
 
-        if (Object.keys(metadata).length > 0) {
-            descriptor.metadata = metadata;
+        section.appendChild(btnRow);
+        this.formEl.appendChild(section);
+    }
+
+    // ── 공용 레이아웃 필드 ───────────────────────────────
+
+    private _renderLayoutFields(parent: HTMLElement, layout: AnchorLayout): void {
+        // kind
+        parent.appendChild(this._field('kind',
+            this._select(['single', 'array'], layout.kind ?? 'single', v => {
+                layout.kind = v as 'single' | 'array';
+                this._renderForm(); // re-render to show/hide array fields
+            }),
+        ));
+
+        if (layout.kind !== 'array') return;
+
+        // count
+        parent.appendChild(this._numField('count', 1, 50, layout.count ?? 5, v => { layout.count = v; }));
+        // gap
+        parent.appendChild(this._numField('gap', 0.1, 30, layout.gap ?? 2, v => { layout.gap = v; }));
+        // axis
+        parent.appendChild(this._field('axis',
+            this._select(['x', 'y', 'z'], layout.axis ?? 'x', v => { layout.axis = v as 'x'|'y'|'z'; }),
+        ));
+        // defaultModel
+        const models = this.assetManager.getAllModelNames();
+        if (models.length > 0) {
+            parent.appendChild(this._field('default model',
+                this._select(models, layout.defaultModel ?? models[0], v => { layout.defaultModel = v; }),
+            ));
+            if (!layout.defaultModel) layout.defaultModel = models[0];
         }
 
-        const children: NodeDescriptor[] = [];
-        for (const child of node.children) {
-            const childDesc = this._serializeGroup(child, false);
-            if (childDesc) {
-                children.push(childDesc);
-            }
-        }
-        
-        if (children.length > 0) {
-            descriptor.children = children;
-        }
+        // randomize
+        const rndTitle = document.createElement('div');
+        rndTitle.className = 'panel-section-title';
+        rndTitle.style.marginTop = '10px';
+        rndTitle.textContent = 'RANDOMIZE';
+        parent.appendChild(rndTitle);
 
-        return descriptor;
+        if (!layout.randomize) layout.randomize = { components: [], ranges: {} };
+
+        ALL_COMPS.forEach(comp => {
+            const isActive = layout.randomize!.components.includes(comp);
+            const row = document.createElement('div');
+            row.style.cssText = 'display:flex; align-items:center; gap:6px; margin-bottom:4px;';
+
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.checked = isActive;
+            cb.style.cursor = 'pointer';
+
+            const lbl = document.createElement('span');
+            lbl.textContent = comp;
+            lbl.style.cssText = 'color:#8899aa; font-size:11px; width:24px;';
+
+            const rangeWrap = document.createElement('div');
+            rangeWrap.style.cssText = 'display:flex; gap:4px; flex:1;';
+            rangeWrap.style.display = isActive ? 'flex' : 'none';
+
+            const existing = layout.randomize!.ranges[comp];
+            const minIn = this._miniNum(existing?.[0] ?? -Math.PI, v => {
+                layout.randomize!.ranges[comp] = [v, layout.randomize!.ranges[comp]?.[1] ?? Math.PI];
+            });
+            const maxIn = this._miniNum(existing?.[1] ?? Math.PI, v => {
+                layout.randomize!.ranges[comp] = [layout.randomize!.ranges[comp]?.[0] ?? -Math.PI, v];
+            });
+            const sep = document.createElement('span');
+            sep.textContent = '~';
+            sep.style.color = '#7a8494';
+
+            rangeWrap.appendChild(minIn);
+            rangeWrap.appendChild(sep);
+            rangeWrap.appendChild(maxIn);
+
+            cb.addEventListener('change', () => {
+                rangeWrap.style.display = cb.checked ? 'flex' : 'none';
+                if (cb.checked) {
+                    if (!layout.randomize!.components.includes(comp)) layout.randomize!.components.push(comp);
+                    if (!layout.randomize!.ranges[comp]) layout.randomize!.ranges[comp] = [-Math.PI, Math.PI];
+                } else {
+                    layout.randomize!.components = layout.randomize!.components.filter(c => c !== comp);
+                }
+            });
+
+            row.appendChild(cb);
+            row.appendChild(lbl);
+            row.appendChild(rangeWrap);
+            parent.appendChild(row);
+        });
+    }
+
+    // ── ANCHOR 추가 ──────────────────────────────────────
+
+    private _addAnchor(label: string, layout: AnchorLayout): void {
+        const group = this.targetNode;
+        if (!group || group.type !== NodeType.GROUP) return;
+
+        let id = `${group.id}.${label}`;
+        let suffix = 1;
+        while (NodeRegistry.has(id)) id = `${group.id}.${label}_${suffix++}`;
+
+        const anchor = new SceneNode(id, label, NodeType.ANCHOR, new THREE.Group());
+        anchor.metadata['_layoutDescriptor']  = { ...layout };
+        anchor.metadata['_defaultPosition']   = [0, 0, 0];
+        anchor.metadata['_defaultRotation']   = [0, 0, 0];
+        NodeRegistry.register(anchor);
+        group.addChild(anchor);
+        this.onChanged();
+    }
+
+    // ── 헬퍼 ─────────────────────────────────────────────
+
+    private _field(label: string, control: HTMLElement): HTMLElement {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;';
+        const lbl = document.createElement('span');
+        lbl.textContent = label;
+        lbl.style.color = '#8899aa';
+        row.appendChild(lbl);
+        row.appendChild(control);
+        return row;
+    }
+
+    private _select(options: string[], current: string, onChange: (v: string) => void): HTMLSelectElement {
+        const sel = document.createElement('select');
+        sel.className = 'builder-select';
+        sel.style.width = '130px';
+        options.forEach(o => {
+            const opt = document.createElement('option');
+            opt.value = o; opt.textContent = o;
+            if (o === current) opt.selected = true;
+            sel.appendChild(opt);
+        });
+        sel.addEventListener('change', () => onChange(sel.value));
+        return sel;
+    }
+
+    private _numField(label: string, min: number, max: number, initial: number, onChange: (v: number) => void): HTMLElement {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;';
+        const lbl = document.createElement('span');
+        lbl.textContent = label;
+        lbl.style.color = '#8899aa';
+        const inp = this._miniNum(initial, onChange);
+        inp.setAttribute('min', String(min));
+        inp.setAttribute('max', String(max));
+        row.appendChild(lbl);
+        row.appendChild(inp);
+        return row;
+    }
+
+    private _miniNum(initial: number, onChange: (v: number) => void): HTMLInputElement {
+        const inp = document.createElement('input');
+        inp.type = 'number';
+        inp.className = 'slider-value-input';
+        inp.style.width = '70px';
+        inp.value = String(initial);
+        inp.step = '0.1';
+        inp.addEventListener('change', () => {
+            const v = parseFloat(inp.value);
+            if (!isNaN(v)) onChange(v);
+        });
+        return inp;
     }
 }

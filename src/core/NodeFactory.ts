@@ -1,19 +1,11 @@
 import * as THREE from 'three';
 import { CADUtils } from './CADUtils';
+import type { AnchorLayout } from './NodeAssembler';
 
 export interface GeometryDescriptor {
     shape: string;
     color?: string;
     [key: string]: unknown;
-}
-
-export type LayoutKind = 'single' | 'array';
-
-export interface LayoutDescriptor {
-    kind: LayoutKind;
-    count?: number;
-    gap?: number;
-    axis?: 'x' | 'y' | 'z';
 }
 
 export class NodeFactory {
@@ -117,20 +109,21 @@ export class NodeFactory {
     }
 
     /**
-     * GROUP 노드의 자식 SceneNode들을 layout descriptor에 따라 배치한다.
-     * - 'single' : 자식들의 위치를 건드리지 않는다(개별 transform 유지).
+     * ANCHOR 노드의 자식 SceneNode들을 layout에 따라 배치한다.
+     * - 'single' : 자식들의 위치를 건드리지 않는다.
      * - 'array'  : 지정 축으로 count 만큼 일렬 배치, 초과분은 숨긴다.
+     *   slots의 transform override는 AnchorPopulator가 적용하므로 여기서는 base offset만 처리.
      */
-    static applyLayout(group: THREE.Group, layout: LayoutDescriptor | null | undefined): void {
+    static applyLayout(group: THREE.Group, layout: AnchorLayout | null | undefined): void {
         if (!layout || layout.kind === 'single') return;
 
         if (layout.kind === 'array') {
-            const count = layout.count ?? 5;
-            const gap   = layout.gap   ?? 2.0;
-            const axis  = layout.axis  ?? 'x';
+            const count  = layout.count ?? 5;
+            const gap    = layout.gap   ?? 2.0;
+            const axis   = layout.axis  ?? 'x';
+            const axisIdx = axis === 'x' ? 0 : (axis === 'y' ? 1 : 2);
 
             const nodeChildren = group.children.filter(c => c.userData['nodeId']);
-            const axisIdx = axis === 'x' ? 0 : (axis === 'y' ? 1 : 2);
 
             nodeChildren.forEach((child, i) => {
                 if (i < count) {

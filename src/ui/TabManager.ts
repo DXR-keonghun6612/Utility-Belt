@@ -38,6 +38,16 @@ export class TabManager {
             btn.addEventListener('click', () => this.switchTo(id));
             bar.appendChild(btn);
         }
+
+        // Asset Editor 탭 열기 버튼
+        const aeBtn = document.createElement('button');
+        aeBtn.className = 'tab-btn';
+        aeBtn.textContent = '✦ ASSET';
+        aeBtn.title = 'Open Asset Editor in new tab';
+        aeBtn.style.color = '#a5d6a7';
+        aeBtn.addEventListener('click', () => window.open('/asset-editor.html', '_blank'));
+        bar.appendChild(aeBtn);
+
         this.panel.appendChild(bar);
 
         // Scene tab: split layout (tree top / action / divider / inspector bottom)

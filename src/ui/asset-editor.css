@@ -1,0 +1,131 @@
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    overflow: hidden;
+    background: #12141a;
+    display: flex;
+    height: 100vh;
+    font-family: 'JetBrains Mono', 'Fira Mono', monospace;
+    font-size: 12px;
+    color: #dde1e7;
+}
+
+/* ── 왼쪽 패널 ───────────────────────── */
+#ae-panel {
+    width: 320px;
+    flex-shrink: 0;
+    background: #1a1d23;
+    border-right: 1px solid #2d3139;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.ae-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border-bottom: 1px solid #2d3139;
+    flex-shrink: 0;
+}
+
+.ae-header-title {
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    color: #7a8494;
+    flex-shrink: 0;
+}
+
+#ae-name-input {
+    flex: 1;
+    background: #252a33;
+    border: 1px solid #2d3139;
+    color: #dde1e7;
+    font-family: inherit;
+    font-size: 12px;
+    padding: 3px 6px;
+    border-radius: 3px;
+    outline: none;
+}
+#ae-name-input:focus { border-color: #00bcd4; }
+
+.ae-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 8px 12px;
+    border-bottom: 1px solid #2d3139;
+    flex-shrink: 0;
+}
+
+.ae-btn {
+    flex: 1;
+    min-width: calc(50% - 4px);
+    padding: 5px 6px;
+    background: #252a33;
+    border: 1px solid #2d3139;
+    color: #dde1e7;
+    font-family: inherit;
+    font-size: 10px;
+    cursor: pointer;
+    border-radius: 3px;
+    transition: background 0.15s;
+    white-space: nowrap;
+}
+.ae-btn:hover           { background: #2d3545; }
+.ae-btn.primary         { background: #004d5f; border-color: #00bcd4; color: #00bcd4; }
+.ae-btn.primary:hover   { background: #006070; }
+.ae-btn.accent          { background: #1a2e1a; border-color: #81c784; color: #81c784; }
+.ae-btn.accent:hover    { background: #1e3a1e; }
+
+/* ── 트리 + 에디터 스크롤 영역 ───────── */
+#ae-composer {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    min-height: 120px;
+    border-bottom: 1px solid #2d3139;
+}
+
+#ae-editor {
+    overflow-y: auto;
+    overflow-x: hidden;
+    flex-shrink: 0;
+    max-height: 45vh;
+    border-bottom: 1px solid #2d3139;
+}
+
+.ae-apply-bar {
+    display: flex;
+    gap: 6px;
+    padding: 8px 12px;
+    flex-shrink: 0;
+}
+.ae-apply-bar .ae-btn { min-width: 0; }
+
+/* ── 오른쪽 프리뷰 캔버스 영역 ──────── */
+#ae-canvas-container {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+}
+
+#ae-canvas-container canvas {
+    display: block;
+    width: 100% !important;
+    height: 100% !important;
+}
+
+.ae-canvas-hint {
+    position: absolute;
+    bottom: 12px;
+    right: 16px;
+    color: #3a4050;
+    font-size: 10px;
+    pointer-events: none;
+    letter-spacing: 0.05em;
+}
+
+/* panel.css 의 공용 컴포넌트 재사용 */

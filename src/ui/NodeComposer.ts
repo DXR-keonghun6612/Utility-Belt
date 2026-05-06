@@ -4,6 +4,7 @@ import { NodeFactory } from '../core/NodeFactory';
 
 const BADGE_COLORS: Record<NodeType, string> = {
     [NodeType.GROUP]:   'badge-GROUP',
+    [NodeType.ANCHOR]:  'badge-ANCHOR',
     [NodeType.JOINT]:   'badge-JOINT',
     [NodeType.LINK]:    'badge-LINK',
 };
@@ -101,7 +102,7 @@ export class NodeComposer {
         const typeSelect = document.createElement('select');
         typeSelect.className = 'builder-select';
         typeSelect.style.width = '110px';
-        for (const t of [NodeType.JOINT, NodeType.LINK]) {
+        for (const t of [NodeType.ANCHOR, NodeType.JOINT, NodeType.LINK]) {
             const opt = document.createElement('option');
             opt.value = t; opt.textContent = t;
             typeSelect.appendChild(opt);
@@ -138,10 +139,15 @@ export class NodeComposer {
         // 타입에 맞는 디스크립터만 초기화 (GROUP은 둘 다 비워둔다).
         if (type === NodeType.LINK) {
             child.metadata['_geometryDescriptor'] = null;
-        } else if (type === NodeType.JOINT) {
+        } else if (type === NodeType.ANCHOR) {
             child.metadata['_layoutDescriptor'] = { kind: 'single' };
+        } else if (type === NodeType.JOINT) {
+            child.metadata['axis'] = 'y';
+            child.metadata['min']  = -Math.PI;
+            child.metadata['max']  =  Math.PI;
         }
         child.metadata['_defaultRotation'] = [0, 0, 0];
+        child.metadata['_defaultPosition'] = [0, 0, 0];
         NodeRegistry.register(child);
         parent.addChild(child);
 

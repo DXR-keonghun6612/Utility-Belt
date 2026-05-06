@@ -1,7 +1,8 @@
 import * as THREE from 'three';
-import { NodeAssembler, NodeDescriptor, SceneSnapshot, SceneEntry } from './NodeAssembler';
+import { NodeAssembler, NodeDescriptor, SceneSnapshot, SceneEntry, AnchorLayout } from './NodeAssembler';
 import { NodeRegistry } from './NodeRegistry';
 import { SceneNode, NodeType } from './SceneNode';
+import { AnchorPopulator } from './AnchorPopulator';
 
 /** 모델 이름 → NodeDescriptor 반환. 동기/비동기 모두 허용 */
 export type ModelLoader = (name: string) => NodeDescriptor | Promise<NodeDescriptor>;
@@ -65,6 +66,34 @@ export class SceneDeserializer {
             }
         }
 
+        // 명시적 children이 없는 ANCHOR 중 defaultModel이 있는 것을 자동 populate
+        await this._autoPopulateAnchors(root, modelLoader);
+
         return root;
+    }
+
+    /**
+     * 모델 내부 ANCHOR를 순회하며, 자식이 없고 defaultModel이 있는 경우 자동 populate.
+     * 다른 모델 루트(_modelName 있는 노드) 하위는 탐색하지 않는다.
+     */
+    private static async _autoPopulateAnchors(
+        modelRoot: SceneNode,
+        modelLoader: ModelLoader,
+    ): Promise<void> {
+        const traverse = async (node: SceneNode) => {
+            for (const child of node.children) {
+                if (child.metadata['_modelName'] !== undefined) continue;
+
+                if (child.type === NodeType.ANCHOR) {
+                    const layout = child.metadata['_layoutDescriptor'] as AnchorLayout | null;
+                    if (layout?.defaultModel && child.children.length === 0) {
+                        await AnchorPopulator.populate(child, modelLoader);
+                    }
+                }
+
+                await traverse(child);
+            }
+        };
+        await traverse(modelRoot);
     }
 }

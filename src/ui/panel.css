@@ -136,12 +136,10 @@
   margin-right: 4px;
   letter-spacing: 0.05em;
 }
-.badge-ROOT    { background: #1e3a4a; color: #00bcd4; }
+.badge-GROUP   { background: #1e2a3a; color: #80cbc4; }
+.badge-ANCHOR  { background: #1e3a2a; color: #a5d6a7; }
 .badge-JOINT   { background: #2a2040; color: #b39ddb; }
 .badge-LINK    { background: #1a2a1a; color: #81c784; }
-.badge-PART    { background: #2a2010; color: #ffb74d; }
-.badge-CAMERA  { background: #2a1010; color: #ef9a9a; }
-.badge-FIXTURE { background: #1e2a3a; color: #80cbc4; }
 
 .tree-add-btn {
   font-size: 14px;
@@ -154,6 +152,19 @@
 }
 .tree-add-btn:hover {
   color: #81c784;
+}
+.tree-remove-btn {
+  font-size: 14px;
+  color: #7a8494;
+  margin-left: 2px;
+  margin-right: 4px;
+  cursor: pointer;
+  padding: 0 4px;
+  font-weight: bold;
+  line-height: 1;
+}
+.tree-remove-btn:hover {
+  color: #ef9a9a;
 }
 
 /* Inspector */
