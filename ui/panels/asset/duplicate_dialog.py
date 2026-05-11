@@ -16,7 +16,8 @@ class Duplicate_Dialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Find Duplicate Assets")
-        self.resize(560, 420)
+        self.resize(720, 500)
+        self.setMinimumSize(520, 380)
 
         self._root_layout = QVBoxLayout(self)
         self._stack = QStackedLayout()
@@ -71,9 +72,15 @@ class Duplicate_Dialog(QDialog):
         self.result_tree = QTreeWidget()
         self.result_tree.setHeaderLabels(["Name", "Source", "Score"])
         self.result_tree.setColumnCount(3)
-        self.result_tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.result_tree.header().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        self.result_tree.header().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.result_tree.setAlternatingRowColors(True)
+        _header = self.result_tree.header()
+        _header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+        _header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        _header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        _header.setStretchLastSection(False)
+        _header.setMinimumSectionSize(60)
+        self.result_tree.setColumnWidth(0, 160)
+        self.result_tree.setColumnWidth(1, 460)
         _layout.addWidget(self.result_tree)
 
         _btn_layout = QHBoxLayout()
@@ -108,7 +115,8 @@ class Duplicate_Dialog(QDialog):
             for _idx, _group in enumerate(_groups, 1):
                 _ref = _group[0]
                 _parent = QTreeWidgetItem([f"Group {_idx}  ({len(_group)} assets)", "", ""])
-                QTreeWidgetItem(_parent, [_ref.label, _ref.source_path or "", "ref"])
+                _ref_item = QTreeWidgetItem(_parent, [_ref.label, _ref.source_path or "", "ref"])
+                _ref_item.setToolTip(1, _ref.source_path or "")
 
                 for _asset in _group[1:]:
                     _rate = 0.0
@@ -117,7 +125,8 @@ class Duplicate_Dialog(QDialog):
                             _ref.geometry, _asset.geometry,
                             num_samples=_samples, threshold=_threshold
                         )
-                    QTreeWidgetItem(_parent, [_asset.label, _asset.source_path or "", f"{_rate:.2%}"])
+                    _item = QTreeWidgetItem(_parent, [_asset.label, _asset.source_path or "", f"{_rate:.2%}"])
+                    _item.setToolTip(1, _asset.source_path or "")
                 self.result_tree.addTopLevelItem(_parent)
             self.result_tree.expandAll()
 

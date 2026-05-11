@@ -31,7 +31,7 @@ class Asset_Browser_Panel(Base_Panel):
         super().__init__(parent)
 
     def _connect_signals(self) -> None:
-        self.bus.scene_loaded.connect(self.Clear_assets)
+        self.bus.scene_loaded.connect(self._Rebuild_tree)
 
     def _setup_ui(self):
         _btn_layout = QHBoxLayout()

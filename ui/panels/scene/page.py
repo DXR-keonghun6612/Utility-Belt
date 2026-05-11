@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Slot
 
 from spatial_toolbox.scene import Controller as Stage_Controller
+from spatial_toolbox.scene.asset.cache import ASSET_CACHE
 from spatial_toolbox.scene.node import Camera as Camera_Node
 from ui.panels._base import Base_Panel
 
@@ -79,16 +80,21 @@ class Outliner_Panel(Base_Panel):
 
     def _On_save_scene_clicked(self):
         _path, _ = QFileDialog.getSaveFileName(
-            self, "Save Scene", "", "Scene Files (*.json *.usd *.usda *.usdc)", options=QFileDialog.Option.DontUseNativeDialog)
+            self, "Save Scene", "scene.usd", "USD Files (*.usd *.usda *.usdc)",
+            options=QFileDialog.Option.DontUseNativeDialog,
+        )
         if _path:
-            self.stage.Export(Path(_path))
+            self.stage.Export(str(Path(_path)))
             self.bus.scene_path_changed.emit(str(Path(_path)))
 
     def _On_load_scene_clicked(self):
         _path, _ = QFileDialog.getOpenFileName(
-            self, "Load Scene", "", "Scene Files (*.json *.usd *.usda *.usdc)", options=QFileDialog.Option.DontUseNativeDialog)
+            self, "Load Scene", "", "USD Files (*.usd *.usda *.usdc)",
+            options=QFileDialog.Option.DontUseNativeDialog,
+        )
         if _path:
-            self.stage.Import(Path(_path))
+            ASSET_CACHE.Clear()
+            self.stage.Import(str(Path(_path)))
             self.bus.scene_path_changed.emit(str(Path(_path)))
             self.bus.scene_loaded.emit()
 

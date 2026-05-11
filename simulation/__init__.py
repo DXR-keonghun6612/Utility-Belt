@@ -6,6 +6,7 @@ from spatial_toolbox.simulation import (
     Base_Capture_Engine,
     Result_Exporter,
     Blender_Capture_Engine,
+    OpenGL_Capture_Engine,
 )
 
 __all__ = [
@@ -16,4 +17,5 @@ __all__ = [
     "Base_Capture_Engine",
     "Result_Exporter",
     "Blender_Capture_Engine",
+    "OpenGL_Capture_Engine",
 ]

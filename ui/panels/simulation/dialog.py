@@ -1,4 +1,3 @@
-import numpy as np
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox,
     QComboBox, QSpinBox, QDoubleSpinBox, QDialogButtonBox, QLabel,
@@ -287,18 +286,66 @@ class Generate_Config_Dialog(QDialog):
         _kwargs = {}
         for _key, (_chk, _s_min, _s_max, _is_rot) in controls.items():
             _v_min = _s_min.value()
-            if _is_rot:
-                _v_min = np.radians(_v_min)
-
             if _chk.isChecked():
-                _v_max = _s_max.value()
-                if _is_rot:
-                    _v_max = np.radians(_v_max)
-                _kwargs[_key] = [float(_v_min), float(_v_max)]
+                _kwargs[_key] = [float(_v_min), float(_s_max.value())]
             else:
                 _kwargs[_key] = float(_v_min)
-
         return Randomize_Range(**_kwargs)
+
+    def _Fill_randomize_range(self, controls: dict, r: Randomize_Range) -> None:
+        """기존 Randomize_Range 값으로 DoF 컨트롤을 채움."""
+        for _key, (_chk, _s_min, _s_max, _is_rot) in controls.items():
+            _val = getattr(r, _key, 0.0)
+            if isinstance(_val, list) and len(_val) >= 2:
+                _s_min.setValue(float(_val[0]))
+                _s_max.setValue(float(_val[1]))
+                _chk.setChecked(True)
+            else:
+                _s_min.setValue(float(_val))
+                _chk.setChecked(False)
+
+    def Set_config(self, cfg: Sim_Config) -> None:
+        """기존 Sim_Config 값으로 모든 폼 컨트롤을 채움."""
+        _idx = self.cb_target.findText(cfg.target_label)
+        if _idx >= 0:
+            self.cb_target.setCurrentIndex(_idx)
+
+        if cfg.camera_labels:
+            _idx = self.cb_camera.findText(cfg.camera_labels[0])
+            if _idx >= 0:
+                self.cb_camera.setCurrentIndex(_idx)
+
+        self.spin_samples.setValue(cfg.num_samples)
+
+        _idx = self.cb_layout.findText(cfg.output_layout)
+        if _idx >= 0:
+            self.cb_layout.setCurrentIndex(_idx)
+
+        if cfg.seed is not None:
+            self.chk_seed.setChecked(True)
+            self.spin_seed.setValue(int(cfg.seed))
+        else:
+            self.chk_seed.setChecked(False)
+
+        self._Fill_randomize_range(self._obj_controls, cfg.obj)
+        self._Fill_randomize_range(self._cam_controls, cfg.cam)
+
+        _pd = cfg.physics_drop
+        self.chk_physics_drop.setChecked(_pd.enabled)
+        self.spin_floor_z.setValue(_pd.floor_z)
+        self.chk_ground_plane.setChecked(_pd.use_ground_plane)
+        self.spin_settle_frames.setValue(_pd.settle_frames)
+        self.spin_steps_per_second.setValue(_pd.steps_per_second)
+        self.spin_solver_iterations.setValue(_pd.solver_iterations)
+        self.spin_mass.setValue(_pd.mass)
+        self.spin_friction.setValue(_pd.friction)
+        self.spin_restitution.setValue(_pd.restitution)
+        self.spin_linear_damping.setValue(_pd.linear_damping)
+        self.spin_angular_damping.setValue(_pd.angular_damping)
+        _shape_idx = self.cb_collision_shape.findText(_pd.collision_shape)
+        if _shape_idx >= 0:
+            self.cb_collision_shape.setCurrentIndex(_shape_idx)
+        self.chk_collide_with_scene.setChecked(_pd.collide_with_scene)
 
     def Get_config(self) -> Sim_Config:
         return Sim_Config(
