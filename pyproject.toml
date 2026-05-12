@@ -10,7 +10,7 @@ authors = [
 ]
 description = "Code Hierarchy & Architecture Rendering Tool"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 dependencies = [
     "libclang",
     "python_toolbox @ git+https://github.com/DXR-keonghun6612/ToolBox.git@python_toolbox",
