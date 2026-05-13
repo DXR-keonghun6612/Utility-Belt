@@ -169,15 +169,12 @@ class CXX_Analyzer:
             else "void"
         )
 
-        _is_override = len(list(cursor.get_overridden_cursors())) > 0
-
         return CXX_Method_Info(
             name=cursor.spelling,
             args=_args,
             return_type=_return_type,
             access=self._get_access(cursor),
             is_virtual=cursor.is_virtual_method(),
-            is_override=_is_override,
             is_const=cursor.is_const_method(),
             is_static=cursor.is_static_method(),
             is_pure_virtual=cursor.is_pure_virtual_method(),

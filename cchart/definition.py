@@ -4,7 +4,7 @@ core.definition의 공통 IR을 상속하여 C/C++ 전용 개념을 추가로 �
 """
 from typing import Literal
 from dataclasses import dataclass, field
-from core.definition import Arg_Info, Method_Info, Class_Info, Module_Info
+from core.definition import Method_Info, Class_Info, Module_Info
 
 Access = Literal["public", "protected", "private"]
 
@@ -16,14 +16,12 @@ class CXX_Method_Info(Method_Info):
     Attributes:
         access: 접근 지정자.
         is_virtual: virtual 메서드 여부.
-        is_override: override 여부.
         is_const: const 메서드 여부.
         is_static: static 메서드 여부.
         is_pure_virtual: 순수 가상 함수 여부.
     """
     access: Access = "public"
     is_virtual: bool = False
-    is_override: bool = False
     is_const: bool = False
     is_static: bool = False
     is_pure_virtual: bool = False
@@ -45,8 +43,6 @@ class CXX_Method_Info(Method_Info):
             _qualifiers.append("= 0")
         if self.is_const:
             _qualifiers.append("const")
-        if self.is_override:
-            _qualifiers.append("override")
 
         return f"{_sig} [{', '.join(_qualifiers)}]" if _qualifiers else _sig
 
