@@ -1,7 +1,7 @@
 .PHONY: install uninstall
 
 install:
-	pip install --no-build-isolation -e .
+	pip install --no-build-isolation .
 
 uninstall:
-	pip uninstall code-chart -y
+	pip uninstall code_chart -y
