@@ -2,14 +2,16 @@
 
 core.definition의 공통 IR을 상속하여 C/C++ 전용 개념을 추가로 정의합니다.
 """
+from __future__ import annotations
 from typing import Literal
 from dataclasses import dataclass, field
+
 from core.definition import Method_Info, Class_Info, Module_Info
 
 Access = Literal["public", "protected", "private"]
 
 
-@dataclass(slots=True)
+@dataclass
 class CXX_Method_Info(Method_Info):
     """C++ 메서드/함수 확장 IR.
 
@@ -19,12 +21,18 @@ class CXX_Method_Info(Method_Info):
         is_const: const 메서드 여부.
         is_static: static 메서드 여부.
         is_pure_virtual: 순수 가상 함수 여부.
+        is_override: override 지정 여부.
+        is_final: final 지정 여부.
+        is_noexcept: noexcept 지정 여부.
     """
     access: Access = "public"
     is_virtual: bool = False
     is_const: bool = False
     is_static: bool = False
     is_pure_virtual: bool = False
+    is_override: bool = False
+    is_final: bool = False
+    is_noexcept: bool = False
 
     def To_uml_signature(self) -> str:
         """UML 시그니처 생성 (접근 지정자 + 한정자 포함)."""
@@ -43,25 +51,32 @@ class CXX_Method_Info(Method_Info):
             _qualifiers.append("= 0")
         if self.is_const:
             _qualifiers.append("const")
+        if self.is_override:
+            _qualifiers.append("override")
+        if self.is_final:
+            _qualifiers.append("final")
+        if self.is_noexcept:
+            _qualifiers.append("noexcept")
 
         return f"{_sig} [{', '.join(_qualifiers)}]" if _qualifiers else _sig
 
 
-@dataclass(slots=True)
+@dataclass
 class CXX_Class_Info(Class_Info):
     """C++ 클래스/구조체/유니온 확장 IR.
 
     Attributes:
         kind: 선언 종류 (class / struct / union).
-        template_params: 템플릿 파라미터 리스트.
-        namespace_path: 소속 namespace 경로 (예: "ns::inner").
+        template_params: 템플릿 파라미터 리스트
+            (비어있지 않으면 02_classifier가 ``traits ∋ template`` 부여).
+        namespace_path: 소속 namespace 경로 (예: ``"ns::inner"``).
     """
     kind: Literal["class", "struct", "union"] = "class"
     template_params: list[str] = field(default_factory=list)
     namespace_path: str = ""
 
 
-@dataclass(slots=True)
+@dataclass
 class Translation_Unit_Info(Module_Info):
     """C++ 번역 단위(소스/헤더 파일) 정보.
 

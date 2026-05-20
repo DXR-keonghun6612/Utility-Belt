@@ -8,16 +8,34 @@
 
 모든 언어 백엔드는 동일한 IR로 수렴한다. `Class_Info`, `Method_Info`, `Module_Info`로 구성된 공통 데이터 모델이 파서와 렌더러 사이를 잇는 계약이다. 새 언어 지원은 이 IR을 채우는 파서를 추가하는 것으로 완결된다.
 
-### 2-Pass 파이프라인
+### 5단계 파이프라인
 
-- **Pass 1 — Parse**: 각 파일을 독립적으로 파싱하여 전역 심볼 테이블에 등록
-- **Pass 2 — Link**: 심볼 테이블 전체를 순회하며 의존성 관계를 해석하고 `Graph_Model`을 생성
+```
+01_parser  →  02_classifier  →  03_linker  →  04_layout  →  Renderer
+파일별         파일별            디렉토리별     디렉토리별     디렉토리별
+```
 
-전역 심볼 테이블 기준으로 링킹하므로 파일 처리 순서에 영향받지 않는다.
+- **01_parser**: AST → 언어별 IR, 노드 ID 부여, 무효화 메타(해시) 기록
+- **02_classifier**: Type 카테고리에 `abstraction` + `traits` 부여 (잠정값)
+- **03_linker**: 관계 해석 + 상속 체인 따라 `abstraction` 최종 보정
+- **04_layout**: 추상 좌표(`layer / wing / col`) 부여
+- **Renderer**: 백엔드별 출력 (drawio / mermaid / plantuml)
+
+단계 사이는 yaml 캐시 + blake2b 해시 체이닝으로 자동 무효화. 어느 단계라도 입력이 바뀌면 이후 단계가 자동 재실행된다.
 
 ### 타입화 엣지 (Typed Edges)
 
-관계선은 의미 없는 화살표가 아니다. `inheritance`, `realization`, `composition`, `dependency`, `call`, `include`, `friend` 중 하나의 엣지 타입을 부여하고, 렌더러가 UML 표기법에 따라 시각화한다.
+관계선은 의미 없는 화살표가 아니다. UML 표기법에 따라 7종의 엣지 타입 중 하나를 부여한다:
+
+| 엣지 | 의미 |
+|------|------|
+| `inheritance` | 일반 상속 (base가 interface 아님) |
+| `realization` | 인터페이스 구현 (base의 `abstraction == interface`) |
+| `composition` | 강한 소유 (value, `unique_ptr`, 컨테이너) |
+| `aggregation` | 약한 소유 (`shared_ptr`) |
+| `association` | 참조 보유 (raw pointer, reference, `weak_ptr`) |
+| `dependency` | 일시적 사용 (메서드 시그니처 등장) |
+| `include` | `#include` (C/C++) |
 
 ### 디렉토리 단위 출력
 
@@ -25,20 +43,26 @@
 
 ## 아키텍처
 
+3계층 구조 (`core` / `parser` / `render`).
+
 ```text
-[언어별 파서]  →  [IR 레이어]       →  [Graph 레이어]  →  [Draw.io 렌더러]
- cchart /          core/definition      core/graph          core/form/drawio
- pychart           Class_Info           Graph_Model          Graph_Builder
-                   Module_Info          Edge_Info            XML 직렬화
-                   Method_Info
+[parser/{lang}]   →   [core]            →   [render/{backend}]
+ extractor.py          definition.py         drawio/
+ classifier.py         graph.py              mermaid/
+ linker.py             layout/               plantuml/
+                       hashing.py
+                       serialization.py
 ```
 
 | 계층 | 역할 | 핵심 모듈 |
 |------|------|-----------|
-| Parser | AST 탐색 → IR 채움 | `{lang}/parser/extractor.py` |
-| Registry | 전역 심볼 테이블 | `core/registry.py` |
-| Linker | IR → 의존성 Graph | `{lang}/parser/linker.py` |
-| Renderer | Graph → draw.io XML | `core/form/drawio/builder.py` |
+| Parser (언어별) | AST 탐색 → IR 채움 | `parser/{lang}/extractor.py` |
+| Parser (언어별) | 분류 부여 | `parser/{lang}/classifier.py` |
+| Parser (언어별) | 관계 해석 | `parser/{lang}/linker.py` |
+| Core | 전역 심볼 테이블 | `core/registry.py` |
+| Core | 추상 좌표 배치 | `core/layout/` |
+| Core | 해시 / 무효화 | `core/hashing.py` |
+| Renderer (백엔드별) | 좌표 → 출력 | `render/{backend}/builder.py` |
 
 ## 지원 언어
 
@@ -63,4 +87,7 @@ cchart build/compile_commands.json
 cchart build/compile_commands.json --root src/ -d
 ```
 
-자세한 예제는 [COOKBOOK.md](COOKBOOK.md)를 참고.
+## 설계 문서
+
+- [METHODOLOGY.md](METHODOLOGY.md) — 단계별 책임, 스키마, 캐시·무효화, 다언어 지원 등 설계 합의의 단일 진실 원천
+- [render/drawio/README.md](render/drawio/README.md) — Draw.io 백엔드의 추상 좌표 → 픽셀 변환 및 시각 매핑
