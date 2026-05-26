@@ -1,6 +1,6 @@
 """Graph algorithms — 직접 구현 (외부 라이브러리 미사용).
 
-METHODOLOGY §7: networkx 등을 도입하지 않고 필요한 알고리즘만 자체 구현.
+plan/dependencies.md: networkx 등을 도입하지 않고 필요한 알고리즘만 자체 구현.
 03_linker의 abstraction 보정과 04_layout의 계층 배치에서 공유 사용.
 """
 from __future__ import annotations

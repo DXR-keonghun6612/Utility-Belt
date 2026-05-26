@@ -2,7 +2,7 @@
 
 Notes:
     이전의 ``STEREOTYPE_LOCAL / EXTERNAL / SYSTEM`` 상수는
-    METHODOLOGY §5.4에 따라 ``Module_Info.origin`` (Literal) 어휘로
+    plan/data-model.md에 따라 ``Module_Info.origin`` (Literal) 어휘로
     통일되어 본 모듈에서 제거되었다.
 """
 from __future__ import annotations

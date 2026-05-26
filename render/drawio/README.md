@@ -3,7 +3,7 @@
 `04_layout`이 부여한 추상 좌표(`layer / wing / col`)를 Draw.io의 픽셀 좌표와
 `mxCell` XML로 변환하는 백엔드의 구현 규칙.
 
-상위 설계는 [`METHODOLOGY.md`](../../METHODOLOGY.md) 참고.
+상위 설계는 [`plan/`](../../plan/README.md) 참고.
 
 ---
 
@@ -73,7 +73,7 @@ width  = DEFAULT_WIDTH         # 고정 (현재 350)
 
 ## 4. 엣지 스타일 매핑
 
-[`METHODOLOGY.md` §4.3](../../METHODOLOGY.md)의 엣지 종류와 1:1 매핑.
+[`plan/linker.md`](../../plan/linker.md)의 엣지 종류와 1:1 매핑.
 
 | 엣지 (`edge_type`) | 화살표 끝 | 채움 | 점선 | UML 표기 |
 |--------------------|----------|------|------|----------|
@@ -99,7 +99,7 @@ inheritance > realization > composition > aggregation > association > dependency
 
 ## 5. 스테레오타입 시각화 (Type 카테고리에만 적용)
 
-[`METHODOLOGY.md` §4.2](../../METHODOLOGY.md)의 `abstraction` × `traits`를 직교 채널에 매핑.
+[`plan/classifier.md`](../../plan/classifier.md)의 `abstraction` × `traits`를 직교 채널에 매핑.
 
 | 분류값 | 시각 채널 | drawio 표현 |
 |--------|----------|-------------|

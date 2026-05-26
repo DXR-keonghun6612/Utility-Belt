@@ -89,5 +89,5 @@ cchart build/compile_commands.json --root src/ -d
 
 ## 설계 문서
 
-- [METHODOLOGY.md](METHODOLOGY.md) — 단계별 책임, 스키마, 캐시·무효화, 다언어 지원 등 설계 합의의 단일 진실 원천
+- [plan/](plan/README.md) — 단계별 책임, 스키마, 캐시·무효화, 다언어 지원 등 설계 합의 문서 모음
 - [render/drawio/README.md](render/drawio/README.md) — Draw.io 백엔드의 추상 좌표 → 픽셀 변환 및 시각 매핑

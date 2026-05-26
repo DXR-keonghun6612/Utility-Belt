@@ -13,7 +13,7 @@ from python_toolbox import Data_Schema
 
 
 # ─────────────────────────────────────────────────────────
-# 엣지 타입 상수 — METHODOLOGY §4.3
+# 엣지 타입 상수 — plan/linker.md
 # ─────────────────────────────────────────────────────────
 EDGE_INHERITANCE: Final[str] = "inheritance"   # 일반 상속 (base가 interface 아님)
 EDGE_REALIZATION: Final[str] = "realization"   # 인터페이스 구현 (base의 abstraction == interface)

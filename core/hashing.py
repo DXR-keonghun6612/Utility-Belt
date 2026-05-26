@@ -1,6 +1,6 @@
 """Hashing & cache invalidation.
 
-METHODOLOGY §3: 4종 해시(source / dependency / context / upstream)를 통한
+plan/caching.md: 4종 해시(source / dependency / context / upstream)를 통한
 단계별 자동 무효화.
 
 알고리즘: blake2b(digest_size=16). 변경 감지 용도이므로 빠르고 가벼운 선택

@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from python_toolbox import Data_Schema
 
 
-# 분류 어휘 — METHODOLOGY §4.2 / §5.4
+# 분류 어휘 — plan/classifier.md / plan/data-model.md
 Abstraction = Literal["interface", "abstract", "concrete"]
 Trait = Literal["template", "macro", "data"]
 Origin = Literal["internal", "external"]

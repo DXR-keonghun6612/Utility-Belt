@@ -1,6 +1,6 @@
 """Serialization helpers — Data_Schema ↔ yaml/json.
 
-METHODOLOGY §2.3: 확장자 기반 자동 직렬화(python_toolbox의 ``file`` 모듈 활용).
+plan/caching.md: 확장자 기반 자동 직렬화(python_toolbox의 ``file`` 모듈 활용).
 역직렬화 시 클래스 디스패치는 ``type`` 필드(클래스명)와 Registry로 수행.
 
 본 모듈은 단계 yaml의 ``meta`` + ``body`` 구조를 다루는 얇은 래퍼이며,

@@ -39,7 +39,7 @@ def Make_file_key(file_path: Path, root: Path) -> str:
 
 
 def Make_node_id(file_key: str, namespace_path: str, name: str) -> str:
-    """METHODOLOGY §4.1의 노드 ID 규칙으로 식별자를 생성합니다.
+    """plan/parser.md의 노드 ID 규칙으로 식별자를 생성합니다.
 
     Format::
 
