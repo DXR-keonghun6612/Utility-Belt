@@ -42,11 +42,18 @@ export class NodeDescriptorExporter {
             },
         };
 
+        if (node.id === draftRootId && node.metadata['_parametersDescriptor']) {
+            descriptor.parameters = node.metadata['_parametersDescriptor'] as any;
+        }
+        if (node.id === draftRootId && node.metadata['_computedDescriptor']) {
+            descriptor.computed = node.metadata['_computedDescriptor'] as any;
+        }
+
         if (node.type === NodeType.LINK) {
             const geo = node.metadata['_geometryDescriptor'];
             if (geo) descriptor.geometry = geo as any;
         } else if (node.type === NodeType.ANCHOR) {
-            const layout = node.metadata['_layoutDescriptor'];
+            const layout = node.metadata['_sourceLayoutDescriptor'] ?? node.metadata['_layoutDescriptor'];
             if (layout) descriptor.layout = layout as any;
         }
 

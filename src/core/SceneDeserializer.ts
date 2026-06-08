@@ -30,21 +30,20 @@ export class SceneDeserializer {
         modelLoader: ModelLoader,
     ): Promise<SceneNode> {
         const descriptor = await modelLoader(entry.model);
-        const root = NodeAssembler.load(descriptor, entry.instanceId);
+        const root = NodeAssembler.loadInstance(descriptor, entry.instanceId, {
+            params: entry.params,
+            anchorOverrides: entry.anchorOverrides,
+        });
 
         // 모델 출처 기록 — SceneSerializer가 역직렬화에 사용
         root.metadata._modelName = entry.model;
+        if (entry.slotIndex !== undefined) root.metadata._slotIndex = entry.slotIndex;
 
         // 씬 레벨 transform (모델 JSON의 루트 transform을 덮어씀)
         if (entry.transform) {
             const { position, rotation } = entry.transform;
             if (position) root.object3D.position.set(...position);
             if (rotation) root.object3D.rotation.set(...rotation);
-        }
-
-        // 런타임 상태 overrides (조인트 각도 등)
-        if (entry.overrides) {
-            NodeAssembler.applyOverrides(entry.overrides);
         }
 
         // 자식 모델 인스턴스 재귀 처리
@@ -66,17 +65,22 @@ export class SceneDeserializer {
             }
         }
 
-        // 명시적 children이 없는 ANCHOR 중 defaultModel이 있는 것을 자동 populate
-        await this._autoPopulateAnchors(root, modelLoader);
+        // 명시적 children이 없는 ANCHOR 중 defaultModel/defaultNode가 있는 것을 자동 populate
+        await this.populateDefaultAnchors(root, modelLoader);
+
+        // 런타임 상태 overrides (조인트 각도 등)는 내부 anchor 자동 생성 이후 적용한다.
+        if (entry.overrides) {
+            NodeAssembler.applyOverrides(entry.overrides);
+        }
 
         return root;
     }
 
     /**
-     * 모델 내부 ANCHOR를 순회하며, 자식이 없고 defaultModel이 있는 경우 자동 populate.
+     * 모델 내부 ANCHOR를 순회하며, 자식이 없고 defaultModel/defaultNode가 있는 경우 자동 populate.
      * 다른 모델 루트(_modelName 있는 노드) 하위는 탐색하지 않는다.
      */
-    private static async _autoPopulateAnchors(
+    static async populateDefaultAnchors(
         modelRoot: SceneNode,
         modelLoader: ModelLoader,
     ): Promise<void> {
@@ -86,7 +90,7 @@ export class SceneDeserializer {
 
                 if (child.type === NodeType.ANCHOR) {
                     const layout = child.metadata['_layoutDescriptor'] as AnchorLayout | null;
-                    if (layout?.defaultModel && child.children.length === 0) {
+                    if ((layout?.defaultModel || layout?.defaultNode) && child.children.length === 0) {
                         await AnchorPopulator.populate(child, modelLoader);
                     }
                 }

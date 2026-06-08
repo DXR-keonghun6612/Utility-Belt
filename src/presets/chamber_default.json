@@ -15,7 +15,7 @@
             {
               "model": "camera_3lens",
               "instanceId": "camera_0",
-              "attachTo": "robot_0.j6",
+              "attachTo": "robot_0.flange",
               "transform": { "position": [0, 0, 0.2], "rotation": [0, 0, 0] }
             }
           ]

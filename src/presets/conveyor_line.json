@@ -16,6 +16,10 @@
           0
         ]
       },
+      "params": {
+        "length": 30,
+        "legGap": 5
+      },
       "children": [
         {
           "model": "elbow",
@@ -28,7 +32,7 @@
             ],
             "rotation": [
               0,
-              2.866704509827592,
+              2.8667,
               0
             ]
           },
@@ -45,7 +49,7 @@
             ],
             "rotation": [
               0,
-              2.1254572428579186,
+              2.12546,
               0
             ]
           },
@@ -62,7 +66,7 @@
             ],
             "rotation": [
               0,
-              -1.490239146388928,
+              -1.49024,
               0
             ]
           },
@@ -79,7 +83,7 @@
             ],
             "rotation": [
               0,
-              -1.5064639841906926,
+              -1.50646,
               0
             ]
           },
@@ -96,7 +100,7 @@
             ],
             "rotation": [
               0,
-              -0.4773421587613256,
+              -0.47734,
               0
             ]
           },
@@ -113,7 +117,7 @@
             ],
             "rotation": [
               0,
-              -2.623055007094044,
+              -2.62306,
               0
             ]
           },
@@ -130,7 +134,7 @@
             ],
             "rotation": [
               0,
-              1.1412134016037871,
+              1.14121,
               0
             ]
           },
@@ -147,7 +151,7 @@
             ],
             "rotation": [
               0,
-              1.2163292042183604,
+              1.21633,
               0
             ]
           },
@@ -164,7 +168,7 @@
             ],
             "rotation": [
               0,
-              0.8211489677048665,
+              0.82115,
               0
             ]
           },
@@ -181,29 +185,13 @@
             ],
             "rotation": [
               0,
-              -0.09306454061324532,
+              -0.09306,
               0
             ]
           },
           "attachTo": "main_conveyor.surface"
         }
       ]
-    },
-    {
-      "model": "camera_3lens",
-      "instanceId": "inspection_camera",
-      "transform": {
-        "position": [
-          -8,
-          12,
-          0
-        ],
-        "rotation": [
-          1.57,
-          0,
-          1.57
-        ]
-      }
     },
     {
       "model": "robot_base",
@@ -236,7 +224,26 @@
               0
             ]
           },
-          "attachTo": "base_left.mount"
+          "attachTo": "base_left.mount",
+          "params": {
+            "j1Yaw": 0,
+            "j2Pitch": 0.5236,
+            "j3Pitch": 2.0944,
+            "j4Pitch": 0.7854,
+            "j5Yaw": 1.5708,
+            "j6Pitch": 1.5708
+          },
+          "children": [
+            {
+              "model": "camera_3lens",
+              "instanceId": "camera_left",
+              "attachTo": "robot_left.flange",
+              "transform": {
+                "position": [0, 0, 0.2],
+                "rotation": [0, 0, 0]
+              }
+            }
+          ]
         }
       ]
     },
@@ -271,7 +278,26 @@
               0
             ]
           },
-          "attachTo": "base_right.mount"
+          "attachTo": "base_right.mount",
+          "params": {
+            "j1Yaw": 0,
+            "j2Pitch": 0.5236,
+            "j3Pitch": 2.0944,
+            "j4Pitch": 0.7854,
+            "j5Yaw": 1.5708,
+            "j6Pitch": 1.5708
+          },
+          "children": [
+            {
+              "model": "camera_3lens",
+              "instanceId": "camera_right",
+              "attachTo": "robot_right.flange",
+              "transform": {
+                "position": [0, 0, 0.2],
+                "rotation": [0, 0, 0]
+              }
+            }
+          ]
         }
       ]
     }

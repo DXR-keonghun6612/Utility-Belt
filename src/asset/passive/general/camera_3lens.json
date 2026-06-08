@@ -3,7 +3,6 @@
   "type": "GROUP",
   "label": "3-Lens Line Camera",
   "transform": { "position": [0, 0, 0.2], "rotation": [0, 0, 0] },
-  "metadata": { "lensCount": 3, "fov": 60 },
   "children": [
     {
       "id": "camera.connector",
@@ -23,7 +22,7 @@
             "depth": 0.25,
             "color": "#333333"
           },
-          "transform": { "position": [0, 0, 0], "rotation": [0, 0, 0] }
+          "transform": { "position": [0, -0.2, 0], "rotation": [0, 0, 0] }
         }
       ]
     },
@@ -38,7 +37,7 @@
         "depth": 0.3,
         "color": "#263238"
       },
-      "transform": { "position": [0, 0, 0.4], "rotation": [0, 0, 0] }
+      "transform": { "position": [0, -0.25, 0.4], "rotation": [0, 0, 0] }
     },
     {
       "id": "camera.glass",
@@ -51,7 +50,7 @@
         "depth": 0.05,
         "color": "#111111"
       },
-      "transform": { "position": [0, 0, 0.575], "rotation": [0, 0, 0] }
+      "transform": { "position": [0, -0.2, 0.575], "rotation": [0, 0, 0] }
     },
     {
       "id": "camera.lens_l",
@@ -64,7 +63,7 @@
         "height": 0.05,
         "color": "#000000"
       },
-      "transform": { "position": [-0.75, 0, 0.6], "rotation": [1.5708, 0, 0] }
+      "transform": { "position": [-0.75, 0, 0.575], "rotation": [1.5708, 0, 0] }
     },
     {
       "id": "camera.lens_c",
@@ -77,7 +76,7 @@
         "height": 0.05,
         "color": "#0d47a1"
       },
-      "transform": { "position": [0, 0, 0.6], "rotation": [1.5708, 0, 0] }
+      "transform": { "position": [0, 0, 0.575], "rotation": [1.5708, 0, 0] }
     },
     {
       "id": "camera.lens_r",
@@ -90,7 +89,7 @@
         "height": 0.05,
         "color": "#000000"
       },
-      "transform": { "position": [0.75, 0, 0.6], "rotation": [1.5708, 0, 0] }
+      "transform": { "position": [0.75, 0, 0.575], "rotation": [1.5708, 0, 0] }
     }
   ]
 }

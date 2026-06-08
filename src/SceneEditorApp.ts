@@ -1,39 +1,33 @@
-import * as THREE from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-
 import { SceneNode } from './core/SceneNode';
 import { NodeRegistry } from './core/NodeRegistry';
 import { SceneDeserializer } from './core/SceneDeserializer';
-import { type SceneSnapshot, type NodeDescriptor } from './core/NodeAssembler';
+import { NodeAssembler, type SceneSnapshot, type NodeDescriptor, type AnchorLayout } from './core/NodeAssembler';
 import { AssetManager } from './core/AssetManager';
-import { BROADCAST_CHANNEL } from './ui/AssetEditorApp';
+import { BROADCAST_CHANNEL } from './ui/asset-editor/AssetEditorApp';
 
-import { TabManager }      from './ui/TabManager';
-import { SceneGraphPanel } from './ui/SceneGraphPanel';
-import { InstancePanel }   from './ui/InstancePanel';
-import { RaycastSelector } from './ui/RaycastSelector';
-import { PresetPanel }     from './ui/PresetPanel';
-import { BuilderPanel }    from './ui/BuilderPanel';
+import { TabManager }         from './ui/app/TabManager';
+import { SceneGraphPanel }    from './ui/scene/SceneGraphPanel';
+import { SceneInspectorPanel } from './ui/scene/SceneInspectorPanel';
+import { SceneViewport }      from './ui/scene/SceneViewport';
+import { SceneActionPanel }   from './ui/scene/SceneActionPanel';
+import { InstanceBuilderPanel } from './ui/builder/InstanceBuilderPanel';
+import { AssetTreePanel }     from './ui/assets/AssetTreePanel';
 
 export class SceneEditorApp {
-    private scene!:    THREE.Scene;
-    private camera!:   THREE.PerspectiveCamera;
-    private renderer!: THREE.WebGLRenderer;
-    private controls!: OrbitControls;
-
-    private sceneRoot!: SceneNode;
+    private viewport!:   SceneViewport;
+    private sceneRoot!:  SceneNode;
 
     private tabManager!:    TabManager;
     private graphPanel!:    SceneGraphPanel;
-    private instancePanel!: InstancePanel;
-    private presetPanel!:   PresetPanel;
-    private builderPanel!:  BuilderPanel;
+    private sceneInspector!: SceneInspectorPanel;
+    private sceneActionPanel!: SceneActionPanel;
+    private builderPanel!:  InstanceBuilderPanel;
+    private assetTreePanel!: AssetTreePanel;
 
     private assetManager: AssetManager;
 
     constructor(assetManager: AssetManager) {
         this.assetManager = assetManager;
-        this.initEngine();
         this.initUI();
         this.bindEvents();
     }
@@ -43,60 +37,8 @@ export class SceneEditorApp {
             const snapshot = this.assetManager.getPreset(initialPresetName);
             await this.loadScene(snapshot);
         } else {
-            // 빈 씬 생성
             await this.loadScene({ version: 1, scene: [] });
         }
-        this.animate();
-    }
-
-    // ── THREE.js ─────────────────────────────────────
-
-    private w(): number {
-        const panel = document.getElementById('scene-panel');
-        return window.innerWidth - (panel?.offsetWidth ?? 300);
-    }
-    private h(): number { return window.innerHeight; }
-
-    private initEngine(): void {
-        this.scene = new THREE.Scene();
-        this.scene.background = new THREE.Color('#f4f6f9');
-
-        this.camera = new THREE.PerspectiveCamera(35, this.w() / this.h(), 0.1, 1000);
-        this.camera.position.set(0, 10, 40);
-
-        this.renderer = new THREE.WebGLRenderer({ antialias: true });
-        this.renderer.setSize(this.w(), this.h());
-        this.renderer.shadowMap.enabled = true;
-        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-        document.body.appendChild(this.renderer.domElement);
-
-        this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-        this.controls.target.set(0, 5, 0);
-        this.controls.update();
-
-        this.scene.add(new THREE.AmbientLight(0xffffff, 0.7));
-        const dir = new THREE.DirectionalLight(0xffffff, 0.6);
-        dir.position.set(20, 50, 30);
-        dir.castShadow = true;
-        dir.shadow.mapSize.set(2048, 2048);
-        this.scene.add(dir);
-
-        const floor = new THREE.Mesh(
-            new THREE.PlaneGeometry(150, 150),
-            new THREE.MeshStandardMaterial({ color: '#ffffff', depthWrite: false }),
-        );
-        floor.rotation.x = -Math.PI / 2;
-        floor.position.y = -0.3;
-        floor.receiveShadow = true;
-        this.scene.add(floor);
-
-        const grid = new THREE.GridHelper(150, 150, 0x000000, 0x000000);
-        if (grid.material instanceof THREE.Material) {
-            grid.material.opacity = 0.05;
-            grid.material.transparent = true;
-        }
-        grid.position.y = -0.25;
-        this.scene.add(grid);
     }
 
     // ── UI ───────────────────────────────────────────
@@ -104,39 +46,63 @@ export class SceneEditorApp {
     private initUI(): void {
         this.tabManager = new TabManager();
 
+        const canvasContainer = document.createElement('div');
+        canvasContainer.id = 'scene-canvas-container';
+        canvasContainer.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;';
+        document.body.appendChild(canvasContainer);
+
+        this.viewport = new SceneViewport(canvasContainer, {
+            onNodeSelected: (nodeId) => {
+                if (!nodeId) return;
+                const node = NodeRegistry.get(nodeId);
+                if (node) this.onSelect(node);
+            },
+            onGizmoDragEnd: (_nodeId, _pos, _rot) => {
+                // SceneNode.object3D가 이미 업데이트됨 — inspector만 갱신
+                const nodeId = this.viewport.getSelectedNodeId();
+                if (!nodeId) return;
+                const node = NodeRegistry.get(nodeId);
+                if (node) this.sceneInspector.show(node);
+            },
+        });
+
         this.graphPanel = new SceneGraphPanel(
             this.tabManager.sceneTreePane,
+            this.assetManager,
             (node) => this.onSelect(node),
             undefined,
             (node) => this.onRemoveNode(node),
             (node, newParent) => this.onReparentNode(node, newParent),
+            (modelName) => this.onAddRootModel(modelName),
+            (anchor, modelName, slotIndex) => this.onAttachToAnchor(anchor, modelName, slotIndex),
+            (anchor, slotIndex) => this.onClearAnchor(anchor, slotIndex),
         );
 
-        this.instancePanel = new InstancePanel(
+        this.sceneInspector = new SceneInspectorPanel(
             this.tabManager.sceneInspectorPane,
-            this.assetManager,
-            () => this.refreshPanels(),
+            (anchor, layout) => this.onAnchorLayoutChanged(anchor, layout),
         );
-        this.instancePanel.clear();
+        this.sceneInspector.clear();
 
-        this.presetPanel = new PresetPanel(
+        this.sceneActionPanel = new SceneActionPanel(
             this.tabManager.sceneActionPane,
-            (name) => this.assetManager.getModel(name),
+            this.assetManager,
             (root) => this.onSceneReloaded(root),
         );
 
-        this.builderPanel = new BuilderPanel(
+        this.builderPanel = new InstanceBuilderPanel(
             this.tabManager.tabs['builder'],
             this.assetManager,
-            () => this.refreshPanels(),
+            (root) => this.onBuilderRebuilt(root),
         );
 
-        new RaycastSelector(
-            this.scene,
-            this.camera,
-            this.renderer,
-            (node) => this.onSelect(node),
+        this.assetTreePanel = new AssetTreePanel(
+            this.tabManager.tabs['assets'],
+            this.assetManager,
+            (name) => this.openAssetEditor(name),
+            () => this.openNewAssetEditor(),
         );
+
     }
 
     // ── Scene ────────────────────────────────────────
@@ -150,7 +116,8 @@ export class SceneEditorApp {
 
         for (const n of node.flatten()) NodeRegistry.unregister(n);
 
-        this.instancePanel.clear();
+        this.sceneInspector.clear();
+        this.builderPanel.setSelection(null);
         this.refreshPanels();
     }
 
@@ -172,7 +139,7 @@ export class SceneEditorApp {
         }
         newParent.addChild(node);
         this.refreshPanels();
-        this.onSelect(node);
+        this.onSelect(node, true);
     }
 
     private async loadScene(snapshot: SceneSnapshot): Promise<void> {
@@ -181,49 +148,183 @@ export class SceneEditorApp {
             snapshot,
             (name) => this.assetManager.getModel(name)
         );
-        this.scene.add(this.sceneRoot.object3D);
+        this.viewport.setSceneRoot(this.sceneRoot.object3D, this.sceneRoot);
         this.refreshPanels();
     }
 
     private onSceneReloaded(root: SceneNode): void {
-        this.scene.remove(this.sceneRoot.object3D);
         this.sceneRoot = root;
-        this.scene.add(root.object3D);
-        this.instancePanel.clear();
+        this.viewport.setSceneRoot(root.object3D, root);
+        this.sceneInspector.clear();
+        this.builderPanel.setSelection(null);
         this.refreshPanels();
+    }
+
+    private onRootAdded(root: SceneNode): void {
+        this.refreshPanels();
+        this.onSelect(root, true);
+    }
+
+    private async onAddRootModel(modelName: string): Promise<void> {
+        const descriptor = this.assetManager.getModel(modelName);
+        const root = NodeAssembler.materializeInstance(
+            descriptor,
+            this.nextInstanceId(modelName),
+            { modelName },
+        );
+        await SceneDeserializer.populateDefaultAnchors(
+            root,
+            (name) => this.assetManager.getModel(name),
+        );
+        this.sceneRoot.addChild(root);
+        this.onRootAdded(root);
+    }
+
+    private onAttachToAnchor(anchor: SceneNode, modelName: string, slotIndex?: number): void {
+        if (slotIndex !== undefined) {
+            this.clearAnchorSlot(anchor, slotIndex);
+        }
+
+        const descriptor = this.assetManager.getModel(modelName);
+        const child = NodeAssembler.materializeInstance(
+            descriptor,
+            this.nextInstanceId(`${anchor.id}_s${slotIndex ?? 0}_${modelName}`),
+            { modelName },
+        );
+        child.metadata['_slotIndex'] = slotIndex ?? 0;
+        this.applyAnchorSlotTransform(anchor, child, slotIndex ?? 0);
+        anchor.addChild(child);
+        this.refreshPanels();
+        this.onSelect(anchor, true);
+    }
+
+    private onClearAnchor(anchor: SceneNode, slotIndex?: number): void {
+        const attached = anchor.children.filter(c =>
+            c.metadata['_modelName'] !== undefined &&
+            (slotIndex === undefined || Number(c.metadata['_slotIndex'] ?? 0) === slotIndex),
+        );
+        for (const child of attached) {
+            for (const n of child.flatten()) NodeRegistry.unregister(n);
+            anchor.removeChild(child);
+        }
+        this.refreshPanels();
+        this.onSelect(anchor, true);
+    }
+
+    private clearAnchorSlot(anchor: SceneNode, slotIndex: number): void {
+        const attached = anchor.children.filter(c =>
+            c.metadata['_modelName'] !== undefined &&
+            Number(c.metadata['_slotIndex'] ?? 0) === slotIndex,
+        );
+        for (const child of attached) {
+            for (const n of child.flatten()) NodeRegistry.unregister(n);
+            anchor.removeChild(child);
+        }
+    }
+
+    private applyAnchorSlotTransform(anchor: SceneNode, child: SceneNode, slotIndex: number): void {
+        const layout = anchor.metadata['_layoutDescriptor'] as AnchorLayout | null;
+        if (!layout || layout.kind !== 'array') return;
+
+        const gap = Number(layout.gap ?? 2);
+        const start = Number(layout.start ?? 0);
+        const axis = layout.axis ?? 'x';
+        const axisIndex = axis === 'x' ? 0 : axis === 'y' ? 1 : 2;
+        const pos: [number, number, number] = [0, 0, 0];
+        pos[axisIndex] = start + slotIndex * gap;
+        child.object3D.position.set(...pos);
+        child.object3D.rotation.set(0, 0, 0);
+    }
+
+    private nextInstanceId(seed: string): string {
+        const base = seed.replace(/[^a-zA-Z0-9_]/g, '_') || 'model';
+        let index = 1;
+        let id = `${base}_${index}`;
+        while (NodeRegistry.has(id)) {
+            index += 1;
+            id = `${base}_${index}`;
+        }
+        return id;
     }
 
     private refreshPanels(): void {
         this.graphPanel.render([this.sceneRoot]);
-        this.builderPanel.setRoots([this.sceneRoot]);
-        this.presetPanel.setRoot(this.sceneRoot);
+        this.sceneActionPanel.setRoot(this.sceneRoot);
+        this.builderPanel.setSceneRoot(this.sceneRoot);
+    }
+
+    private async onBuilderRebuilt(root: SceneNode): Promise<void> {
+        await SceneDeserializer.populateDefaultAnchors(
+            root,
+            (name) => this.assetManager.getModel(name),
+        );
+        this.refreshPanels();
+        this.onSelect(root);
+    }
+
+    private onAnchorLayoutChanged(anchor: SceneNode, layout: AnchorLayout): void {
+        const root = this.findInstanceRoot(anchor);
+        if (!root) return;
+
+        NodeAssembler.updateInstanceState(root, {
+            anchorOverrides: {
+                [anchor.id]: { layout },
+            },
+        });
+        this.refreshPanels();
+        this.onSelect(anchor);
     }
 
     // ── Selection ────────────────────────────────────
 
-    private onSelect(node: SceneNode): void {
-        this.instancePanel.show(node);
+    private onSelect(node: SceneNode, focusSceneTab = false): void {
+        this.sceneInspector.show(node);
         this.graphPanel.highlight(node);
-        this.tabManager.switchTo('scene');
+        this.builderPanel.setSelection(node);
+        if (focusSceneTab) this.tabManager.switchTo('scene');
+    }
+
+    private findInstanceRoot(node: SceneNode): SceneNode | null {
+        let cur: SceneNode | null = node;
+        while (cur) {
+            if (cur.metadata['_modelName'] !== undefined) return cur;
+            cur = cur.parent;
+        }
+        return null;
+    }
+
+    private openAssetEditor(modelName: string): void {
+        window.open(`/asset-editor.html?asset=${encodeURIComponent(modelName)}`, '_blank');
+    }
+
+    private openNewAssetEditor(): void {
+        window.open('/asset-editor.html', '_blank');
     }
 
     // ── Loop ─────────────────────────────────────────
 
     private bindEvents(): void {
-        const syncRenderer = () => {
-            this.camera.aspect = this.w() / this.h();
-            this.camera.updateProjectionMatrix();
-            this.renderer.setSize(this.w(), this.h());
-        };
-        window.addEventListener('resize', syncRenderer);
-        new ResizeObserver(syncRenderer).observe(this.tabManager.panel);
-
         // Asset Editor 탭에서 전송된 에셋을 AssetManager에 등록
         const channel = new BroadcastChannel(BROADCAST_CHANNEL);
         channel.addEventListener('message', (e: MessageEvent) => {
+            if (e.data?.type === 'ASSET_REQUEST') {
+                const { name } = e.data as { name: string };
+                try {
+                    channel.postMessage({
+                        type: 'ASSET_OPEN',
+                        name,
+                        descriptor: this.assetManager.getModel(name),
+                    });
+                } catch (err) {
+                    this._showToast((err as Error).message);
+                }
+                return;
+            }
+
             if (e.data?.type !== 'ASSET_SAVED') return;
             const { name, descriptor } = e.data as { name: string; descriptor: NodeDescriptor };
             this.assetManager.registerModel(name, descriptor);
+            this.assetTreePanel.render();
             this._showToast(`Asset "${name}" registered`);
         });
     }
@@ -241,9 +342,4 @@ export class SceneEditorApp {
         setTimeout(() => el.remove(), 2500);
     }
 
-    private animate(): void {
-        requestAnimationFrame(this.animate.bind(this));
-        this.controls.update();
-        this.renderer.render(this.scene, this.camera);
-    }
 }

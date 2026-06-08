@@ -1,0 +1,153 @@
+{
+  "id": "chamber",
+  "type": "GROUP",
+  "label": "Chamber",
+  "parameters": {
+    "height":         { "type": "number", "label": "Height (m)",         "default": 12, "min": 2,   "max": 30 },
+    "shelf_height":   { "type": "number", "label": "Shelf Height (m)",   "default": 4,  "min": 0.5, "max": 20 },
+    "panel_mount_h":  { "type": "number", "label": "Panel Mount Height (m)", "default": 5,  "min": 0.5, "max": 20 }
+  },
+  "computed": {
+    "top_frame_y":   "height - 0.2",
+    "lower_wall_h":  "shelf_height - 0.2",
+    "upper_glass_h": "height - shelf_height - 0.3",
+    "upper_glass_y": "shelf_height + 0.1",
+    "shelf_y":       "shelf_height - 0.1",
+    "shelf_top":     "shelf_height + 0.15"
+  },
+  "children": [
+    {
+      "id": "chamber.frame_bottom",
+      "type": "LINK",
+      "label": "Bottom Frame",
+      "geometry": { "shape": "Box", "width": 6, "height": 0.2, "depth": 6, "color": "#b0bec5" },
+      "transform": { "position": [0, 0, 0], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "chamber.frame_top",
+      "type": "LINK",
+      "label": "Top Frame",
+      "geometry": { "shape": "Box", "width": 6, "height": 0.2, "depth": 6, "color": "#b0bec5" },
+      "transform": { "position": [0, "$computed.top_frame_y", 0], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "chamber.pillar_fl",
+      "type": "LINK",
+      "label": "Pillar FL",
+      "geometry": { "shape": "Box", "width": 0.2, "height": "$params.height", "depth": 0.2, "color": "#90a4ae" },
+      "transform": { "position": [-2.9, 0, 2.9], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "chamber.pillar_fr",
+      "type": "LINK",
+      "label": "Pillar FR",
+      "geometry": { "shape": "Box", "width": 0.2, "height": "$params.height", "depth": 0.2, "color": "#90a4ae" },
+      "transform": { "position": [2.9, 0, 2.9], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "chamber.pillar_bl",
+      "type": "LINK",
+      "label": "Pillar BL",
+      "geometry": { "shape": "Box", "width": 0.2, "height": "$params.height", "depth": 0.2, "color": "#90a4ae" },
+      "transform": { "position": [-2.9, 0, -2.9], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "chamber.pillar_br",
+      "type": "LINK",
+      "label": "Pillar BR",
+      "geometry": { "shape": "Box", "width": 0.2, "height": "$params.height", "depth": 0.2, "color": "#90a4ae" },
+      "transform": { "position": [2.9, 0, -2.9], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "chamber.wall_front_lower",
+      "type": "LINK",
+      "label": "Wall Front (lower)",
+      "geometry": { "shape": "Box", "width": 5.6, "height": "$computed.lower_wall_h", "depth": 0.05, "color": "#78909c" },
+      "transform": { "position": [0, 0.2, 3], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "chamber.wall_back_lower",
+      "type": "LINK",
+      "label": "Wall Back (lower)",
+      "geometry": { "shape": "Box", "width": 5.6, "height": "$computed.lower_wall_h", "depth": 0.05, "color": "#78909c" },
+      "transform": { "position": [0, 0.2, -3], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "chamber.wall_left_lower",
+      "type": "LINK",
+      "label": "Wall Left (lower)",
+      "geometry": { "shape": "Box", "width": 0.05, "height": "$computed.lower_wall_h", "depth": 5.6, "color": "#78909c" },
+      "transform": { "position": [-3, 0.2, 0], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "chamber.wall_right_lower",
+      "type": "LINK",
+      "label": "Wall Right (lower)",
+      "geometry": { "shape": "Box", "width": 0.05, "height": "$computed.lower_wall_h", "depth": 5.6, "color": "#78909c" },
+      "transform": { "position": [3, 0.2, 0], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "chamber.glass_front_upper",
+      "type": "LINK",
+      "label": "Glass Front (upper)",
+      "geometry": { "shape": "Box", "width": 5.6, "height": "$computed.upper_glass_h", "depth": 0.05, "color": "#e1f5fe", "opacity": 0.25 },
+      "transform": { "position": [0, "$computed.upper_glass_y", 3], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "chamber.glass_back_upper",
+      "type": "LINK",
+      "label": "Glass Back (upper)",
+      "geometry": { "shape": "Box", "width": 5.6, "height": "$computed.upper_glass_h", "depth": 0.05, "color": "#e1f5fe", "opacity": 0.25 },
+      "transform": { "position": [0, "$computed.upper_glass_y", -3], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "chamber.glass_left_upper",
+      "type": "LINK",
+      "label": "Glass Left (upper)",
+      "geometry": { "shape": "Box", "width": 0.05, "height": "$computed.upper_glass_h", "depth": 5.6, "color": "#e1f5fe", "opacity": 0.25 },
+      "transform": { "position": [-3, "$computed.upper_glass_y", 0], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "chamber.glass_right_upper",
+      "type": "LINK",
+      "label": "Glass Right (upper)",
+      "geometry": { "shape": "Box", "width": 0.05, "height": "$computed.upper_glass_h", "depth": 5.6, "color": "#e1f5fe", "opacity": 0.25 },
+      "transform": { "position": [3, "$computed.upper_glass_y", 0], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "chamber.shelf",
+      "type": "LINK",
+      "label": "Divider Shelf",
+      "geometry": { "shape": "Box", "width": 5.6, "height": 0.1, "depth": 5.6, "color": "#546e7a" },
+      "transform": { "position": [0, "$computed.shelf_y", 0], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "chamber.anchor_floor",
+      "type": "ANCHOR",
+      "label": "Floor Mount",
+      "layout": { "kind": "single", "exposed": true },
+      "transform": { "position": [0, 0.2, 0], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "chamber.anchor_ceiling",
+      "type": "ANCHOR",
+      "label": "Ceiling Mount",
+      "layout": { "kind": "single", "exposed": true },
+      "transform": { "position": [0, "$params.height", 0], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "chamber.anchor_shelf",
+      "type": "ANCHOR",
+      "label": "Shelf Mount",
+      "layout": { "kind": "single", "exposed": true },
+      "transform": { "position": [0, "$computed.shelf_top", 0], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "chamber.anchor_pillar_panel",
+      "type": "ANCHOR",
+      "label": "Pillar Panel Mount",
+      "layout": { "kind": "single", "exposed": true },
+      "transform": { "position": [2.9, "$params.panel_mount_h", 3.0], "rotation": [0, 0, 0] }
+    }
+  ]
+}

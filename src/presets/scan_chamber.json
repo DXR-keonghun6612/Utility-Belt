@@ -1,0 +1,180 @@
+{
+  "version": 1,
+  "scene": [
+    {
+      "model": "chamber",
+      "instanceId": "chamber_1",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "params": {
+        "height": 12,
+        "shelf_height": 4,
+        "panel_mount_h": 5
+      },
+      "children": [
+        {
+          "model": "vision_robot",
+          "instanceId": "chamber_1_anchor_ceiling_s0_vision_robot_1",
+          "transform": {
+            "position": [
+              0,
+              -0.2,
+              0
+            ],
+            "rotation": [
+              3.14159,
+              0,
+              0
+            ]
+          },
+          "attachTo": "chamber_1.anchor_ceiling",
+          "params": {
+            "j1Yaw": 2.1084100000000014,
+            "j2Pitch": -0.8915900000000007,
+            "j3Pitch": 0.9184099999999993,
+            "j4Pitch": -0.5715899999999996,
+            "j5Yaw": 0.24841000000000035,
+            "j6Pitch": -1.5707963267948966
+          },
+          "overrides": {
+            "chamber_1_anchor_ceiling_s0_vision_robot_1.j6": {
+              "rotation": [
+                0,
+                0,
+                -1.5708
+              ]
+            }
+          },
+          "children": [
+            {
+              "model": "3D_Scanner_Camera",
+              "instanceId": "chamber_1_anchor_ceiling_s0_vision_robot_1_flange_s0_3D_Scanner_Camera_1",
+              "transform": {
+                "position": [
+                  0,
+                  0,
+                  0.2
+                ],
+                "rotation": [
+                  0,
+                  0,
+                  3.14159
+                ]
+              },
+              "attachTo": "chamber_1_anchor_ceiling_s0_vision_robot_1.flange",
+              "slotIndex": 0
+            }
+          ]
+        },
+        {
+          "model": "elbow",
+          "instanceId": "chamber_1_anchor_shelf_s0_elbow_1",
+          "transform": {
+            "position": [
+              0,
+              0.2,
+              0.4
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          },
+          "attachTo": "chamber_1.anchor_shelf",
+          "slotIndex": 0
+        },
+        {
+          "model": "monitor_panel",
+          "instanceId": "chamber_1_anchor_pillar_panel_s0_monitor_panel_1",
+          "transform": {
+            "position": [
+              -0.6,
+              -1.4,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          },
+          "attachTo": "chamber_1.anchor_pillar_panel",
+          "slotIndex": 0
+        }
+      ]
+    },
+    {
+      "model": "robot_base",
+      "instanceId": "robot_base_1",
+      "transform": {
+        "position": [
+          5.6,
+          0,
+          0.7
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "anchorOverrides": {
+        "robot_base_1.mount": {
+          "layout": {
+            "kind": "array",
+            "count": 2
+          }
+        }
+      },
+      "children": [
+        {
+          "model": "elbow",
+          "instanceId": "robot_base_1_mount_s0_elbow_1",
+          "transform": {
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          },
+          "attachTo": "robot_base_1.mount",
+          "slotIndex": 0
+        },
+        {
+          "model": "elbow",
+          "instanceId": "robot_base_1_mount_s1_elbow_1",
+          "transform": {
+            "position": [
+              2,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          },
+          "attachTo": "robot_base_1.mount",
+          "slotIndex": 1
+        }
+      ]
+    }
+  ]
+}

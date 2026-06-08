@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { SceneNode } from '../core/SceneNode';
-import { NodeRegistry } from '../core/NodeRegistry';
+import { SceneNode } from '../../core/SceneNode';
+import { NodeRegistry } from '../../core/NodeRegistry';
 
 export class RaycastSelector {
     private raycaster = new THREE.Raycaster();

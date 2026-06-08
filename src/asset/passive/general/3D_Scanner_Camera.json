@@ -1,0 +1,116 @@
+{
+  "id": "camera",
+  "type": "GROUP",
+  "label": "3D Scanner Camera",
+  "transform": {
+    "position": [
+      0,
+      0,
+      0.2
+    ],
+    "rotation": [
+      0,
+      0,
+      0
+    ]
+  },
+  "children": [
+    {
+      "id": "camera.connector.body",
+      "type": "LINK",
+      "label": "Body",
+      "geometry": {
+        "shape": "Box",
+        "width": 0.5,
+        "height": 0.3,
+        "depth": 2,
+        "color": "#333333"
+      },
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "camera.Lens_Cover",
+      "type": "LINK",
+      "label": "Lens_Cover",
+      "transform": {
+        "position": [
+          0,
+          0.30000001192092896,
+          -5.551115123125783e-17
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "geometry": {
+        "shape": "Box",
+        "color": "#000000",
+        "height": 0.05,
+        "depth": 1.9,
+        "width": 0.4,
+        "opacity": 0.5
+      }
+    },
+    {
+      "id": "camera.lens_l",
+      "type": "LINK",
+      "label": "Lens Left",
+      "geometry": {
+        "shape": "Cylinder",
+        "radiusTop": 0.1,
+        "radiusBottom": 0.1,
+        "height": 0.05,
+        "color": "#5e5c64"
+      },
+      "transform": {
+        "position": [
+          0,
+          0.31,
+          -0.5
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "camera.lens_c",
+      "type": "LINK",
+      "label": "Lens Center",
+      "geometry": {
+        "shape": "Cylinder",
+        "radiusTop": 0.1,
+        "radiusBottom": 0.1,
+        "height": 0.05,
+        "color": "#e01b24"
+      },
+      "transform": {
+        "position": [
+          0,
+          0.31,
+          0.5
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      }
+    }
+  ]
+}

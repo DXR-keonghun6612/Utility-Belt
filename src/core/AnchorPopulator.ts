@@ -6,12 +6,12 @@ type ModelLoader = (name: string) => NodeDescriptor | Promise<NodeDescriptor>;
 
 export class AnchorPopulator {
     /**
-     * ANCHOR 노드에 자식이 없고 defaultModel이 있을 때 최초 populate.
+     * ANCHOR 노드에 자식이 없고 defaultModel/defaultNode가 있을 때 최초 populate.
      * 기존 자식은 모두 제거 후 재생성한다.
      */
     static async populate(anchor: SceneNode, modelLoader: ModelLoader): Promise<void> {
         const layout = anchor.metadata['_layoutDescriptor'] as AnchorLayout | null;
-        if (!layout?.defaultModel) return;
+        if (!layout || !this._hasDefaultSource(layout)) return;
 
         this._clearChildren(anchor);
         await this._buildSlots(anchor, layout, modelLoader);
@@ -23,9 +23,9 @@ export class AnchorPopulator {
      */
     static async repopulate(anchor: SceneNode, modelLoader: ModelLoader): Promise<void> {
         const layout = anchor.metadata['_layoutDescriptor'] as AnchorLayout | null;
-        if (!layout?.defaultModel) return;
+        if (!layout || !this._hasDefaultSource(layout)) return;
 
-        const count = layout.kind === 'array' ? (layout.count ?? 1) : 1;
+        const count = layout.kind === 'array' ? Number(layout.count ?? 1) : 1;
 
         // 슬롯 인덱스 → 기존 자식 노드 매핑 (locked 슬롯만 보존)
         const lockedByIndex = new Map<number, SceneNode>();
@@ -57,8 +57,9 @@ export class AnchorPopulator {
         lockedByIndex?: Map<number, SceneNode>,
         count?: number,
     ): Promise<void> {
-        const slotCount = count ?? (layout.kind === 'array' ? (layout.count ?? 1) : 1);
-        const gap       = layout.gap  ?? 2.0;
+        const slotCount = count ?? (layout.kind === 'array' ? Number(layout.count ?? 1) : 1);
+        const gap       = Number(layout.gap ?? 2.0);
+        const start     = Number(layout.start ?? 0);
         const axis      = layout.axis ?? 'x';
         const axisIdx   = axis === 'x' ? 0 : (axis === 'y' ? 1 : 2);
 
@@ -70,18 +71,19 @@ export class AnchorPopulator {
             }
 
             const slotCfg   = layout.slots?.[i];
-            const modelName = slotCfg?.model ?? layout.defaultModel!;
-
-            const descriptor = await modelLoader(modelName);
+            const modelName = slotCfg?.model ?? layout.defaultModel;
+            const descriptor = modelName
+                ? await modelLoader(modelName)
+                : layout.defaultNode!;
             const instanceId = `${anchor.id}_s${i}_${(Math.random() * 0xfffff | 0).toString(16)}`;
             const child      = NodeAssembler.load(descriptor, instanceId);
 
-            child.metadata['_modelName']  = modelName;
-            child.metadata['_slotIndex']  = i;
+            if (modelName) child.metadata['_modelName'] = modelName;
+            child.metadata['_slotIndex'] = i;
 
             // 슬롯 기본 위치 (배열 offset)
             const basePos: [number, number, number] = [0, 0, 0];
-            basePos[axisIdx] = i * gap;
+            basePos[axisIdx] = start + i * gap;
 
             if (slotCfg?.transform) {
                 // 명시된 transform이 있으면 그대로 사용 (position은 basePos 기준 상대)
@@ -128,5 +130,9 @@ export class AnchorPopulator {
             for (const n of child.flatten()) NodeRegistry.unregister(n);
             anchor.removeChild(child);
         }
+    }
+
+    private static _hasDefaultSource(layout: AnchorLayout): boolean {
+        return !!(layout.defaultModel || layout.defaultNode);
     }
 }

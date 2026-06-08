@@ -1,0 +1,146 @@
+{
+  "id": "conveyor",
+  "type": "GROUP",
+  "label": "Belt Conveyor",
+  "transform": { "position": [0, 0, 0], "rotation": [0, 0, 0] },
+  "parameters": {
+    "length": {
+      "type": "number",
+      "label": "Length",
+      "default": 10,
+      "min": 1,
+      "step": 0.5,
+      "unit": "m"
+    },
+    "legGap": {
+      "type": "number",
+      "label": "Leg Gap",
+      "default": 5,
+      "min": 0.5,
+      "step": 0.5,
+      "unit": "m"
+    }
+  },
+  "computed": {
+    "legInset": 1,
+    "legCount": "max(2, floor(length / legGap) + 1)",
+    "legActualGap": "(length - legInset * 2) / (legCount - 1)"
+  },
+  "children": [
+    {
+      "id": "conveyor.body",
+      "type": "LINK",
+      "label": "Conveyor Body",
+      "geometry": {
+        "shape": "ConveyorBody",
+        "length": "$params.length"
+      },
+      "transform": { "position": [0, 4.45, 0], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "conveyor.leg_slots",
+      "type": "ANCHOR",
+      "label": "Support Leg Slots",
+      "layout": {
+        "kind": "array",
+        "exposed": false,
+        "count": "$computed.legCount",
+        "start": "$computed.legInset",
+        "gap": "$computed.legActualGap",
+        "axis": "x",
+        "defaultNode": {
+          "id": "conveyor_leg",
+          "type": "GROUP",
+          "label": "Conveyor Leg",
+          "transform": { "position": [0, 0, 0], "rotation": [0, 0, 0] },
+          "children": [
+            {
+              "id": "conveyor_leg.pillar_left",
+              "type": "LINK",
+              "label": "Left Pillar",
+              "geometry": {
+                "shape": "Box",
+                "width": 0.2,
+                "height": 4.15,
+                "depth": 0.2,
+                "color": "#d0d0d0"
+              },
+              "transform": { "position": [0, 0, 2.15], "rotation": [0, 0, 0] }
+            },
+            {
+              "id": "conveyor_leg.pillar_right",
+              "type": "LINK",
+              "label": "Right Pillar",
+              "geometry": {
+                "shape": "Box",
+                "width": 0.2,
+                "height": 4.15,
+                "depth": 0.2,
+                "color": "#d0d0d0"
+              },
+              "transform": { "position": [0, 0, -2.15], "rotation": [0, 0, 0] }
+            },
+            {
+              "id": "conveyor_leg.foot_left",
+              "type": "LINK",
+              "label": "Left Foot",
+              "geometry": {
+                "shape": "Box",
+                "width": 0.4,
+                "height": 0.1,
+                "depth": 0.4,
+                "color": "#444444"
+              },
+              "transform": { "position": [0, 0, 2.15], "rotation": [0, 0, 0] }
+            },
+            {
+              "id": "conveyor_leg.foot_right",
+              "type": "LINK",
+              "label": "Right Foot",
+              "geometry": {
+                "shape": "Box",
+                "width": 0.4,
+                "height": 0.1,
+                "depth": 0.4,
+                "color": "#444444"
+              },
+              "transform": { "position": [0, 0, -2.15], "rotation": [0, 0, 0] }
+            },
+            {
+              "id": "conveyor_leg.crossbar",
+              "type": "LINK",
+              "label": "Crossbar",
+              "geometry": {
+                "shape": "Box",
+                "width": 0.15,
+                "height": 0.15,
+                "depth": 4.3,
+                "color": "#d0d0d0"
+              },
+              "transform": { "position": [0, 2.83, 0], "rotation": [0, 0, 0] }
+            }
+          ]
+        }
+      },
+      "transform": { "position": [0, 0, 0], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "conveyor.surface",
+      "type": "ANCHOR",
+      "label": "Surface Mount Point",
+      "layout": {
+        "kind": "array",
+        "exposed": true,
+        "count": 5,
+        "gap": 2,
+        "axis": "x",
+        "defaultModel": "elbow",
+        "randomize": {
+          "components": ["ry"],
+          "ranges": { "ry": [-3.14159, 3.14159] }
+        }
+      },
+      "transform": { "position": [1, 4.72, 0], "rotation": [0, 0, 0] }
+    }
+  ]
+}

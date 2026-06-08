@@ -174,14 +174,15 @@ export class CADUtils {
     static buildConveyorBody(length: number, useTexture: boolean = false): THREE.Group {
         const bodyGroup = new THREE.Group();
         const texture = useTexture ? this.checkerTexture : null;
+        const originOffsetX = length / 2;
 
         // --- 메인 프로파일 (양쪽 가이드 레일) ---
         const profileL = this.createRoundedBoxProfile(length, 0.5, 0.3, '#b0b8c0');
-        profileL.position.set(0, 0, 2.15); 
+        profileL.position.set(originOffsetX, 0, 2.15); 
         bodyGroup.add(profileL);
 
         const profileR = this.createRoundedBoxProfile(length, 0.5, 0.3, '#b0b8c0');
-        profileR.position.set(0, 0, -2.15);
+        profileR.position.set(originOffsetX, 0, -2.15);
         bodyGroup.add(profileR);
 
         // --- 롤러 (내부 구동축) ---
@@ -191,7 +192,7 @@ export class CADUtils {
         for(let i=0; i<rollerCount; i++) {
             const roller = this.createMesh(rollerGeo, '#90959a');
             roller.rotation.x = Math.PI / 2;
-            roller.position.set(startX + (i * 0.8), 0.04, 0); 
+            roller.position.set(originOffsetX + startX + (i * 0.8), 0.04, 0); 
             bodyGroup.add(roller);
         }
 
@@ -202,69 +203,26 @@ export class CADUtils {
 
         const beltTopGeo = new THREE.BoxGeometry(beltLength, beltThickness, 3.9);
         const beltTop = this.createMesh(beltTopGeo, '#2e7d32', texture);
-        beltTop.position.set(0, drumRadius - beltThickness / 2, 0);
+        beltTop.position.set(originOffsetX, drumRadius - beltThickness / 2, 0);
         bodyGroup.add(beltTop);
 
         const beltBotGeo = new THREE.BoxGeometry(beltLength, beltThickness, 3.9);
         const beltBot = this.createMesh(beltBotGeo, '#1b5e20'); 
-        beltBot.position.set(0, -(drumRadius - beltThickness / 2), 0);
+        beltBot.position.set(originOffsetX, -(drumRadius - beltThickness / 2), 0);
         bodyGroup.add(beltBot);
 
         const drumGeo = new THREE.CylinderGeometry(drumRadius, drumRadius, 3.9, 32);
         const drumL = this.createMesh(drumGeo, '#2e7d32', texture);
         drumL.rotation.x = Math.PI / 2;
-        drumL.position.set(-beltLength/2, 0, 0);
+        drumL.position.set(originOffsetX - beltLength/2, 0, 0);
         bodyGroup.add(drumL);
 
         const drumR = this.createMesh(drumGeo, '#2e7d32', texture);
         drumR.rotation.x = Math.PI / 2;
-        drumR.position.set(beltLength/2, 0, 0);
+        drumR.position.set(originOffsetX + beltLength/2, 0, 0);
         bodyGroup.add(drumR);
 
         return bodyGroup;
     }
 
-    static buildLegArray(length: number, height: number, width: number, gap: number, color: string, opacity: number = 1): THREE.Group {
-        const group = new THREE.Group();
-        const legCount = Math.max(2, Math.floor(length / gap) + 1);
-        const actualGap = (length - 1) / (legCount - 1);
-        const startX = -(length - 1) / 2;
-
-        const pillarGeo = new THREE.BoxGeometry(0.2, height, 0.2);
-        const footGeo = new THREE.BoxGeometry(0.4, 0.1, 0.4);
-        const crossGeo = new THREE.BoxGeometry(0.15, 0.15, width);
-
-        for (let i = 0; i < legCount; i++) {
-            const x = startX + i * actualGap;
-            const legPair = new THREE.Group();
-            legPair.position.x = x;
-
-            // Pillars
-            const pL = this.createMesh(pillarGeo, color, null, opacity);
-            pL.position.set(0, height / 2, width / 2);
-            legPair.add(pL);
-
-            const pR = this.createMesh(pillarGeo, color, null, opacity);
-            pR.position.set(0, height / 2, -width / 2);
-            legPair.add(pR);
-
-            // Feet
-            const fL = this.createMesh(footGeo, '#444444', null, opacity);
-            fL.position.set(0, 0.05, width / 2);
-            legPair.add(fL);
-
-            const fR = this.createMesh(footGeo, '#444444', null, opacity);
-            fR.position.set(0, 0.05, -width / 2);
-            legPair.add(fR);
-
-            // Crossbar
-            const cross = this.createMesh(crossGeo, color, null, opacity);
-            cross.position.set(0, height * 0.7, 0);
-            legPair.add(cross);
-
-            group.add(legPair);
-        }
-
-        return group;
-    }
     }

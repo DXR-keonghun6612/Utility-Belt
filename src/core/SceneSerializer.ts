@@ -1,5 +1,11 @@
 import { SceneNode, NodeType } from './SceneNode';
-import { SceneSnapshot, SceneEntry } from './NodeAssembler';
+import {
+    NodeAssembler,
+    ParameterSchema,
+    SceneSnapshot,
+    SceneEntry,
+    InstanceParams,
+} from './NodeAssembler';
 
 export class SceneSerializer {
     /**
@@ -20,19 +26,31 @@ export class SceneSerializer {
             instanceId: modelRoot.id,
             transform: {
                 position: [
-                    modelRoot.object3D.position.x,
-                    modelRoot.object3D.position.y,
-                    modelRoot.object3D.position.z,
+                    this._round(modelRoot.object3D.position.x),
+                    this._round(modelRoot.object3D.position.y),
+                    this._round(modelRoot.object3D.position.z),
                 ],
                 rotation: [
-                    modelRoot.object3D.rotation.x,
-                    modelRoot.object3D.rotation.y,
-                    modelRoot.object3D.rotation.z,
+                    this._round(modelRoot.object3D.rotation.x),
+                    this._round(modelRoot.object3D.rotation.y),
+                    this._round(modelRoot.object3D.rotation.z),
                 ],
             },
         };
 
         if (attachTo !== undefined) entry.attachTo = attachTo;
+        if (modelRoot.metadata._slotIndex !== undefined) {
+            entry.slotIndex = Number(modelRoot.metadata._slotIndex);
+        }
+
+        const instanceState = NodeAssembler.readInstanceState(modelRoot);
+        const effectiveParams = this._readEffectiveParams(modelRoot, instanceState.params);
+        if (Object.keys(effectiveParams).length > 0) {
+            entry.params = effectiveParams;
+        }
+        if (instanceState.anchorOverrides && Object.keys(instanceState.anchorOverrides).length > 0) {
+            entry.anchorOverrides = instanceState.anchorOverrides;
+        }
 
         // JOINT 노드 중 기본값에서 변경된 것만 overrides로 기록
         const overrides: NonNullable<SceneEntry['overrides']> = {};
@@ -44,9 +62,9 @@ export class SceneSerializer {
             if (n !== modelRoot && n.type === NodeType.JOINT) {
                 const dr = (n.metadata._defaultRotation as [number, number, number]) ?? [0, 0, 0];
                 const cr: [number, number, number] = [
-                    n.object3D.rotation.x,
-                    n.object3D.rotation.y,
-                    n.object3D.rotation.z,
+                    this._round(n.object3D.rotation.x),
+                    this._round(n.object3D.rotation.y),
+                    this._round(n.object3D.rotation.z),
                 ];
                 if (cr.some((v, i) => Math.abs(v - dr[i]) > 1e-6)) {
                     overrides[n.id] = { rotation: cr };
@@ -80,5 +98,26 @@ export class SceneSerializer {
         if (childEntries.length > 0) entry.children = childEntries;
 
         return entry;
+    }
+
+    private static _readEffectiveParams(
+        modelRoot: SceneNode,
+        stateParams?: InstanceParams,
+    ): InstanceParams {
+        const schema = modelRoot.metadata._parametersDescriptor as ParameterSchema | undefined;
+        const params: InstanceParams = {};
+
+        for (const [key, parameter] of Object.entries(schema ?? {})) {
+            params[key] = stateParams?.[key] ?? parameter.default;
+        }
+
+        return {
+            ...params,
+            ...(stateParams ?? {}),
+        };
+    }
+
+    private static _round(value: number): number {
+        return parseFloat(value.toFixed(5));
     }
 }

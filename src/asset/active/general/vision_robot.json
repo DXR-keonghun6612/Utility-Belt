@@ -1,0 +1,578 @@
+{
+  "id": "robot",
+  "type": "GROUP",
+  "label": "Vision Robot (UR5e)",
+  "transform": {
+    "position": [
+      0,
+      0.1,
+      0
+    ],
+    "rotation": [
+      0,
+      0,
+      0
+    ]
+  },
+  "parameters": {
+    "j1Yaw": {
+      "type": "number",
+      "label": "J1 Yaw",
+      "default": 0,
+      "min": -3.14159,
+      "max": 3.14159,
+      "step": 0.01,
+      "unit": "rad"
+    },
+    "j2Pitch": {
+      "type": "number",
+      "label": "J2 Pitch",
+      "default": 0.5236,
+      "min": -3.14159,
+      "max": 3.14159,
+      "step": 0.01,
+      "unit": "rad"
+    },
+    "j3Pitch": {
+      "type": "number",
+      "label": "J3 Pitch",
+      "default": 2.0944,
+      "min": -3.14159,
+      "max": 3.14159,
+      "step": 0.01,
+      "unit": "rad"
+    },
+    "j4Pitch": {
+      "type": "number",
+      "label": "J4 Pitch",
+      "default": 0.7854,
+      "min": -3.14159,
+      "max": 3.14159,
+      "step": 0.01,
+      "unit": "rad"
+    },
+    "j5Yaw": {
+      "type": "number",
+      "label": "J5 Yaw",
+      "default": 1.5708,
+      "min": -3.14159,
+      "max": 3.14159,
+      "step": 0.01,
+      "unit": "rad"
+    },
+    "j6Pitch": {
+      "type": "number",
+      "label": "J6 Pitch",
+      "default": 1.5708,
+      "min": -3.14159,
+      "max": 3.14159,
+      "step": 0.01,
+      "unit": "rad"
+    }
+  },
+  "children": [
+    {
+      "id": "robot.j1",
+      "type": "JOINT",
+      "label": "J1 Base",
+      "layout": {
+        "kind": "single"
+      },
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          "$params.j1Yaw",
+          0
+        ]
+      },
+      "metadata": {
+        "axis": "y",
+        "min": -3.14159,
+        "max": 3.14159,
+        "label": "J1 Base (Yaw)"
+      },
+      "children": [
+        {
+          "id": "robot.base",
+          "type": "LINK",
+          "label": "Base_Part_01",
+          "geometry": {
+            "shape": "Cylinder",
+            "radiusTop": 0.6,
+            "radiusBottom": 0.6,
+            "height": 0.2,
+            "color": "#d8dbe2"
+          },
+          "transform": {
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "id": "robot.Base_Part_02",
+          "type": "LINK",
+          "label": "Base_Part_02",
+          "transform": {
+            "position": [
+              0,
+              0.2000000029802322,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          },
+          "geometry": {
+            "shape": "Cylinder",
+            "color": "#cccccc",
+            "radiusBottom": 0.6,
+            "radiusTop": 0.5,
+            "height": 0.3
+          }
+        },
+        {
+          "id": "robot.Base_Part_03",
+          "type": "LINK",
+          "label": "Base_Part_03",
+          "transform": {
+            "position": [
+              0,
+              0.5000000149011612,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          },
+          "geometry": {
+            "shape": "Cylinder",
+            "color": "#cccccc",
+            "height": 0.8
+          }
+        },
+        {
+          "id": "robot.j1.body",
+          "type": "LINK",
+          "label": "J2_Shoulder_Connecter",
+          "geometry": {
+            "shape": "Cylinder",
+            "radiusTop": 0.4,
+            "radiusBottom": 0.4,
+            "height": 0.5,
+            "color": "#c5c9d2"
+          },
+          "transform": {
+            "position": [
+              0,
+              0.9000000178813935,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              1.5707963267948966
+            ]
+          }
+        },
+        {
+          "id": "robot.j2",
+          "type": "JOINT",
+          "label": "J2 Shoulder",
+          "layout": {
+            "kind": "single"
+          },
+          "transform": {
+            "position": [
+              -0.4992003234822756,
+              0.9000000178813937,
+              0
+            ],
+            "rotation": [
+              "$params.j2Pitch",
+              0,
+              0
+            ]
+          },
+          "metadata": {
+            "axis": "x",
+            "min": -3.14159,
+            "max": 3.14159,
+            "label": "J2 Shoulder (Pitch)"
+          },
+          "children": [
+            {
+              "id": "robot.j2.body",
+              "type": "LINK",
+              "label": "J2 Housing",
+              "geometry": {
+                "shape": "JointCapsule",
+                "radius": 0.4,
+                "length": 0.5,
+                "bodyColor": "#d0d4dc",
+                "capColor": "#00bcd4"
+              },
+              "transform": {
+                "position": [
+                  -0.3006292516064144,
+                  0,
+                  0
+                ],
+                "rotation": [
+                  0,
+                  0,
+                  1.5708
+                ]
+              }
+            },
+            {
+              "id": "robot.link_upper",
+              "type": "LINK",
+              "label": "Upper Arm",
+              "geometry": {
+                "shape": "Capsule",
+                "radius": 0.2,
+                "length": 2.4,
+                "color": "#d0d4dc"
+              },
+              "transform": {
+                "position": [
+                  -0.3006292516064144,
+                  1.600546639508058,
+                  0
+                ],
+                "rotation": [
+                  0,
+                  0,
+                  0
+                ]
+              }
+            },
+            {
+              "id": "robot.j2.J3_Elbow_Connecter",
+              "type": "LINK",
+              "label": "J3_Elbow_Connecter",
+              "transform": {
+                "position": [
+                  -0.17457802408416412,
+                  2.8505466398805868,
+                  0
+                ],
+                "rotation": [
+                  0,
+                  0,
+                  1.5707963267948966
+                ]
+              },
+              "geometry": {
+                "shape": "JointCapsule",
+                "color": "#cccccc",
+                "length": 0.7,
+                "radius": 0.2
+              }
+            },
+            {
+              "id": "robot.j3",
+              "type": "JOINT",
+              "label": "J3 Elbow",
+              "layout": {
+                "kind": "single"
+              },
+              "transform": {
+                "position": [
+                  0.2302441412848435,
+                  2.847714201754161,
+                  0
+                ],
+                "rotation": [
+                  "$params.j3Pitch",
+                  0,
+                  0
+                ]
+              },
+              "metadata": {
+                "axis": "x",
+                "min": -3.14159,
+                "max": 3.14159,
+                "label": "J3 Elbow (Pitch)"
+              },
+              "children": [
+                {
+                  "id": "robot.j3.body",
+                  "type": "LINK",
+                  "label": "J3 Housing",
+                  "geometry": {
+                    "shape": "Elbow",
+                    "radius": 0.36,
+                    "length": 0.44,
+                    "bodyColor": "#d0d4dc",
+                    "capColor": "#00bcd4",
+                    "innerRadius": 0,
+                    "outerRadius": 0.2,
+                    "pathRadius": 0.2
+                  },
+                  "transform": {
+                    "position": [
+                      0.08794188593158103,
+                      0.10762769780573224,
+                      0.10382648519351906
+                    ],
+                    "rotation": [
+                      -1.5707963267948966,
+                      0,
+                      -8.985260711379947e-17
+                    ]
+                  }
+                },
+                {
+                  "id": "robot.link_lower",
+                  "type": "LINK",
+                  "label": "Lower Arm",
+                  "geometry": {
+                    "shape": "Cylinder",
+                    "radius": 0.18,
+                    "length": 1.8,
+                    "color": "#d0d4dc",
+                    "radiusBottom": 0.2,
+                    "radiusTop": 0.2,
+                    "height": 1.8
+                  },
+                  "transform": {
+                    "position": [
+                      0.1924489215665599,
+                      0.2031206666411012,
+                      0.003826485193518997
+                    ],
+                    "rotation": [
+                      0,
+                      0,
+                      0
+                    ]
+                  }
+                },
+                {
+                  "id": "robot.j3.J4_Wrist_Connecter",
+                  "type": "LINK",
+                  "label": "J4_Wrist_Connecter",
+                  "transform": {
+                    "position": [
+                      0.14021682720963807,
+                      2.003120618957386,
+                      0.003826485193518997
+                    ],
+                    "rotation": [
+                      0,
+                      0,
+                      -1.5707963267948966
+                    ]
+                  },
+                  "geometry": {
+                    "shape": "JointCapsule",
+                    "color": "#cccccc",
+                    "length": 0.5,
+                    "radius": 0.2
+                  }
+                },
+                {
+                  "id": "robot.j4",
+                  "type": "JOINT",
+                  "label": "J4 Wrist 1",
+                  "layout": {
+                    "kind": "single"
+                  },
+                  "transform": {
+                    "position": [
+                      0.1924489215665599,
+                      2.003120618957386,
+                      0.003826485193518997
+                    ],
+                    "rotation": [
+                      "$params.j4Pitch",
+                      0,
+                      0
+                    ]
+                  },
+                  "metadata": {
+                    "axis": "x",
+                    "min": -3.14159,
+                    "max": 3.14159,
+                    "label": "J4 Wrist 1 (Pitch)"
+                  },
+                  "children": [
+                    {
+                      "id": "robot.j4.body",
+                      "type": "LINK",
+                      "label": "J4 Housing",
+                      "geometry": {
+                        "shape": "JointCapsule",
+                        "radius": 0.2,
+                        "length": 0.6,
+                        "bodyColor": "#d0d4dc",
+                        "capColor": "#00bcd4"
+                      },
+                      "transform": {
+                        "position": [
+                          -0.5007020379505002,
+                          0.10034442328429538,
+                          0
+                        ],
+                        "rotation": [
+                          0,
+                          0,
+                          3.141592653589793
+                        ]
+                      }
+                    },
+                    {
+                      "id": "robot.j5",
+                      "type": "JOINT",
+                      "label": "J5 Wrist 2",
+                      "layout": {
+                        "kind": "single"
+                      },
+                      "transform": {
+                        "position": [
+                          -0.5007020379505002,
+                          0.10034442328429538,
+                          0
+                        ],
+                        "rotation": [
+                          0,
+                          0,
+                          0
+                        ]
+                      },
+                      "metadata": {
+                        "axis": "y",
+                        "min": -3.14159,
+                        "max": 3.14159,
+                        "label": "J5 Wrist 2 (Yaw)"
+                      },
+                      "children": [
+                        {
+                          "id": "robot.j5.body",
+                          "type": "LINK",
+                          "label": "J5 Housing",
+                          "geometry": {
+                            "shape": "JointCapsule",
+                            "radius": 0.2,
+                            "length": 0.6,
+                            "bodyColor": "#d0d4dc",
+                            "capColor": "#00bcd4"
+                          },
+                          "transform": {
+                            "position": [
+                              0,
+                              0.4503444236568246,
+                              0.0958090183667443
+                            ],
+                            "rotation": [
+                              -1.5707963267948966,
+                              0,
+                              0
+                            ]
+                          }
+                        },
+                        {
+                          "id": "robot.j6",
+                          "type": "JOINT",
+                          "label": "J6 Wrist 3",
+                          "layout": {
+                            "kind": "single"
+                          },
+                          "transform": {
+                            "position": [
+                              0,
+                              0.4503444236568246,
+                              0
+                            ],
+                            "rotation": [
+                              0,
+                              0,
+                              "$params.j6Pitch"
+                            ]
+                          },
+                          "metadata": {
+                            "axis": "z",
+                            "min": -3.14159,
+                            "max": 3.14159,
+                            "label": "J6 Wrist 3 (Pitch)"
+                          },
+                          "children": [
+                            {
+                              "id": "robot.flange",
+                              "type": "ANCHOR",
+                              "label": "Flange (Mount Point)",
+                              "layout": {
+                                "kind": "single",
+                                "exposed": true
+                              },
+                              "transform": {
+                                "position": [
+                                  0,
+                                  0,
+                                  0.5027055352085947
+                                ],
+                                "rotation": [
+                                  -1.5707963267948966,
+                                  0,
+                                  0
+                                ]
+                              },
+                              "children": [
+                                {
+                                  "id": "robot.flange.body",
+                                  "type": "LINK",
+                                  "label": "Flange Body",
+                                  "geometry": {
+                                    "shape": "Cylinder",
+                                    "radiusTop": 0.15,
+                                    "radiusBottom": 0.15,
+                                    "height": 0.06,
+                                    "color": "#999999"
+                                  },
+                                  "transform": {
+                                    "position": [
+                                      1.1102230246251563e-16,
+                                      0,
+                                      8.881784197001252e-16
+                                    ],
+                                    "rotation": [
+                                      0,
+                                      0,
+                                      0
+                                    ]
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

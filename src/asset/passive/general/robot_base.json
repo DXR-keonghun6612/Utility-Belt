@@ -1,0 +1,204 @@
+{
+  "id": "robot_base",
+  "type": "GROUP",
+  "label": "Robot Control Base",
+  "transform": {
+    "position": [
+      0,
+      0,
+      0
+    ],
+    "rotation": [
+      0,
+      0,
+      0
+    ]
+  },
+  "children": [
+    {
+      "id": "robot_base.bottom",
+      "type": "LINK",
+      "label": "Bottom Plate",
+      "geometry": {
+        "shape": "Box",
+        "width": 4,
+        "height": 0.2,
+        "depth": 4,
+        "color": "#455a64"
+      },
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "robot_base.top",
+      "type": "LINK",
+      "label": "Top Plate",
+      "geometry": {
+        "shape": "Box",
+        "width": 4,
+        "height": 0.2,
+        "depth": 4,
+        "color": "#455a64"
+      },
+      "transform": {
+        "position": [
+          0,
+          3.8,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "robot_base.pillar_fl",
+      "type": "LINK",
+      "label": "Corner Pillar FL",
+      "geometry": {
+        "shape": "Box",
+        "width": 0.2,
+        "height": 3.6,
+        "depth": 0.2,
+        "color": "#78909c"
+      },
+      "transform": {
+        "position": [
+          -1.9,
+          0.2,
+          1.9
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "robot_base.pillar_fr",
+      "type": "LINK",
+      "label": "Corner Pillar FR",
+      "geometry": {
+        "shape": "Box",
+        "width": 0.2,
+        "height": 3.6,
+        "depth": 0.2,
+        "color": "#78909c"
+      },
+      "transform": {
+        "position": [
+          1.9,
+          0.2,
+          1.9
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "robot_base.pillar_bl",
+      "type": "LINK",
+      "label": "Corner Pillar BL",
+      "geometry": {
+        "shape": "Box",
+        "width": 0.2,
+        "height": 3.6,
+        "depth": 0.2,
+        "color": "#78909c"
+      },
+      "transform": {
+        "position": [
+          -1.9,
+          0.2,
+          -1.9
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "robot_base.pillar_br",
+      "type": "LINK",
+      "label": "Corner Pillar BR",
+      "geometry": {
+        "shape": "Box",
+        "width": 0.2,
+        "height": 3.6,
+        "depth": 0.2,
+        "color": "#78909c"
+      },
+      "transform": {
+        "position": [
+          1.9,
+          0.2,
+          -1.9
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "robot_base.mount",
+      "type": "ANCHOR",
+      "label": "Robot Mount Point",
+      "layout": {
+        "kind": "single"
+      },
+      "transform": {
+        "position": [
+          0,
+          4,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "robot_base.Control_Unit_Mount",
+      "type": "ANCHOR",
+      "label": "Control_Unit_Mount",
+      "transform": {
+        "position": [
+          0,
+          0.2,
+          0.2
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "layout": {
+        "kind": "single",
+        "exposed": true
+      }
+    }
+  ]
+}

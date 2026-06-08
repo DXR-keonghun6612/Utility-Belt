@@ -1,6 +1,6 @@
-import './panel.css';
+import '../panel.css';
 
-export type TabId = 'scene' | 'builder';
+export type TabId = 'scene' | 'builder' | 'assets';
 
 export class TabManager {
     readonly panel: HTMLElement;
@@ -9,7 +9,7 @@ export class TabManager {
     readonly sceneTreePane: HTMLElement;
     /** Scene 탭 내 상단 바로 아래: 액션(저장 등) 버튼이 렌더링되는 영역 */
     readonly sceneActionPane: HTMLElement;
-    /** Scene 탭 내 하단: PropertiesPanel이 렌더링되는 영역 */
+    /** Scene 탭 내 하단: SceneInspectorPanel이 렌더링되는 영역 */
     readonly sceneInspectorPane: HTMLElement;
 
     private _active: TabId = 'scene';
@@ -29,6 +29,7 @@ export class TabManager {
         const labels: [TabId, string][] = [
             ['scene',   'SCENE'],
             ['builder', 'BUILDER'],
+            ['assets',  'ASSETS'],
         ];
         for (const [id, text] of labels) {
             const btn = document.createElement('button');
@@ -38,15 +39,6 @@ export class TabManager {
             btn.addEventListener('click', () => this.switchTo(id));
             bar.appendChild(btn);
         }
-
-        // Asset Editor 탭 열기 버튼
-        const aeBtn = document.createElement('button');
-        aeBtn.className = 'tab-btn';
-        aeBtn.textContent = '✦ ASSET';
-        aeBtn.title = 'Open Asset Editor in new tab';
-        aeBtn.style.color = '#a5d6a7';
-        aeBtn.addEventListener('click', () => window.open('/asset-editor.html', '_blank'));
-        bar.appendChild(aeBtn);
 
         this.panel.appendChild(bar);
 
@@ -79,9 +71,16 @@ export class TabManager {
         builderContent.id = 'tab-builder';
         this.panel.appendChild(builderContent);
 
+        // Assets tab
+        const assetsContent = document.createElement('div');
+        assetsContent.className = 'tab-content';
+        assetsContent.id = 'tab-assets';
+        this.panel.appendChild(assetsContent);
+
         this.tabs = {
             scene:   sceneContent,
             builder: builderContent,
+            assets:  assetsContent,
         };
 
         document.body.appendChild(this.panel);

@@ -1,0 +1,79 @@
+{
+  "id": "monitor_panel",
+  "type": "GROUP",
+  "label": "Monitor Panel",
+  "parameters": {},
+  "computed": {},
+  "children": [
+    {
+      "id": "monitor_panel.arm",
+      "type": "LINK",
+      "label": "Wall Arm",
+      "geometry": { "shape": "Box", "width": 0.14, "height": 0.14, "depth": 0.32, "color": "#455a64" },
+      "transform": { "position": [0, -0.35, -0.20], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "monitor_panel.bezel",
+      "type": "LINK",
+      "label": "Bezel",
+      "geometry": { "shape": "Box", "width": 1.44, "height": 1.00, "depth": 0.10, "color": "#212121" },
+      "transform": { "position": [0, -0.5, 0], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "monitor_panel.screen",
+      "type": "LINK",
+      "label": "Screen",
+      "geometry": { "shape": "Box", "width": 1.20, "height": 0.76, "depth": 0.012, "color": "#071a2e" },
+      "transform": { "position": [0, -0.38, 0.056], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "monitor_panel.ui_topbar",
+      "type": "LINK",
+      "label": "UI — Top Bar",
+      "geometry": { "shape": "Box", "width": 1.16, "height": 0.090, "depth": 0.006, "color": "#00bcd4" },
+      "transform": { "position": [0, 0.285, 0.064], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "monitor_panel.ui_sidebar",
+      "type": "LINK",
+      "label": "UI — Sidebar",
+      "geometry": { "shape": "Box", "width": 0.22, "height": 0.56, "depth": 0.004, "color": "#102030" },
+      "transform": { "position": [-0.470, -0.300, 0.064], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "monitor_panel.ui_main",
+      "type": "LINK",
+      "label": "UI — Main Content",
+      "geometry": { "shape": "Box", "width": 0.86, "height": 0.36, "depth": 0.004, "color": "#0d2a42" },
+      "transform": { "position": [0.150, -0.100, 0.064], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "monitor_panel.ui_chart",
+      "type": "LINK",
+      "label": "UI — Chart",
+      "geometry": { "shape": "Box", "width": 0.86, "height": 0.16, "depth": 0.004, "color": "#0a3050" },
+      "transform": { "position": [0.150, -0.280, 0.064], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "monitor_panel.ui_status",
+      "type": "LINK",
+      "label": "UI — Status Bar",
+      "geometry": { "shape": "Box", "width": 1.16, "height": 0.050, "depth": 0.004, "color": "#004d40" },
+      "transform": { "position": [0, -0.355, 0.064], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "monitor_panel.ui_accent",
+      "type": "LINK",
+      "label": "UI — Accent Dot",
+      "geometry": { "shape": "Box", "width": 0.08, "height": 0.08, "depth": 0.004, "color": "#00e5ff" },
+      "transform": { "position": [0.520, -0.370, 0.066], "rotation": [0, 0, 0] }
+    },
+    {
+      "id": "monitor_panel.anchor_mount",
+      "type": "ANCHOR",
+      "label": "Wall Mount",
+      "layout": { "kind": "single", "exposed": true },
+      "transform": { "position": [0, -0.28, -0.36], "rotation": [0, 0, 0] }
+    }
+  ]
+}

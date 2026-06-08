@@ -1,12 +1,28 @@
 import { NodeDescriptor, SceneSnapshot } from './NodeAssembler';
 
+export interface AssetCatalogEntry {
+    name: string;
+    category: string;
+    subcategory: string;
+}
+
 export class AssetManager {
     private _models = new Map<string, NodeDescriptor>();
+    private _modelCatalog = new Map<string, AssetCatalogEntry>();
     private _presets = new Map<string, SceneSnapshot>();
 
     // 1. 메모리에 직접 등록 (내부 번들 또는 glob 처리용)
-    registerModel(name: string, descriptor: NodeDescriptor): void {
+    registerModel(
+        name: string,
+        descriptor: NodeDescriptor,
+        catalog: Partial<Omit<AssetCatalogEntry, 'name'>> = {},
+    ): void {
         this._models.set(name, descriptor);
+        this._modelCatalog.set(name, {
+            name,
+            category: catalog.category ?? 'runtime',
+            subcategory: catalog.subcategory ?? 'external',
+        });
     }
 
     registerPreset(name: string, snapshot: SceneSnapshot): void {
@@ -34,13 +50,20 @@ export class AssetManager {
         return Array.from(this._models.keys());
     }
 
+    getAllModelCatalogEntries(): AssetCatalogEntry[] {
+        return Array.from(this._modelCatalog.values());
+    }
+
     // 3. 외부 경로(URL)로부터 비동기 로드 (사용자가 경로를 입력하여 확장할 때 사용)
     async loadModelFromUrl(url: string, name?: string): Promise<NodeDescriptor> {
         const res = await fetch(url);
         if (!res.ok) throw new Error(`Failed to load model from ${url}`);
         const data = (await res.json()) as NodeDescriptor;
         const modelName = name ?? data.id;
-        this.registerModel(modelName, data);
+        this.registerModel(modelName, data, {
+            category: 'runtime',
+            subcategory: 'url',
+        });
         return data;
     }
 

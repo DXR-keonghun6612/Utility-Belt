@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { CADUtils } from './CADUtils';
+import { NodeRegistry } from './NodeRegistry';
 import type { AnchorLayout } from './NodeAssembler';
 
 export interface GeometryDescriptor {
@@ -42,22 +43,24 @@ export class NodeFactory {
 
         switch (shape) {
             case 'Box': {
-                const geo = new THREE.BoxGeometry(
-                    params.width  as number ?? 1,
-                    params.height as number ?? 1,
-                    params.depth  as number ?? 1,
-                );
+                const bw = params.width  as number ?? 1;
+                const bh = params.height as number ?? 1;
+                const bd = params.depth  as number ?? 1;
+                const geo = new THREE.BoxGeometry(bw, bh, bd);
+                geo.translate(0, bh / 2, 0); // 바닥면이 원점
                 const group = new THREE.Group();
                 group.add(CADUtils.createMesh(geo, color, null, op));
                 return group;
             }
             case 'Cylinder': {
+                const ch = params.height as number ?? 1;
                 const geo = new THREE.CylinderGeometry(
                     params.radiusTop    as number ?? 0.5,
                     params.radiusBottom as number ?? 0.5,
-                    params.height       as number ?? 1,
+                    ch,
                     32,
                 );
+                geo.translate(0, ch / 2, 0); // 바닥면이 원점
                 const group = new THREE.Group();
                 group.add(CADUtils.createMesh(geo, color, null, op));
                 return group;
@@ -93,18 +96,93 @@ export class NodeFactory {
                 );
             case 'ConveyorBody':
                 return CADUtils.buildConveyorBody(params.length as number ?? 10);
-            case 'LegArray':
-                return CADUtils.buildLegArray(
-                    params.length as number ?? 10,
-                    params.height as number ?? 4.15,
-                    params.width  as number ?? 4.3,
-                    params.gap    as number ?? 5,
-                    color,
-                    op
-                );
             default:
                 console.warn(`NodeFactory: unknown shape "${shape}", returning empty Group`);
                 return new THREE.Group();
+        }
+    }
+
+    static getSnapPoints(descriptor: GeometryDescriptor): THREE.Vector3[] {
+        const { shape } = descriptor;
+        switch (shape) {
+            case 'Box': {
+                const bw = (descriptor['width']  as number) ?? 1;
+                const bh = (descriptor['height'] as number) ?? 1;
+                const bd = (descriptor['depth']  as number) ?? 1;
+                const hw = bw / 2, hd = bd / 2;
+                // geo.translate(0, bh/2, 0) → bottom at y=0, top at y=bh
+                return [
+                    new THREE.Vector3(0,   0,      0),    // bottom face
+                    new THREE.Vector3(0,   bh,     0),    // top face
+                    new THREE.Vector3(-hw, bh / 2, 0),    // left face
+                    new THREE.Vector3(hw,  bh / 2, 0),    // right face
+                    new THREE.Vector3(0,   bh / 2, -hd),  // back face
+                    new THREE.Vector3(0,   bh / 2,  hd),  // front face
+                    new THREE.Vector3(0,   bh / 2,  0),   // center
+                    // bottom edge midpoints
+                    new THREE.Vector3(0,   0, -hd),
+                    new THREE.Vector3(hw,  0,   0),
+                    new THREE.Vector3(0,   0,  hd),
+                    new THREE.Vector3(-hw, 0,   0),
+                    // top edge midpoints
+                    new THREE.Vector3(0,   bh, -hd),
+                    new THREE.Vector3(hw,  bh,   0),
+                    new THREE.Vector3(0,   bh,  hd),
+                    new THREE.Vector3(-hw, bh,   0),
+                    // vertical edge midpoints
+                    new THREE.Vector3(-hw, bh / 2, -hd),
+                    new THREE.Vector3( hw, bh / 2, -hd),
+                    new THREE.Vector3( hw, bh / 2,  hd),
+                    new THREE.Vector3(-hw, bh / 2,  hd),
+                ];
+            }
+            case 'Cylinder': {
+                const ch = (descriptor['height'] as number) ?? 1;
+                // geo.translate(0, ch/2, 0) → bottom at y=0, top at y=ch
+                return [
+                    new THREE.Vector3(0, 0,      0),
+                    new THREE.Vector3(0, ch,     0),
+                    new THREE.Vector3(0, ch / 2, 0),
+                ];
+            }
+            case 'Sphere':
+                return [new THREE.Vector3(0, 0, 0)];
+            case 'Capsule': {
+                const len = (descriptor['length'] as number) ?? 1;
+                // createCapsule: centered at y=0
+                return [
+                    new THREE.Vector3(0,  len / 2, 0),
+                    new THREE.Vector3(0, -len / 2, 0),
+                    new THREE.Vector3(0,  0,       0),
+                ];
+            }
+            case 'JointCapsule': {
+                const len = (descriptor['length'] as number) ?? 1;
+                return [
+                    new THREE.Vector3(0,  len / 2, 0),
+                    new THREE.Vector3(0, -len / 2, 0),
+                    new THREE.Vector3(0,  0,       0),
+                ];
+            }
+            case 'Elbow': {
+                const pathRadius  = (descriptor['pathRadius']  as number) ?? 1.2;
+                const outerRadius = (descriptor['outerRadius'] as number) ?? 0.6;
+                const comOffset   = (2 * pathRadius) / Math.PI;
+                return [
+                    new THREE.Vector3(
+                         pathRadius - 3 * comOffset / 4,
+                         outerRadius / 2,
+                         3 * comOffset / 4,
+                    ),
+                    new THREE.Vector3(
+                        -3 * comOffset / 4,
+                         outerRadius / 2,
+                        -pathRadius + 3 * comOffset / 4,
+                    ),
+                ];
+            }
+            default:
+                return [new THREE.Vector3(0, 0, 0)];
         }
     }
 
@@ -118,18 +196,23 @@ export class NodeFactory {
         if (!layout || layout.kind === 'single') return;
 
         if (layout.kind === 'array') {
-            const count  = layout.count ?? 5;
-            const gap    = layout.gap   ?? 2.0;
+            const count  = Number(layout.count ?? 5);
+            const gap    = Number(layout.gap   ?? 2.0);
+            const start  = Number(layout.start ?? 0);
             const axis   = layout.axis  ?? 'x';
             const axisIdx = axis === 'x' ? 0 : (axis === 'y' ? 1 : 2);
 
             const nodeChildren = group.children.filter(c => c.userData['nodeId']);
 
             nodeChildren.forEach((child, i) => {
-                if (i < count) {
+                const nodeId = child.userData['nodeId'];
+                const node = typeof nodeId === 'string' ? NodeRegistry.get(nodeId) : null;
+                const slotIndex = Number(node?.metadata['_slotIndex'] ?? i);
+
+                if (slotIndex < count) {
                     child.visible = true;
                     const pos = [0, 0, 0];
-                    pos[axisIdx] = i * gap;
+                    pos[axisIdx] = start + slotIndex * gap;
                     child.position.set(pos[0], pos[1], pos[2]);
                 } else {
                     child.visible = false;
