@@ -68,7 +68,7 @@ class Extract_hs_process(Base_Process):
     OUTPUTS: ClassVar[tuple[str, ...]] = ("h", "s")
 
     def Run(
-        self, frame: np.ndarray, roi:   GRAY_IMAGE | BBOX | None = None,
+        self, frame: np.ndarray, roi: GRAY_IMAGE | BBOX | None = None,
         **kwargs,
     ) -> dict[str, np.ndarray]:
         """ROI에서 배경 H·S 픽셀을 추출한다.

@@ -19,6 +19,7 @@ from python_toolbox.file import Make_dict_from
 # 등록 부작용: process / reader 를 레지스트리에 채운다(Build_process/Build_reader 용).
 import core.process.frame   # noqa: F401
 import core.process.batch   # noqa: F401
+import core.process.init    # noqa: F401
 from core.session.base import Session, Session_config
 
 

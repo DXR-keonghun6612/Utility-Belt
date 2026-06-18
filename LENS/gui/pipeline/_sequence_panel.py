@@ -25,9 +25,10 @@ class Sequence_panel(QWidget):
 
     changed = Signal()
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent=None, roi_provider=None) -> None:
         super().__init__(parent)
         self._blocks: list[Block] = []
+        self._roi_provider = roi_provider          # share 블록 ROI 버튼용 () -> str | None
         self._build()
 
     def _build(self) -> None:
@@ -62,7 +63,7 @@ class Sequence_panel(QWidget):
             self.add_block(_key)
 
     def add_block(self, key: str) -> Block:
-        _block = Block(key)
+        _block = Block(key, roi_provider=self._roi_provider)
         _block.changed.connect(self.changed)
         _block.remove_requested.connect(self._on_remove)
         _block.move_requested.connect(self._on_move)

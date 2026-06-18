@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import cv2
+
 from PySide6.QtCore import Qt, QThread
 from PySide6.QtWidgets import (
     QSplitter,
@@ -20,6 +22,7 @@ from python_toolbox.file import Write_to
 
 from core.session.base import Session_config
 from gui.pipeline._dataloader_panel import Dataloader_panel
+from gui.pipeline._roi_dialog import Load_sample_frame, Roi_dialog
 from gui.pipeline._run_panel import Run_panel
 from gui.pipeline._sequence_panel import Sequence_panel
 from gui.pipeline._worker import Run_worker
@@ -70,7 +73,7 @@ class PipelinePanel(QWidget):
         _root.setContentsMargins(4, 4, 4, 4)
 
         self._dataloaders = Dataloader_panel()
-        self._sequence    = Sequence_panel()
+        self._sequence    = Sequence_panel(roi_provider=self._pick_roi)
         self._run         = Run_panel()
 
         self._run.save_requested.connect(self._on_save)
@@ -88,6 +91,37 @@ class PipelinePanel(QWidget):
         _main.addWidget(self._run)
         _main.setSizes([520, 320])
         _root.addWidget(_main)
+
+    # ── ROI 주입 ──────────────────────────────────────────────────────────────
+
+    def _pick_roi(self) -> str | None:
+        """첫 dataloader 의 첫 프레임으로 ROI 다이얼로그를 띄우고 마스크 png 경로를 돌려준다.
+
+        share 블록의 "ROI 그리기" 버튼이 호출한다. 저장 위치는 run 설정의 out_dir.
+        """
+        _dls = self._dataloaders.configs()
+        if not _dls:
+            self._run.log("[ROI] dataloader 가 없습니다 — 먼저 추가하세요.")
+            return None
+        try:
+            _frame = Load_sample_frame(_dls[0])
+        except Exception as _e:
+            self._run.log(f"[ROI] 샘플 프레임 로드 실패: {_e}")
+            return None
+        if _frame is None:
+            self._run.log("[ROI] 첫 dataloader 에서 프레임을 찾지 못했습니다 (sources/globs 확인).")
+            return None
+
+        _mask = Roi_dialog.Get_mask(_frame, self)
+        if _mask is None:
+            return None
+
+        _out = Path(self._run.settings()["out_dir"])
+        _out.mkdir(parents=True, exist_ok=True)
+        _path = _out / "bg_roi.png"
+        cv2.imwrite(str(_path), _mask)
+        self._run.log(f"[ROI] 마스크 저장 → {_path}")
+        return str(_path)
 
     # ── config 직렬화 ─────────────────────────────────────────────────────────
 

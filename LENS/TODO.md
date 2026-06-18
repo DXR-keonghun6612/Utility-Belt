@@ -17,13 +17,14 @@
 - [x] **`INPUTS`/`OUTPUTS` ClassVar** — 모든 process 에 입출력 key 명시 선언. GUI 가 `inspect` 대신 이 값을 읽어 `in: … → out: …` 표시(콤보 아래 별도 줄).
 - [x] **GUI `is_flatten` 토글** — wrapper 블록에 `Frame_batch_config` 폼(평탄화 체크박스) 노출·직렬화.
 - [x] **레이아웃 개편** — 3분할 → 상단(dataloader | process 시퀀스, 각각 접기 가능) / 하단(실행·로그) 세로 분할.
-
-### 계획 (설계 확정, 구현 예정)
-
-- [ ] **`share` 탑레벨 프로세스** — context(blackboard)에 임의 key→value 주입. `Base_Process.TOP_LEVEL: ClassVar[bool]` 마커로 시퀀스 최상위 블록 분류(frame_batch 안의 step 아님).
-  - `images: list[tuple[str,str]]` (key:path → `cv2.imread` 로 ndarray 주입) + `values: list[tuple[str,str]]` (key:value 스칼라 리터럴) — **주입 범위 사용자 확인 대기**.
-  - `OUTPUTS` 동적(주입 key 합집합). 시퀀스 맨 앞에 두면 `bg_roi` 등이 하위 process 로 흐름.
-- [ ] **ROI 에디터 다이얼로그** — 첫 dataloader 첫 프레임 자동 샘플(`Build_reader → Scan → data_path["frame"]`) → 다각형 클릭→채우기 마스크 → PNG 저장 → `share.images` 에 `(bg_roi, path)` 주입. 기존 `_bgr_to_pixmap`/`_ImageLabel` 인프라 재사용.
+- [x] **2채널 블랙보드** — context(데이터 산출물) / share(공유 상수) 분리. top-level process 는 `Run(share, **context) → (context_out, share_out)` 튜플 반환, Session 이 채널별 누적. `_Apply_frame` 은 context 만 집계해 공유 상수가 프레임별 리스트로 변형되던 버그 제거. `SHARE_IN`/`SHARE_OUT` ClassVar 추가, GUI io 라벨에 share 줄 표시.
+- [x] **`Base_Process.TOP_LEVEL: ClassVar[bool]`** — 시퀀스 최상위 블록 분류 마커. GUI `issubclass(Base_frame_batch)` 판정을 `TOP_LEVEL` 로 대체.
+- [x] **`share` top-level 프로세스** (`core/process/init/share.py`) — `images: list[tuple[str,str]]` (key:path → `cv2.imread` ndarray) + `values: list[tuple[str,str]]` (key:리터럴 → int/float/bool/str) 를 **share 채널**에 주입. `init/` 패키지 신설(frame/batch 와 병렬), cli·gui 등록 경로 연결.
+- [x] **Checkpoint = share 채널** — Session 이 `share_out` 만 저장(scalar/dataclass). `aggregate_hs`(비싼 전수 스캔)는 캐시·skip, share 미생산 `frame_batch` 는 항상 재실행.
+- [x] **`requirements.txt`** — 코어 런타임(numpy/opencv-python/PySide6 + python_toolbox git) 정리.
+- [x] **ROI 에디터 다이얼로그** (`gui/pipeline/_roi_dialog.py`) — share 블록의 "ROI 그리기" 버튼 → 첫 dataloader 첫 프레임 샘플(`Load_sample_frame`: `Build_reader → Scan → data_path["frame"]`) → 다각형 클릭(좌:추가/우:취소)→ `fillPoly` 마스크 → out_dir 에 `bg_roi.png` 저장 → `Config_form.append_pair` 로 `share.images` 에 `(bg_roi, path)` 주입. `_bgr_to_pixmap` 재사용(줌/스크롤 좌표 매핑 복잡한 `_ImageLabel` 대신 전용 `_PolyCanvas`).
+- [x] **`extract_mask_sam3` frame process** (`core/process/frame/extract_mask_sam3.py`) — SAM3 기반 마스크 추출. 선택적 mask 입력을 앵커로 사용(`anchor_mode`: box/points/mask/none → SAM 프롬프트 변환). torch·sam3 는 lazy import + predictor 인스턴스 1회 캐싱. **build_sam3/SAM3ImagePredictor/predict 시그니처는 sam3 레포 기준 확인 필요**(`_Build_predictor`·`Run` 한 곳에 격리), SAM3 text/concept 프롬프트는 미연결.
+- [x] **bg_roi 출처 정정** — `aggregate_hs` 의 bg_roi 는 선택적: Frame_Meta(`data_path["bg_roi"]`) 파일을 load_frame 이 프레임별 로드(기본), 고정 시점이면 share 주입이 전 프레임 덮어씀. 주석/독스트링의 "share 자동 fallback" 오기 수정.
 
 ---
 
@@ -41,17 +42,20 @@
 
 ### Session 계층
 
-Session은 최소 오케스트레이션만 담당:
+Session은 최소 오케스트레이션만 담당 (2채널):
 
 ```python
-context = {"frames": categorization, "id_map": ..., "save_root": ..., "debug": ...}
+context = {"frames": categorization}                          # 데이터 산출물
+share   = {"id_map": ..., "save_root": ..., "debug": ...}     # 공유 상수
 for proc in processes:
-    context.update(proc.Run(**context) or {})
+    ctx_out, share_out = proc.Run(share=share, **context)
+    context.update(ctx_out or {})
+    share.update(share_out or {})
 ```
 
 - `frames` = `CATEGORIZE_FILE_LIST` (dataloader 출력 그대로).
-- process가 `**kwargs`를 받으면 context 전체 전달, 필요한 key만 꺼내 씀.
-- **Checkpoint**: batch process 완료 결과(scalar/dataclass)를 저장. 재실행 시 복원 후 해당 process skip.
+- top-level process 는 `(context_out, share_out)` 튜플 반환. share 는 읽기 전용으로 inner 까지 전달.
+- **Checkpoint**: `share_out`(scalar/dataclass)만 저장. 재실행 시 share 복원 후 해당 process skip. share 미생산 process 는 캐시 안 됨 → 항상 재실행.
 - Split/Prune은 추후 `process/batch/`로 구현 예정.
 
 ### 패키지 구조 (현재)
@@ -87,11 +91,11 @@ app.py
 ```text
 reader.Load(source)          → CATEGORIZE_FILE_LIST              (dataloader)
 Session._Run_pipeline:
-  context = {frames, id_map, save_root, debug}
-  (share.Run(**ctx)          → {bg_roi: mask, ...}               (계획: ROI 등 shared 값 주입))
-  aggregate_hs.Run(**ctx)    → {bg_stats: HS_stats}              (is_flatten=True 내부: load_frame → extract_hs)
-  frame_batch.Run(**ctx)     → {mask: [...], ...}                (load_frame → extract_mask_hs → frame_crop → normalize_mask → save_frame)
-  (Checkpoint.Save 가 각 단계 결과 저장)
+  context = {frames};  share = {id_map, save_root, debug}
+  share.Run(share)         → share += {bg_roi: mask, ...}        (init: ROI 등 공유 상수 주입)
+  aggregate_hs.Run(share)  → share += {bg_stats: HS_stats}       (is_flatten=True 내부: load_frame → extract_hs)
+  frame_batch.Run(share)   → context += {saved: [...], ...}      (load_frame → extract_mask_hs → frame_crop → normalize_mask → save_frame)
+  (Checkpoint.Save 가 share_out 만 저장)
 
 [검수] Editor → 결과 폴더 로드 → class 재지정/제외 → 저장
 ```
@@ -134,7 +138,8 @@ Session._Run_pipeline:
 
 ## 남은 작업
 
-- [ ]  **GUI 연동** — 재설계된 process/session 구조에 맞게 GUI 업데이트
+- [x] **GUI 연동** — 2채널/`TOP_LEVEL`/`SHARE_IN·OUT`/share 블록·ROI 버튼까지 재설계 구조 반영 완료.
+- [ ] **SAM3 API 확정 + 실제 추론** — `extract_mask_sam3` 의 격리 지점(`_Build_predictor`·`Run`)을 facebookresearch/sam3 실제 심볼/시그니처로 교정: ① `build_sam3`/`SAM3ImagePredictor` import·인자, ② `predict` 반환형·kwarg 이름, ③ SAM3 text/concept 프롬프트 연결 여부. sam3·torch 설치 후 1프레임 추론 검증. requirements 에 분석/추론용 의존성 분리 추가.
 - [ ] **Split/Prune batch process** — `process/batch/split.py`, `process/batch/prune.py` 구현
 - [ ] **Editor mask 페인팅** — `editor/_canvas.py`. 현재는 class 재지정/제외만
-- [ ] **process 등록 자동화** — `core/process/__init__.py` side-effect import
+- [ ] **process 등록 자동화** — `core/process/__init__.py` side-effect import (현재 frame/batch/init 패키지 수동 import)

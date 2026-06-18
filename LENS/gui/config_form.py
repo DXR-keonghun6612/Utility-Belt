@@ -242,6 +242,15 @@ class Config_form(QWidget):
                 result[name] = w.value()
         return result
 
+    def append_pair(self, name: str, key: str, value: str) -> None:
+        """list[tuple[str,str]] 필드(_PairListEdit)에 `key:value` 항목을 덧붙인다."""
+        w = self._widgets.get(name)
+        if not isinstance(w, _PairListEdit):
+            return
+        cur   = w.text().strip().rstrip(",").strip()
+        entry = f"{key}:{value}"
+        w.setText(f"{cur}, {entry}" if cur else entry)
+
     def load(self, params: dict) -> None:
         for name, val in params.items():
             w = self._widgets.get(name)

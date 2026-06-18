@@ -61,8 +61,13 @@ class Aggregate_hs_process(Frame_batch_process):
     min_pixels:  int   = 100
     sigma_floor: float = 1.0
 
-    INPUTS:  ClassVar[tuple[str, ...]] = ("frames", "bg_roi")
-    OUTPUTS: ClassVar[tuple[str, ...]] = ("bg_stats",)
+    # bg_roi(배경 ROI)는 선택적 SHARE_IN — Frame_Meta(data_path["bg_roi"]) 파일이 있으면
+    # load_frame 이 프레임별로 로드하고, 고정 시점이면 share 로 1회 주입해 대체한다.
+    # bg_stats 는 전 프레임 공통 상수라 share 로 내보낸다.
+    INPUTS:    ClassVar[tuple[str, ...]] = ("frames",)
+    OUTPUTS:   ClassVar[tuple[str, ...]] = ()
+    SHARE_IN:  ClassVar[tuple[str, ...]] = ("bg_roi",)
+    SHARE_OUT: ClassVar[tuple[str, ...]] = ("bg_stats",)
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -72,22 +77,35 @@ class Aggregate_hs_process(Frame_batch_process):
         ]
 
     def Run(
-        self, frames: CATEGORIZE_FILE_LIST, debug: bool = False, bg_roi=None,
-        **kwarg
-    ) -> dict:
-        _result = super().Run(frames, debug=debug, bg_roi=bg_roi)
-        if not _result:
-            return {}
+        self, share: dict, frames: CATEGORIZE_FILE_LIST, **context
+    ) -> tuple[dict, dict]:
+        """전 프레임 H·S 픽셀을 누적해 세션 배경 통계를 산출한다.
 
-        _h_list = [a for a in _result.get("h", []) if a is not None]
-        _s_list = [a for a in _result.get("s", []) if a is not None]
+        inner [load_frame → extract_hs] 가 프레임별 h/s 배열을 만들고, 여기서 concat 해
+        단일 HS_stats 로 집계한다. 배경 ROI 는 선택적이다 — Frame_Meta 에 bg_roi 파일이
+        있으면 프레임마다 load_frame 이 로드해 쓰고, 고정 시점이면 share 의 bg_roi 가
+        모든 프레임을 덮어쓴다. 둘 다 없으면 extract_hs 가 빈 결과를 내 해당 프레임은
+        집계에서 제외된다.
+
+        Args:
+            share:  실행 공유 상수. bg_roi 가 주입돼 있으면 전 프레임 공통 적용.
+            frames: dataloader 가 만든 CATEGORIZE_FILE_LIST.
+            **context: 잔여 context(미사용).
+
+        Returns:
+            (context_out, share_out). context 는 비우고, share_out 에 bg_stats 를 싣는다.
+        """
+        _ctx_out, _ = super().Run(share=share, frames=frames)
+
+        _h_list = [a for a in _ctx_out.get("h", []) if a is not None]
+        _s_list = [a for a in _ctx_out.get("s", []) if a is not None]
         if not _h_list:
-            return {}
+            return {}, {}
 
         _h = np.concatenate(_h_list)
         _s = np.concatenate(_s_list)
 
-        return {"bg_stats": HS_stats(
+        return {}, {"bg_stats": HS_stats(
             mean_h = float(_h.mean()),
             mean_s = float(_s.mean()),
             std_h  = max(float(_h.std()), self.sigma_floor),

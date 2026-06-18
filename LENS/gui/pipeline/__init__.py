@@ -5,6 +5,7 @@ import pkgutil
 
 import core.process.batch as _batch_pkg
 import core.process.frame as _frame_pkg
+import core.process.init as _init_pkg
 import core.dataloader as _loader_pkg
 
 
@@ -16,6 +17,7 @@ def _import_pkg_modules(pkg) -> None:
 
 _import_pkg_modules(_frame_pkg)
 _import_pkg_modules(_batch_pkg)
+_import_pkg_modules(_init_pkg)
 _import_pkg_modules(_loader_pkg)
 
 

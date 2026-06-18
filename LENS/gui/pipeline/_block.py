@@ -21,15 +21,15 @@ from PySide6.QtWidgets import (
 
 from core import config_registry
 from core.process import pipeline_registry
-from core.process.batch.frame_batch import Base_frame_batch
 from gui.config_form import Config_form
 
 WRAPPER_KEY = "frame_batch_process"
 
-# 등록된 process 를 frame / batch 로 분류. config 는 {name}_config 규칙으로 도출.
+# 등록된 process 를 top-level(시퀀스 블록) / frame(inner step) 으로 분류.
+# config 는 {name}_config 규칙으로 도출.
 _PROCESS_KEYS = sorted(pipeline_registry._module_dict)
-FRAME_KEYS = [k for k in _PROCESS_KEYS if not issubclass(pipeline_registry.Get(k), Base_frame_batch)]
-BATCH_KEYS = [k for k in _PROCESS_KEYS if issubclass(pipeline_registry.Get(k), Base_frame_batch)]
+FRAME_KEYS = [k for k in _PROCESS_KEYS if not pipeline_registry.Get(k).TOP_LEVEL]
+BATCH_KEYS = [k for k in _PROCESS_KEYS if pipeline_registry.Get(k).TOP_LEVEL]
 
 
 def _config_class(key: str) -> type | None:
@@ -39,17 +39,15 @@ def _config_class(key: str) -> type | None:
         return None
 
 
-def _input_keys(key: str) -> list[str]:
-    return list(pipeline_registry.Get(key).INPUTS)
-
-
-def _output_keys(key: str) -> list[str]:
-    return list(pipeline_registry.Get(key).OUTPUTS)
-
-
-def _io_text(in_keys: list[str], out_keys: list[str]) -> str:
-    return (f"in: {', '.join(in_keys) or '—'}"
-            f"    →    out: {', '.join(out_keys) or '—'}")
+def _io_text(key: str) -> str:
+    """context(in/out)와 share(in/out) 채널을 별도 줄로 표시한다."""
+    _cls = pipeline_registry.Get(key)
+    _line = (f"in: {', '.join(_cls.INPUTS) or '—'}"
+             f"    →    out: {', '.join(_cls.OUTPUTS) or '—'}")
+    if _cls.SHARE_IN or _cls.SHARE_OUT:
+        _line += (f"\nshare  in: {', '.join(_cls.SHARE_IN) or '—'}"
+                  f"    →    out: {', '.join(_cls.SHARE_OUT) or '—'}")
+    return _line
 
 
 def _meta(key: str, params: dict) -> str | dict:
@@ -128,7 +126,7 @@ class Frame_step(QGroupBox):
             self._form = Config_form(_cls)
             self._form.params_changed.connect(self.changed)
             self._form_layout.addWidget(self._form)
-        self._io_lbl.setText(_io_text(_input_keys(_key), _output_keys(_key)))
+        self._io_lbl.setText(_io_text(_key))
         self.changed.emit()
 
     def meta(self) -> str | dict:
@@ -147,10 +145,11 @@ class Block(QGroupBox):
     remove_requested = Signal(object)
     move_requested   = Signal(object, int)
 
-    def __init__(self, key: str, parent=None) -> None:
+    def __init__(self, key: str, parent=None, roi_provider=None) -> None:
         super().__init__(parent)
         self.key = key
         self._is_wrapper = (key == WRAPPER_KEY)
+        self._roi_provider = roi_provider          # () -> str | None (저장된 ROI png 경로)
         self._steps: list[Frame_step] = []
         self._form: Config_form | None = None
         self._build()
@@ -174,7 +173,7 @@ class Block(QGroupBox):
         _lay.addLayout(_hdr)
 
         if not self._is_wrapper:           # in/out 키: 헤더 아래 별도 줄
-            _io = QLabel(_io_text(_input_keys(self.key), _output_keys(self.key)))
+            _io = QLabel(_io_text(self.key))
             _io.setStyleSheet("color: #8aa;")
             _lay.addWidget(_io)
 
@@ -197,6 +196,18 @@ class Block(QGroupBox):
                 self._form = Config_form(_cls)
                 self._form.params_changed.connect(self.changed)
                 _lay.addWidget(self._form)
+            if self.key == "share" and self._roi_provider is not None:
+                _roi = QPushButton("🖉  ROI 그리기 → bg_roi 주입")
+                _roi.clicked.connect(self._on_pick_roi)
+                _lay.addWidget(_roi)
+
+    def _on_pick_roi(self) -> None:
+        """roi_provider 로 ROI png 를 만들고 그 경로를 images 에 (bg_roi, path) 로 넣는다."""
+        if self._form is None or self._roi_provider is None:
+            return
+        _path = self._roi_provider()
+        if _path:
+            self._form.append_pair("images", "bg_roi", _path)
 
     def _add_step(self, key: str | None = None) -> Frame_step:
         _step = Frame_step(key)

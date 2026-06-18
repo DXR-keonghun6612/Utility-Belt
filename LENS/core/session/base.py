@@ -57,8 +57,9 @@ class Session(Project_Template):
             print("  [경고] 로드된 프레임 0개 — reader/globs/sources 확인 필요")
             return
 
-        _ctx = {
-            "frames":    frames,
+        # 2채널 블랙보드: context = 데이터 산출물, share = 실행 공유 상수.
+        _ctx = {"frames": frames}
+        _share = {
             "id_map":    id_map,
             "save_root": str(self.workspace),
             "debug":     self.config.debug,
@@ -68,12 +69,15 @@ class Session(Project_Template):
             if self.config.checkpoint:
                 _dir = self._ckpt.Dir(_i, _proc.name, Hash([source, _i]))
                 if self._ckpt.Exists(_dir):
-                    _ctx.update(self._ckpt.Load(_dir))
+                    _share.update(self._ckpt.Load(_dir))
                     print(f"  [{_i}] {_proc.name}: 체크포인트 복원")
                     continue
 
-            _result = _proc.Run(**_ctx) or {}
-            _ctx.update(_result)
+            _ctx_out, _share_out = _proc.Run(share=_share, **_ctx)
+            _ctx.update(_ctx_out or {})
+            _share.update(_share_out or {})
 
-            if self.config.checkpoint:
-                self._ckpt.Save(_dir, _result)
+            # share_out(공유 상수 = scalar/dataclass)이 있을 때만 체크포인트를 남긴다.
+            # frame_batch 처럼 share 를 안 내는 process 는 캐시되지 않아 항상 재실행된다.
+            if self.config.checkpoint and _share_out:
+                self._ckpt.Save(_dir, _share_out)

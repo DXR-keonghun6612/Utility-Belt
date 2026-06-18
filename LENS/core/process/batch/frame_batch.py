@@ -31,18 +31,30 @@ class Base_frame_batch(Base_Process):
         self._inners = [Build_process(_m) for _m in self.processes]
 
     def _Apply_frame(
-        self, shared: dict[str, Any], debug: bool, **context: Any
+        self, share: dict[str, Any], debug: bool, **context: Any
     ) -> dict:
+        """inner frame process 체인을 한 프레임에 순차 적용한다.
+
+        각 inner 에 `{**context, **share}` 를 전달하고, 직전 출력이 다음 입력이 된다
+        (`context = _out`). share 는 읽기 전용으로 전 inner 에 동일 전달되며 집계되지
+        않는다 — 공유 상수가 프레임별 리스트로 변형되는 것을 막는다.
+
+        Args:
+            share: 실행 공유 상수(읽기 전용).
+            debug: step 별 출력 key 로깅 여부.
+            **context: 프레임별 시작 context(meta, class_name 등).
+
+        Returns:
+            마지막 inner 의 출력(프레임별 산출물). 빈 출력이 나오면 그 직전까지의 결과.
+        """
         for _inner in self._inners:
-            _out: dict = _inner.Run(**{**context, **shared})
+            _out: dict = _inner.Run(**{**context, **share})
             if not _out:
                 break
             if debug:
                 print(f"  {_inner.name}→" + (",".join(_out) or "None"))
-
-            shared.update({_k: _v for _k, _v in _out.items() if _k in shared}) 
             context = _out
-        return {**context, **shared}
+        return context
 
 
 # ── class-aware / flat ────────────────────────────────────────────────────────
@@ -73,27 +85,48 @@ class Frame_batch_process(Base_frame_batch):
     name: str = NAME
     is_flatten: bool = False
 
-    # 출력은 내부 step 들이 내보내는 key 의 합집합 — 동적.
-    INPUTS:  ClassVar[tuple[str, ...]] = ("frames",)
-    OUTPUTS: ClassVar[tuple[str, ...]] = ()
+    # context 출력은 내부 step 들이 내보내는 key 의 합집합 — 동적. share 채널은 통과만.
+    TOP_LEVEL: ClassVar[bool]            = True
+    INPUTS:    ClassVar[tuple[str, ...]] = ("frames",)
+    OUTPUTS:   ClassVar[tuple[str, ...]] = ()
+    SHARE_IN:  ClassVar[tuple[str, ...]] = ()
+    SHARE_OUT: ClassVar[tuple[str, ...]] = ()
 
     def Run(
-        self, frames: CATEGORIZE_FILE_LIST, debug: bool, **shared: Any
-    ) -> dict:
+        self, share: dict[str, Any], frames: CATEGORIZE_FILE_LIST, **context: Any
+    ) -> tuple[dict, dict]:
+        """프레임마다 inner 체인을 실행하고 산출물을 key 별 리스트로 집계한다.
+
+        Args:
+            share:  실행 공유 상수(읽기 전용). inner 에 그대로 전달된다.
+            frames: dataloader 가 만든 CATEGORIZE_FILE_LIST.
+            **context: 잔여 context(미사용).
+
+        Returns:
+            (context_out, share_out). context_out 은 프레임별 산출물의 key→list 집계.
+            frame_batch 자체는 share 를 생산하지 않으므로 share_out 은 빈 dict.
+        """
+        _debug = bool(share.get("debug", False))
         _all:  list[dict] = []
         _keys: set[str]   = set()
 
         if self.is_flatten:
             for _meta in (m for metas in frames.values() for m in metas):
-                _frame = self._Apply_frame(shared, debug, meta=_meta)
+                _frame = self._Apply_frame(share, _debug, meta=_meta)
                 _keys.update(_frame.keys())
                 _all.append(_frame)
         else:
             for _class_name, _meta_list in frames.items():
                 for _meta in _meta_list:
                     _frame = self._Apply_frame(
-                        shared, debug, meta=_meta, class_name=_class_name)
+                        share, _debug, meta=_meta, class_name=_class_name)
                     _keys.update(_frame.keys())
                     _all.append(_frame)
-        _out = {_k: [_f.get(_k) for _f in _all] for _k in _keys}
-        return {_k: _v for _k, _v in _out.items() if any(x is not None for x in _v)}
+
+        # key 별로 프레임 값을 모으되, 한 번도 산출되지 않은(전부 None) key 는 버린다.
+        _out: dict[str, list] = {}
+        for _k in _keys:
+            _vals = [_f.get(_k) for _f in _all]
+            if any(_v is not None for _v in _vals):
+                _out[_k] = _vals
+        return _out, {}
