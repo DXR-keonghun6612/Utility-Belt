@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import ClassVar, Iterator
+from typing import ClassVar, Iterator, Self
 
 from python_toolbox.file import Write_to
 
@@ -168,7 +168,7 @@ class Bucket_Store:
 
     # ── 구조 영속 (top = params; 범주-항목 사이드카; 전부 Structure 위임) ─────────
     @classmethod
-    def Load(cls, root: str | Path) -> "Bucket_Store":
+    def Load(cls, root: str | Path) -> Self:
         """디렉터리에서 복원한다 — top(params) + 범주별 항목 사이드카 (경로·읽기는 ``Structure`` 소유)."""
         _top = Structure.Read(str(root), cls.TOP_STEM) or {}
         _store = cls(root=str(root), params=_top.get("params", {}))

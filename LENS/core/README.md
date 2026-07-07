@@ -7,8 +7,8 @@ LENS 코어 — raw 데이터에서 **정본 annotation(meta)** 을 만들고, �
 횡단 primitive(typing·constant·schema·handler)** 로 둔다. 계산(compute)과 데이터(data)를 분리하고,
 바인더(`Pipeline`/`Sampling`)가 잇는다.
 
-> 정본(meta) 계층은 flat `Data_Ref` 스키마로 구현 완료. 파생(sample) 계층은 아직 재설계 대기(보류) —
-> 아래 서술에서 sample 은 **계획**이다. 실제 반영 정도는 맨 아래 [구현 상태](#구현-상태) 참조.
+> 정본(meta)·파생(sample) 두 계층 모두 flat `Data_Ref` 스키마로 구현 완료. 실제 반영 정도는 맨 아래
+> [구현 상태](#구현-상태) 참조.
 
 ---
 
@@ -117,11 +117,14 @@ schema·process(resolve/route)가 공유하는 payload/구조 I/O 게이트.
 
 ---
 
-## sample — 파생 (sample 축) · **보류**
+## sample — 파생 (sample 축)
 
-`data/sample`. staged `Dataset_Meta` 를 소비해 task별 학습셋으로 파생하는 계층 — **아직 flat 스키마로
-재설계·마이그레이션 대기**(현재 import 체인에서 빠져 있고 `Pipeline.Sample()` 은 `NotImplementedError`).
-class→정수 id 매핑(`id_map`)도 이 계층 소유라 함께 보류. 설계 스케치는 [`data/sample/README.md`](data/sample/README.md).
+`data/sample`. staged `Dataset_Meta` 를 소비해 task별 학습셋(train/val/test)으로 파생하는 계층. **task
+마다 sample 구조가 다르다** — classification 은 `{split}/{class}/{sample}`(class 폴더로 한 계층 더),
+COCO detection 은 `{split}/{image}/{object}` + split 별 manifest. 이 depth 차이는 flat `Data_Ref` 가
+공짜로 흡수하고(stem 임의 중첩), task 별로 변하는 건 **트리 배치(`Place`)와 집계 export(`Finalize`)뿐**
+— `Base_Sampler` 뼈대가 staged 순회·split 결정적 배정을 소유한다(`converter`↔`Convert` 대칭). class→정수
+`id_map` 도 이 계층 소유(정본은 class 이름만). 상세는 [`data/sample/README.md`](data/sample/README.md).
 
 ---
 
@@ -135,7 +138,7 @@ Convert → Run → [staging 전이는 meta] → (Sample) → Verify
 
 - **`Convert`** — raw → modified 에 stem 컨테이너 등록(`converter` + `meta.Scatter`).
 - **`Run`** — flow 시퀀스를 meta 위에서 구동(process 체인, frame 축) + `meta.Scatter`.
-- **`Sample`** — 파생 재생성. **보류**(sample 재설계 후 복구 — 현재 `NotImplementedError`).
+- **`Sample`** — 파생 재생성(`_build_sampler` → `sampler.Build(staged meta)` → `sample.Scatter`).
 - **`Verify`** — 품질 검수(선택적). 미구현.
 - 무거운 prediction 모델은 **클래스 dict 풀**(`Pipeline._RESOURCE_POOL`)로 공유(프로세스 수명, 인스턴스
   공유 — GUI 가 실행마다 새 바인더를 만들어도 재사용).
@@ -148,11 +151,13 @@ Convert → Run → [staging 전이는 meta] → (Sample) → Verify
 ## 구현 상태
 
 - **횡단** — `typing.py`(`Arg_Info`/`Arg`/`BBOX`/`GRAY_IMAGE`)·`constant.py`(`META_STATES` …) 안정.
-- **`data/`** — 완료(sample 제외). `schema`(flat `Data_Ref` + forest `Bucket_Store` + stateless 재귀 헬퍼)
+- **`data/`** — 완료. `schema`(flat `Data_Ref` + forest `Bucket_Store` + stateless 재귀 헬퍼)
   · `handler`(payload I/O+RLE + `Structure` 구조 사이드카) · `converter`(raw→stem `Data_Ref`) · `meta`(정본:
-  `Dataset_Meta` + 영속 `Scatter`/`Save_item`/`Gather`/`Load` + 전이 `Move`/`Delete`/`Merge`, 인스턴스 메서드).
+  `Dataset_Meta` + 영속 `Scatter`/`Save_item`/`Gather`/`Load` + 전이 `Move`/`Delete`/`Merge`, 인스턴스 메서드)
+  · `sample`(파생: `Sample_Set` + task 별 `Base_Sampler` — classification/detection, split 결정적 배정, `id_map`).
 - **`process/`** — 완료. process 유닛 + `Flow`(flat `Data_Ref` 엔진, frame 축) + 모델 풀 (알고리즘 불변).
-- **`_base.py`** — 완료. slim `Pipeline`(Convert→Run→Verify) + `self.meta`, 모델 ClassVar 풀. `import core` 동작.
+- **`_base.py`** — 완료. slim `Pipeline`(Convert→Run→Sample→Verify) + `self.meta`/`self.sample`, 모델
+  ClassVar 풀. `import core` 동작.
 - **`gui/`** — 완료(코드). flat 스키마 기준 전면 마이그레이션 + PySide6 import 검증(런타임 end-to-end 는 미확인).
-- **보류/다음** — `sample/` 계층 flat 재설계 + `id_map` 연결, `Pipeline.Verify` + `analysis/` 흡수,
-  `meta/test_dataset.py` 잔여 정리, GUI 런타임 검증. 잔여 체크리스트는 [`TODO.md`](TODO.md).
+- **보류/다음** — `converter`·`sampler` 를 **process 기반으로 통합**(예정), sample crop 실체화(process
+  재사용), `Pipeline.Verify` + `analysis/` 흡수, GUI 런타임 검증. 잔여 체크리스트는 [`TODO.md`](TODO.md).

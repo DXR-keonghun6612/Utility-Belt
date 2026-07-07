@@ -21,6 +21,7 @@ from typing import Any, Callable, ClassVar
 from python_toolbox.project.config import Base_Config
 
 from .data.meta import Dataset_Meta
+from .data.sample import SAMPLE_DIR, SAMPLERS, Base_Sampler, Sample_Set
 from .data.converter import Base_Converter, Glob_Discover
 from .process import Build_flow
 from .process.model._sam3 import Sam3_runner
@@ -60,7 +61,20 @@ def _build_converter(cfg: dict) -> Base_Converter:
     return _cls(**_kwargs)
 
 
-# ── sampler factory: TODO(sample) — sample 계층 flat 재설계 후 복구 (현재 보류) ──
+# ── sampler factory ─────────────────────────────────────────────────────────
+
+def _build_sampler(cfg: dict) -> Base_Sampler:
+    """sample config → task sampler 인스턴스 (converter factory 와 대칭).
+
+    ``object_type`` 이 task(classification/detection)를 고르고, 나머지 키(``ratios``/``salt``/``unit``)는
+    sampler dataclass 필드로 넘어간다.
+    """
+    _name   = cfg.get("object_type", "classification")
+    _kwargs = {_k: _v for _k, _v in cfg.items() if _k != "object_type"}
+    _cls    = SAMPLERS.get(_name)
+    if _cls is None:
+        raise ValueError(f"알 수 없는 sampler type: {_name!r}")
+    return _cls(**_kwargs)
 
 
 # ── config ────────────────────────────────────────────────────────────────────
@@ -93,7 +107,7 @@ class Pipeline:
         self._sample_cfg     = cfg.sample
         self._verify_cfg     = cfg.verify
         self.meta            = Dataset_Meta.Load(self.root)   # 정본 (Dataset_Meta)
-        # TODO(sample): 파생(Sample_Set) 로드 — sample 재설계 후 복구
+        self.sample          = Sample_Set.Load(self.root / SAMPLE_DIR)   # 파생 (Sample_Set)
 
     # ── config 섹션 갱신 (단일 Pipeline 에 섹션별 주입) ─────────────────────────
     def set_converter(self, cfg: dict) -> None:
@@ -156,11 +170,18 @@ class Pipeline:
         self.meta.Scatter()
 
     def Sample(self) -> int:
-        """staged 정본을 소비해 파생(Sample_Set) 재생성 — **보류**.
+        """staged 정본을 소비해 파생(Sample_Set)을 재생성하고 저장한다 (A+ 순수 재생성).
 
-        TODO(sample): sample 계층(store/sampler)이 flat 스키마로 재설계·마이그레이션되면 복구.
+        ``sample`` config 의 ``object_type`` 이 task(classification/detection)를 고른다. 매 호출이
+        staged 에서 트리를 새로 지어 ``self.sample`` 을 교체하므로, 이전 파생은 흩기로 덮인다.
+
+        Returns:
+            파생된 sample(=범주 직속 항목) 수 합계.
         """
-        raise NotImplementedError("sample 파생 단계 보류 — sample 재설계 후 복구")
+        _sampler = _build_sampler(self._sample_cfg)
+        self.sample = _sampler.Build(self.meta)
+        self.sample.Scatter()
+        return sum(len(self.sample.Bucket(_s)) for _s in self.sample.CATEGORIES)
 
     def Verify(self) -> None:
         """생성 결과의 품질 검수 — Sampling 이후로 미룸(또는 Run 결과에서 대상 선택). 미구현."""
