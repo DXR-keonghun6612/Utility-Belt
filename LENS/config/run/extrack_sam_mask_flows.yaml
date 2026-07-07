@@ -1,0 +1,79 @@
+flows:
+-   object_type: flow
+    name: Refine_segment_by_sam3
+    unit: frame
+    processes:
+    -   object_type: segment_with_hole
+        text: Top-down view, solid plastic body only, ignore holes, ignore shadow,
+            ignore conveyor background.
+        conf: 0.0
+        min_area: 200
+        preserve_holes: true
+        hole_refine: true
+        hole_debug: true
+        hole_space: lab
+        hole_dark_boost: false
+        hole_highlight_pct: 50.0
+        hole_color_thr: 3.0
+        hole_seed_var_max: 0.0
+        hole_seed_rim: 7
+        hole_seed_dense_win: 5   # 씨앗 밀도 이웃 창
+        hole_seed_dense_min: 4   # 이웃에 씨앗 이 개수 미만이면 고립 잡음 제거 (1=끄기)
+        hole_dark_pct: 15.0
+        hole_open_size: 3
+        hole_edge: true
+        hole_edge_low: 50
+        hole_edge_high: 150
+        hole_edge_blur: 3
+        hole_edge_gray: false
+        hole_edge_margin: 3
+        hole_edge_close: 5
+        hole_edge_thick: 3
+        hole_grow_iter: 12
+        hole_neg_pts_area_frac: 0.02
+        hole_max_pts: 12
+        hole_logit_neg: -5.0
+        model:
+            type: sam3
+            bpe_path: ''
+            checkpoint: ''
+            device: cuda
+        outputs:
+            segment:
+                to: storage
+                level: frame
+                type: segmap
+                format: png
+                dir: raw_sam3_mask
+            seg_raw:
+                to: storage
+                level: frame
+                format: png
+                dir: dbg_seg_raw
+            hole_seed:
+                to: storage
+                level: frame
+                format: png
+                dir: dbg_hole_seed
+            hole_edge:
+                to: storage
+                level: frame
+                format: png
+                dir: dbg_hole_edge
+            hole_grown:
+                to: storage
+                level: frame
+                format: png
+                dir: dbg_hole_grown
+-   object_type: flow
+    unit: object
+    processes:
+    -   object_type: morph_mask
+        close_size: 5
+        open_size: 5
+        reverse: false
+        outputs:
+            mask:
+                to: storage
+                format: png
+                dir: obj_mask

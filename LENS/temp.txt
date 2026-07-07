@@ -1,4 +1,0 @@
-python extract_mask_features.py
---root datasets/from_real/crop_from_mask/test/
---classes 10H271000_MQ4_SCALP_LAMP_LH 10K081000_NQ5_SCALP_LAMP_LH 10K191000_AX_SCALP_LAMP_LH 10L061000_GL3_SCALP_LH
---cluster-features area perimeter pca_area_rl pca_area_ud mu30_pca_log mu03_pca_log mu21_pca_log mu12_pca_log --cluster-min-cluster-size 20

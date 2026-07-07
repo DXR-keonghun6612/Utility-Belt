@@ -1,12 +1,8 @@
-"""CLI 진입점 — session_config 로 데이터셋 생성 Session 을 실행한다.
+"""LENS CLI — config 파일로 ``Pipeline`` 을 만들고 단계를 순서대로 실행하는 얇은 래퍼.
 
-GUI(Pipeline 탭) 또는 손으로 작성한 session_config.yaml 을 받아 그대로 실행한다.
-dataloaders / processes 항목은 dataloader·process config yaml 경로 목록이며,
-상대경로는 session_config.yaml 위치 기준으로 해석한다.
-
-Examples:
-    python cli.py config/session_config.yaml
-    python cli.py config/session_config.yaml --project-name belt_v2
+``python cli.py --config <config.yaml> --stages converter run verify``. 각 stage 는 독립이며
+나열한 순서대로 돈다. config 로드·경로 resolve·실행은 모두 ``core`` 의 ``Pipeline`` 이 한다 —
+이 파일은 인자 파싱과 진행 출력만 담당한다.
 """
 
 from __future__ import annotations
@@ -14,54 +10,39 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from python_toolbox.file import Make_dict_from
+from core import Load_pipeline
 
-# 등록 부작용: process / reader 를 레지스트리에 채운다(Build_process/Build_reader 용).
-import core.process.frame   # noqa: F401
-import core.process.batch   # noqa: F401
-import core.process.init    # noqa: F401
-from core.session.base import Session, Session_config
-
-
-def _resolve(base: Path, path: str) -> str:
-    """상대경로를 session_config 디렉터리 기준 절대경로로 바꾼다."""
-    _p = Path(path)
-    return str(_p if _p.is_absolute() else (base / _p))
-
-
-def Load_session_config(path: Path) -> Session_config:
-    """session_config.yaml → Session_config (dataloader/process 경로 해석 포함)."""
-    _ok, _meta = Make_dict_from(path)
-    if not _ok or not isinstance(_meta, dict):
-        raise ValueError(f"session_config 로드 실패: {path}")
-
-    _config = Session_config(**_meta)
-    _base = path.parent
-    _config.dataloaders = [_resolve(_base, _p) for _p in _config.dataloaders]
-    _config.processes   = [_resolve(_base, _p) for _p in _config.processes]
-    return _config
-
-
-def _build_parser() -> argparse.ArgumentParser:
-    _p = argparse.ArgumentParser(description="session_config 로 데이터셋 생성")
-    _p.add_argument("session_config", type=Path, help="session_config.yaml 경로")
-    _p.add_argument("--project-name", default=None, help="project_name 덮어쓰기")
-    return _p
-
-
-def run(args: argparse.Namespace) -> None:
-    _config = Load_session_config(args.session_config)
-    if args.project_name:
-        _config.project_name = args.project_name
-
-    print(f"dataloader {len(_config.dataloaders)}개 · process {len(_config.processes)}단계 실행")
-    _session = Session(_config)
-    _session.Run()
-    print(f"완료 → {_session.workspace}")
+_STAGES = ("converter", "run", "verify")   # 실행 가능한 단계 (나열 순서대로 수행)
 
 
 def main() -> None:
-    run(_build_parser().parse_args())
+    parser = argparse.ArgumentParser(prog="LENS")
+    parser.add_argument("--config", type=Path, required=True, help="config.yaml 경로")
+    parser.add_argument(
+        "--stages",
+        nargs="+",
+        choices=_STAGES,
+        metavar=f"{{{','.join(_STAGES)}}}",
+        required=True,
+        help="실행할 단계 (순서대로)",
+    )
+    args = parser.parse_args()
+
+    pipeline = Load_pipeline(args.config)
+
+    for stage in args.stages:
+        if stage == "converter":
+            n = pipeline.Convert()
+            if n == 0:
+                print(f"⚠ converter: 매칭 파일 0개 — sources/globs 확인 → {pipeline.root}")
+            else:
+                print(f"converter 완료 → {n} frames, {pipeline.root}")
+        elif stage == "run":
+            pipeline.Run()
+            print(f"run 완료 → {pipeline.root}")
+        elif stage == "verify":
+            pipeline.Verify()
+            print(f"verify 완료 → {pipeline.root}")
 
 
 if __name__ == "__main__":

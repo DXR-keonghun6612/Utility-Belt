@@ -6,10 +6,11 @@ import sys
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication, QMainWindow
 
-from gui.page import MainPage
+from gui.page import Main_page
 
 
 def _dark_palette() -> QPalette:
+    """애플리케이션 전역에 적용할 다크 테마 팔레트를 만든다."""
     p = QPalette()
     p.setColor(QPalette.Window,          QColor(45, 45, 45))
     p.setColor(QPalette.WindowText,      QColor(220, 220, 220))
@@ -26,19 +27,22 @@ def _dark_palette() -> QPalette:
     return p
 
 
-class MainWindow(QMainWindow):
+class Main_window(QMainWindow):
+    """LENS 애플리케이션 최상위 윈도우."""
+
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("Real Data Mask Generator")
+        self.setWindowTitle("LENS")
         self.resize(1280, 860)
-        self.setCentralWidget(MainPage())
+        self.setCentralWidget(Main_page())
 
 
 def main() -> None:
+    """Qt 애플리케이션을 띄우고 이벤트 루프를 시작한다."""
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
     app.setPalette(_dark_palette())
-    win = MainWindow()
+    win = Main_window()
     win.show()
     sys.exit(app.exec())
 

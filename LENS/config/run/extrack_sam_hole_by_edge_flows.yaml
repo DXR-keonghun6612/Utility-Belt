@@ -1,0 +1,78 @@
+# SAM3 부품 mask 에서 "메워진 구멍·슬릿"을 edge 로 다시 뚫는 단일 per-frame flow.
+#
+# 프레임마다:
+#   1. segment_with_hole — 객체 bbox 를 SAM3 로 분할해 부품 라벨맵 segment (구멍이 메워진 solid).
+#   2. detect_edge         — 프레임 Canny edge.
+#   3. remove_edge_holes   — edge 로 mask 를 절단해 경계에 닿는 몸통만 남기고, edge 에 갇힌
+#                            구멍·슬릿을 제거 (표면·반사광 edge 는 가두지 못해 무시, 작은 폐쇄
+#                            반사광만 min_area 로 되메움). 다객체 프레임도 한 번에.
+#   4. split_objects       — 구멍 뚫린 mask 를 인스턴스로 재분할.
+#
+# 전제: 프레임에 객체 bbox 가 이미 있어야 한다(raw 추출 flow 선행). edge 방식이라 ROI·색공간 불필요.
+# 근거는 core/process/edge/README.md 의 Remove_edge_holes 참조.
+
+flows:
+-   object_type: flow
+    name: remove_sam_holes_by_edge
+    unit: frame
+    processes:
+
+    # 1. SAM3 분할 → 부품 라벨맵 (구멍제거 스킵 시 fallback 으로 남는다)
+    -   object_type: segment_with_hole
+        text: Top-down view, solid plastic body only, ignore holes, ignore shadow,
+            ignore conveyor background.
+        conf: 0.0
+        min_area: 200
+        model:
+            type: sam3
+            bpe_path: ''
+            checkpoint: ''
+            device: cuda
+        outputs:
+            segment:
+                to: storage
+                level: frame
+                type: segmap
+                format: png
+                dir: sam3_seg
+
+    # 2. 프레임 Canny edge (색경계까지 잡게 gray=false — 구멍/슬릿 경계는 확실히 존재)
+    -   object_type: detect_edge
+        low: 50
+        high: 150
+        blur: 3
+        gray: false
+        outputs:
+            edge:
+                to: storage
+                level: frame
+                format: png
+                dir: edge
+
+    # 3. edge 로 갇힌 구멍·슬릿 제거 (mask ← SAM segment)
+    -   object_type: remove_edge_holes
+        boundary_margin: 3
+        close_size: 5
+        min_area: 80
+        inputs:
+            mask: segment
+        outputs:
+            mask:
+                to: storage
+                level: frame
+                format: png
+                dir: hole_removed_mask
+
+    # 4. 구멍 뚫린 mask 를 인스턴스로 재분할
+    -   object_type: split_objects
+        min_area: 500
+        merge_gap: 0
+        bbox_gap: 0.15
+        outputs:
+            object: {}
+            segment:
+                to: storage
+                level: frame
+                type: segmap
+                format: png
+                dir: hole_removed_seg

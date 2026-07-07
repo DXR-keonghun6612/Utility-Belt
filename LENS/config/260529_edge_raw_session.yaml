@@ -1,0 +1,67 @@
+dataset_root: /home/dxr/project/100. Utility/120. Belt/LENS/result/base_on_edge_260529
+converter:
+    object_type: glob
+    sources: [/home/dxr/project/400. On_Project/410. SL_mirror_tech/412. dataset/sl_mirrortech/real_raw/260529]
+    globs:
+        frame:
+            pattern: '*_pose.png'
+            type: image
+        class_id:
+            pattern: '*_pose.txt'
+            type: attr
+    params:
+        roi: /home/dxr/project/100. Utility/120. Belt/LENS/resource/segment_ROI.png
+    id_map: /home/dxr/project/100. Utility/120. Belt/LENS/resource/id_map.yaml
+flows:
+-   object_type: flow
+    name: extract_raw_obj_by_edge
+    unit: frame
+    processes:
+    -   object_type: detect_edge
+        low: 50
+        high: 150
+        blur: 3
+        gray: false
+        outputs:
+            edge:
+                to: storage
+                level: frame
+                format: .png
+    -   object_type: close_edge
+        size: 21
+        outputs:
+            edge:
+                to: storage
+                format: .png
+                dir: close_edge
+    -   object_type: fill_edge
+        min_area: 500
+        border_gap: 50
+        outputs:
+            mask:
+                to: storage
+                level: frame
+                format: .png
+                dir: fill_edge
+    -   object_type: morph_mask
+        close_size: 3
+        open_size: 3
+        reverse: false
+        outputs:
+            mask:
+                to: storage
+                level: frame
+                format: .png
+                dir: morph_mask
+    -   object_type: split_objects
+        min_area: 500
+        mask_reverse: false
+        merge_gap: 0
+        bbox_gap: 0.15
+        outputs:
+            object: {}
+            segment:
+                to: storage
+                level: frame
+                format: .png
+                dir: raw_mask

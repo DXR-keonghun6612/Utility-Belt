@@ -3,9 +3,38 @@
 #
 #   설치:  pip install -r requirements.txt
 
-numpy==2.4.6
-opencv-python==4.13.0.92
-PySide6==6.11.1
+# numpy 는 SAM3(numpy>=1.26,<2)에 맞춰 1.x 고정.
+numpy
+opencv-python
+PySide6
 
 # Config·Registry·file IO 유틸 (ToolBox 모노레포의 subdirectory)
 python_toolbox @ git+https://github.com/DXR-keonghun6612/ToolBox.git@HUB#subdirectory=python_toolbox
+
+
+# ── SAM3 마스크 추출 (선택) ──────────────────────────────────────────────────
+# extract_mask_sam3 / extract_mask_sam3_with_mask 경로를 쓸 때만 필요.
+# lazy import 라 미설치 시 다른 경로엔 영향 없음.
+#
+# torch 는 CUDA 버전에 맞춰 먼저 설치 권장(예: pip install torch --index-url https://download.pytorch.org/whl/cu126).
+# pycocotools·psutil 은 sam3 가 import 체인에서 요구하지만 자체 의존성에 선언돼 있지 않아 명시.
+# 그 외 timm/ftfy/regex/iopath/huggingface_hub 등은 sam3 가 끌어온다.
+pycocotools
+psutil
+sam3 @ git+https://github.com/facebookresearch/sam3.git
+
+
+# ── 분석 (선택) ──────────────────────────────────────────────────────────────
+# analysis/ 경로 전용. core/gui 런타임엔 불필요하며 전부 lazy import 라 미설치 시 다른 경로엔
+# 영향 없다. 코어 분석은 numpy 만으로 동작하고(예: 임베딩 PCA fallback), 아래는 기능별 추가분.
+#
+#   matplotlib    — 시각화(build_figure): chroma 히트맵, mask shape 산점도 등
+#   scikit-learn  — 데이터셋 임베딩 전처리(StandardScaler)·PCA, (scipy 를 끌어옴)
+#   umap-learn    — 비선형 임베딩(UMAP). 미설치 시 PCA fallback
+#   hdbscan       — 임베딩 클러스터링(레이블 일치 분석). 미설치 시 클러스터 단계 생략
+#   pandas        — feature matrix CSV export (선택)
+matplotlib
+scikit-learn
+umap-learn
+hdbscan
+pandas

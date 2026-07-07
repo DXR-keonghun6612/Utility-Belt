@@ -1,0 +1,53 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# flow config 작성용 템플릿 — 코드가 읽지 않는다 (import 되지 않음).
+#
+# flow 종류는 코드 preset이 아니라 config가 직접 기술한다. 아래는 config 의 `flows:` 리스트에
+# 들어가는 flow 엔트리 예시 — 필요한 블록을 복사해 고쳐 쓴다. `object_type` 은 진행 표시 라벨일
+# 뿐이고 나머지 키가 곧 Flow 필드다.
+#
+# 공통 필드(Flow):
+#   object_type         진행 표시 라벨 (자유 문자열 — 어떤 chain인지 알아보게 짓는다)
+#   unit                순회 단위. "frame"=프레임당 1회(첫 객체) / "object"=프레임의 객체마다
+#   shared              모든 step에 공통 주입할 config (step이 선언한 키만 받음). 예: {space: lab}
+#   processes           프레임마다 도는 process 체인. 각 step:
+#                         object_type: <process 이름>
+#                         <param>: <값>            # 그 process의 dataclass 필드
+#                         outputs: {키: {to, level, dir, format}}   # 생략 시 ctx로만 흐름
+#   finalize_processes  순회 종료 후 1회 도는 reduce 체인 (carry 누산기 → 결과). step 형식 동일.
+#                       frame/obj 위치가 없어 outputs는 자동으로 params(dataset-wide)로 간다.
+#   carry               프레임 간 이월할 ctx 키 (누산기). 런타임 수명 도구 — state도 영속도 아님.
+#   cacheable           finalize outputs 키가 meta.params에 이미 다 있으면 순회 건너뜀(재실행 캐시)
+#
+# outputs 라우팅 spec:
+#   to: meta            인라인 (마스크→rle / 스칼라·list→attr / finalize→params)
+#   to: storage         파일 저장 (image/array). dir/format로 위치·포맷 지정
+#   level: frame|object meta 저장 위치 (기본 object). storage도 동일.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+# chroma 배경모델 ────────────────────────────────────────────────────────────────
+# 2채널 크로마 배경모델 (색공간 무관). 프레임별 누산은 accumulate_chroma_histogram이 carry로
+# 프레임 간 이월하고, 끝단 robust 통계(median+IQR)는 robust_chroma_stats(finalize)가 mean/std
+# 4키를 meta.params에 기록한다. robust 통계가 분포 꼬리(객체가 잠깐 가린 프레임)를 자동 제외하므로
+# 별도 임계 필터가 필요 없다. 결과(mean/std)는 chroma_distance가 차분에 쓴다.
+#
+# 전역 ↔ 픽셀별은 accumulate_chroma_histogram.per_pixel 한 줄만 바꾼다 (구조 동일):
+#   per_pixel: false  → 전역 1-D 히스토그램 → 스칼라 4키 (배경색 균일 가정)
+#   per_pixel: true   → 픽셀별 (H,W) 4키 (위치별 배경, 정적 카메라). 한 픽셀을 객체가 절반 이상
+#                       점유하면 그 픽셀 통계가 오염될 수 있다(positional bias) — 객체 위치 경향이
+#                       있으면 전역(false) 쪽이 belt이 전역 다수라 구조적으로 강하다.
+- object_type: chroma_bg          # 라벨 (자유 명명)
+  # shared: {space: lab}          # 색공간 일괄 변경 (생략 시 각 process 기본 hsv)
+  processes:
+    - object_type: convert_to_chroma
+    - object_type: accumulate_chroma_histogram
+      per_pixel: false            # ← 전역/픽셀별 토글 (이 한 줄만 바꾼다)
+  finalize_processes:
+    - object_type: robust_chroma_stats
+      outputs:                    # finalize step이 직접 params로 라우팅
+        mean_c0: {to: meta}
+        mean_c1: {to: meta}
+        std_c0:  {to: meta}
+        std_c1:  {to: meta}
+  carry: [c0_acc, c1_acc]         # 누산 히스토그램을 프레임 간 이월
+  cacheable: true
