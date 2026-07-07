@@ -1,0 +1,51 @@
+[build-system]
+requires      = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name            = "lens"
+version         = "0.0.2"
+description     = "LENS — Label Editing & Navigation System (raw → 정본 annotation → task별 학습셋)"
+readme          = "README.md"
+requires-python = ">=3.11"
+authors         = [{ name = "DXR-keonghun6612" }]
+
+# ── 의존성 (단일 리스트 — 코어/SAM3/분석 전부 사용) ──────────────────────────
+# torch 만 예외: CUDA 버전에 맞춰 먼저 수동 설치 권장(자동 해석 안 함).
+#   pip install torch --index-url https://download.pytorch.org/whl/cu126
+dependencies = [
+    # 코어 런타임 (core/ · gui/ · cli.py · app.py)
+    "numpy>=1.26,<2",      # SAM3(numpy>=1.26,<2)에 맞춰 1.x 고정
+    "opencv-python",
+    "PySide6",
+    # Config·Registry·file IO 유틸 (ToolBox 모노레포의 subdirectory)
+    "python_toolbox @ git+https://github.com/DXR-keonghun6612/ToolBox.git@HUB#subdirectory=python_toolbox",
+
+    # SAM3 마스크 추출 (process/model). pycocotools·psutil 은 sam3 import 체인이
+    # 요구하지만 자체 의존성에 없어 명시.
+    "pycocotools",
+    "psutil",
+    "sam3 @ git+https://github.com/facebookresearch/sam3.git",
+
+    # 분석 (analysis/) — 시각화·임베딩·클러스터링·CSV export
+    "matplotlib",     # chroma 히트맵·mask shape 산점도
+    "scikit-learn",   # StandardScaler·PCA (scipy 를 끌어옴)
+    "umap-learn",     # 비선형 임베딩(UMAP), 미설치 시 PCA fallback
+    "hdbscan",        # 임베딩 클러스터링
+    "pandas",         # feature matrix CSV export
+]
+
+[project.scripts]
+LENS     = "app:main"   # PySide6 GUI
+LENS-cli = "cli:main"   # config 로 Pipeline 실행 (converter/run/verify)
+
+# ── 패키징 (flat 멀티패키지 레이아웃 — 명시 탐색) ─────────────────────────────
+# 최상위 패키지(core/gui/analysis)와 최상위 모듈(cli/app)이 나란히 있어 자동탐색이
+# 모호해진다. 대상을 명시한다 (config/ 는 데이터라 패키지 아님, temp/ 제외).
+[tool.setuptools]
+py-modules = ["cli", "app"]
+
+[tool.setuptools.packages.find]
+where      = ["."]
+include    = ["core*", "gui*", "analysis*"]
+namespaces = true   # analysis/ 는 top __init__ 이 없어 implicit namespace 로 포함
