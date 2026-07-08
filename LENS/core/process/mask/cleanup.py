@@ -15,12 +15,18 @@ from .._base import Base_Process, UI, GRAY_IMAGE
 @dataclass
 class Normalize_mask(Base_Process, outputs=("mask",), category="마스크/정리"):
     target_shape: Annotated[int, UI(label="출력 크기 (px)", min=32, max=1024)] = 224
+    # 전경 픽셀값 스케일 — 1=원본 유지(0/1 이진 그대로), 255=0/255 로 확대해 png 로 보이게.
+    # 이진화가 아니라 곱셈(clip 0~255)이라 0/255 mask 를 넣던 기존 사용처는 scale=1 이면 무변.
+    scale: Annotated[int, UI(label="값 스케일 (전경 밝기)", min=1, max=255)] = 1
 
     def Run(self, mask: GRAY_IMAGE, **kwargs) -> dict:
         _crop = Crop_square(mask)
         if _crop.size == 0:
             return {}
-        return {"mask": Mask_padding(_crop, self.target_shape)}
+        _out = Mask_padding(_crop, self.target_shape)
+        if self.scale != 1:
+            _out = np.clip(_out.astype(np.int32) * self.scale, 0, 255).astype(np.uint8)
+        return {"mask": _out}
 
 
 @PROCESS_REGISTRY.Register_module()

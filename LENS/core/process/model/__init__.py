@@ -1,3 +1,3 @@
-from .segment import Segment_with_hole
+from .segment import Segment
 
-__all__ = ["Segment_with_hole"]
+__all__ = ["Segment"]

@@ -5,6 +5,8 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QDialogButtonBox
 
+_SAVE = QDialogButtonBox.StandardButton.Save
+
 from core.data.meta import Dataset_Meta
 from gui.verify._editor import Stem_editor
 from gui.widgets import Pop_dialog
@@ -29,8 +31,14 @@ class Stem_edit_dialog(Pop_dialog):
         self.editor.saved.connect(self._on_saved)
 
         self._set_body(self.editor)
-        self._bottom_bar(buttons=QDialogButtonBox.Save | QDialogButtonBox.Close,
-                         on_accept=self.editor.save, on_reject=self.reject)
+        self._buttons = self._bottom_bar(
+            buttons=QDialogButtonBox.Save | QDialogButtonBox.Close,
+            on_accept=self.editor.save, on_reject=self.reject)
+
+    def set_editable(self, editable: bool) -> None:
+        """편집 잠금 토글 — 편집기를 보기 전용으로 두고 저장 버튼을 막는다 (백그라운드 작업 중)."""
+        self.editor.set_editable(editable)
+        self._buttons.button(_SAVE).setEnabled(editable)
 
     @property
     def _stem(self) -> str:

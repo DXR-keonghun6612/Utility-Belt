@@ -31,12 +31,12 @@ class Idmap_panel(QGroupBox):
         _lay.setContentsMargins(4, 4, 4, 4)
 
         _btns = QHBoxLayout()
-        _add = QPushButton("+ class")
-        _add.clicked.connect(self._on_add)
-        _del = QPushButton("− class")
-        _del.clicked.connect(self._on_del)
-        _btns.addWidget(_add)
-        _btns.addWidget(_del)
+        self._add_btn = QPushButton("+ class")
+        self._add_btn.clicked.connect(self._on_add)
+        self._del_btn = QPushButton("- class")
+        self._del_btn.clicked.connect(self._on_del)
+        _btns.addWidget(self._add_btn)
+        _btns.addWidget(self._del_btn)
         _btns.addStretch()
         _lay.addLayout(_btns)
 
@@ -59,6 +59,11 @@ class Idmap_panel(QGroupBox):
         self._id_map = {}
         self._tree.clear()
         self.setTitle("class_id")
+
+    def set_editable(self, editable: bool) -> None:
+        """편집 잠금 토글 — class 추가/삭제 버튼을 막는다 (트리 조회는 유지)."""
+        self._add_btn.setEnabled(editable)
+        self._del_btn.setEnabled(editable)
 
     # ── 내부 ────────────────────────────────────────────────────────────────
 

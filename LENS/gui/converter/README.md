@@ -15,12 +15,14 @@ Converter 패널 — raw 소스를 탐색해 초기 `Dataset_Meta` 를 생성하
 ```
 Converter_panel
   ├── object_type     glob (현재 고정 — _CONVERTER_WIDGETS dict 등록 기반)
-  ├── id_map          class→scope→id 정의 yaml (선택)
   └── _Glob_settings
         ├── sources   raw 소스 디렉터리 목록
         ├── globs     key → {pattern, type?, dir?, format?}   (라벨 특수처리 없음)
-        └── params    key → 파일 경로
+        └── params    key → 파일 경로 (dataset-wide root leaf; id_map 등도 특수 필드 없이 여기로)
 ```
+
+> `id_map`(class→정수) 은 converter 가 소유하지 않는다 — 파생(sample) 계층 소유이고 Convert 는
+> 소비하지 않는다. 예전의 전용 id_map 입력은 제거했다(필요하면 제네릭 `params` 로 넣는다).
 
 `globs` 행은 `key | pattern | type | dir | format`. `type` 을 비우면 패턴 확장자로 핸들러를
 추론하고(`Infer_type`), txt 등 추론 안 되는 건 `type` 을 명시한다 (예: `attr`). 모든 glob key 가
@@ -41,7 +43,6 @@ Converter_panel
             "mask":     {"pattern": "*_mask.png", "type": "image", "dir": "raw_mask"},
         },
         "params": {"roi": "/path/to/roi.png"},
-        "id_map": "/path/to/id_map.yaml",
     }
 }
 ```

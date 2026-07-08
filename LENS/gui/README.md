@@ -59,8 +59,10 @@ flow 한 장(카드) = `flows:` 리스트의 1 엔트리 — `object_type`·`uni
 `finalize_processes`·`carry`·`cacheable`. `model` 필드를 가진 process 는 모델 주입 서브폼을 연다.
 
 - Convert·Run·**전이/삭제**는 `Pipeline_worker` 하나로 백그라운드 실행 — 무엇을 돌릴지는 task 콜러블이
-  정하고, 보유 Pipeline 을 그대로 돌린다. 실행 중엔 진행바 표시 + `Meta_view` 비활성(편집 차단). 상태 전이는
-  **대량 아니어도 항상 백그라운드**이고, 완료 후 목록은 단일 `refresh()`(O(n))로 동기화한다.
+  정하고, 보유 Pipeline 을 그대로 돌린다. 실행 중엔 진행바 표시 + `Meta_view.set_editable(False)`(**편집만
+  잠금** — 값 수정·저장·전이/삭제·id_map). 뷰는 얼리지 않아 stem 목록 클릭·이미지 보기·팝아웃은 그대로
+  된다(데이터가 워커에서 변형되는 동안 편집만 끼어들지 못하게). 상태 전이는 **대량 아니어도 항상
+  백그라운드**이고, 완료 후 목록은 단일 `refresh()`(O(n))로 동기화한다.
 - 상태는 **3-버킷(작업=modified / 검수=staged / 보류=skipped)**. 보류는 지우지 않고 치워둔 것(되돌리기
   가능)으로 모든 파이프라인에서 자연히 제외된다.
 - meta 가져오기 — **폴더**를 고른다(`Dataset_Meta.Restore` 가 dataset root 디렉터리에서 `.meta/*.json`

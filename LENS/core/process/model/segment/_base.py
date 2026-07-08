@@ -1,10 +1,9 @@
-"""segment 기본 정책 — 프레임 객체 bbox 들을 backend 로 분할하는 모델-무관 프로세스.
+"""segment — 프레임 객체 bbox 들을 backend 로 분할하는 모델-무관 프로세스.
 
-**Base_segment** 는 backend(``model``: ``encode``/``run`` 프리미티브)를 config 로 주입받아
-이미지 인코딩 1회 + box 별 디코드로 인스턴스 ``segment`` 를 만든다. SAM3 등 특정 모델을 몰라도
-되는 층 — 다른 promptable segmenter 로 교체하려면 같은 계약(``infer_ctx``/``encode``/``run``)을
-만족하는 backend 만 갈아끼우면 된다. 구멍/슬릿 보존 같은 특화는 ``_segment_box`` 를 오버라이드한
-서브클래스(``with_hole`` 의 ``Segment_with_hole``)가 맡는다.
+**Segment** 는 backend(``model``: ``encode``/``run`` 프리미티브)를 config 로 주입받아 이미지 인코딩
+1회 + box 별 디코드로 인스턴스 ``segment`` 라벨맵을 만든다. SAM3 등 특정 모델을 몰라도 되는 층 —
+같은 계약(``infer_ctx``/``encode``/``run``)을 만족하는 promptable segmenter 면 backend 만 갈아끼운다.
+plain box→best mask 만 하고, 영역 제거(구멍/슬릿 carve 등)는 downstream process 로 조합한다.
 """
 
 from __future__ import annotations
@@ -18,6 +17,7 @@ from ....data.handler import Data_Ref
 from ....data.meta import Dataset_Meta
 from ...utils.mask import Mask_to_box
 from ..._base import Base_Process, GRAY_IMAGE, UI
+from ... import PROCESS_REGISTRY
 
 
 def _to_binary(mask: Any) -> GRAY_IMAGE:
@@ -38,16 +38,17 @@ def _bbox_of(obj: Data_Ref) -> list | None:
     return list(_val) if isinstance(_val, (list, tuple)) and len(_val) == 4 else None
 
 
+@PROCESS_REGISTRY.Register_module()
 @dataclass
-class Base_segment(Base_Process):
-    """프레임 객체 bbox 들을 backend 로 분할하는 기본 정책 프로세스 (plain box→best mask).
+class Segment(Base_Process, outputs=("segment", "object"), category="모델/분할"):
+    """프레임 객체 bbox 들을 backend 로 분할하는 정책 프로세스 (plain box→best mask).
 
     ``unit: frame`` — ``meta``/``stem`` 으로 프레임 ``info`` 의 객체(컨테이너 entry) 전체를 읽어 객체별 box 를
     프롬프트로 준다. backend 이미지 인코딩은 프레임당 1회(``encode``), box 마다 가벼운 ``run``
     디코드. best mask 로 (1) 인스턴스 라벨맵 ``segment``(픽셀=obj_id+1) 재칠 (2) bbox 재계산.
     ``class_id`` 는 SAM3 가 정하지 않고 기존 객체 값을 그대로 유지한다. 결과 없으면 빈 dict("스킵").
 
-    이 클래스는 등록하지 않는 base — 구체 프로세스는 서브클래스(``with_hole``)가 등록한다.
+    영역 제거(구멍/슬릿 carve)는 여기 넣지 않고 downstream process(edge·fill·combine)로 조합한다.
     """
 
     # model: pipeline 이 config 의 ``{type: sam3, …}`` 스펙을 빌드해 주입한 backend.
@@ -105,10 +106,7 @@ class Base_segment(Base_Process):
 
     def _segment_box(self, state: Any, frame_bgr: np.ndarray,
                      box: np.ndarray) -> GRAY_IMAGE | None:
-        """단일 box → best mask (0/255). plain — 구멍 보존 없음. 결과 없거나 score<conf 면 None.
-
-        서브클래스가 이 메서드를 오버라이드해 구멍/슬릿 carve 등 특화를 얹는다.
-        """
+        """단일 box → best mask (0/255). 결과 없거나 score<conf 면 None."""
         _r = self.model.run(state, box=box, multimask_output=False)
         if _r is None:
             return None

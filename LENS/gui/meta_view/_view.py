@@ -33,6 +33,7 @@ class Meta_view(QWidget):
     def __init__(self, pipeline=None, parent=None) -> None:
         super().__init__(parent)
         self._pipeline = pipeline
+        self._editable = True                          # 편집 잠금 (백그라운드 작업 중엔 보기만)
         self._editor: Stem_editor | None = None
         # 비모달 팝아웃 다이얼로그 참조 — GC 로 사라지지 않게 보관한다.
         self._dialogs: list[Stem_edit_dialog] = []
@@ -83,6 +84,21 @@ class Meta_view(QWidget):
         self._pipeline = pipeline
         self._drop_editor()
         self.refresh()
+
+    def set_editable(self, editable: bool) -> None:
+        """편집 잠금을 토글한다 — 잠그면 보기(목록 클릭·줌·팝아웃)는 유지하고 수정만 막는다.
+
+        상위(``Main_page``)가 백그라운드 워커(전이·Convert·Run) 실행 중 호출한다. 데이터가 워커에서
+        변형되는 동안 편집(값 수정·저장·전이/삭제·id_map)이 끼어들지 못하게 막되, stem 을 계속
+        보고 검토할 수 있게 한다 (과거처럼 뷰 전체를 얼리지 않는다).
+        """
+        self._editable = editable
+        self._stem_list.set_editable(editable)
+        self._idmap.set_editable(editable)
+        if self._editor is not None:
+            self._editor.set_editable(editable)
+        for _dlg in self._dialogs:
+            _dlg.set_editable(editable)
 
     def refresh(self, keep: str | None = None) -> None:
         """현재 ``pipeline.meta`` 로 목록·id_map·params 를 다시 채운다.
@@ -140,6 +156,7 @@ class Meta_view(QWidget):
         if self._editor is None:
             self._editor = Stem_editor(_meta, stem)
             self._editor.saved.connect(self._on_editor_saved)
+            self._editor.set_editable(self._editable)   # 현재 잠금 상태 반영 (작업 중 새로 뜬 편집기)
             self._holder_lay.addWidget(self._editor, stretch=1)
         else:
             self._editor.load_stem(stem)
@@ -215,6 +232,7 @@ class Meta_view(QWidget):
             return
         _dlg = Stem_edit_dialog(_meta, stem, self)
         _dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        _dlg.set_editable(self._editable)               # 작업 중 팝아웃도 보기 전용으로
         _dlg.saved.connect(self._on_editor_saved)
         _dlg.finished.connect(lambda _result, d=_dlg: self._forget_dialog(d))
         self._dialogs.append(_dlg)

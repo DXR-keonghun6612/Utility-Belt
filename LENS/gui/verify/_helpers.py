@@ -53,3 +53,25 @@ def _corners(bbox) -> list[tuple[int, int]]:
     """
     _x0, _y0, _x1, _y1 = bbox
     return [(_x0, _y0), (_x1, _y0), (_x1, _y1), (_x0, _y1)]
+
+
+def _edge_midpoints(bbox) -> list[tuple[int, int, str]]:
+    """bbox 네 변의 중점을 ``(x, y, edge)`` 로 돌려준다 (edge = top/right/bottom/left).
+
+    코너(양축 리사이즈)와 달리 변 중점은 한 축으로만 움직인다 — top/bottom 은 수직(y0/y1),
+    left/right 은 수평(x0/x1)만 옮긴다.
+
+    Args:
+        bbox: ``[x0, y0, x1, y1]``.
+
+    Returns:
+        ``[(cx,y0,"top"), (x1,cy,"right"), (cx,y1,"bottom"), (x0,cy,"left")]``.
+    """
+    _x0, _y0, _x1, _y1 = bbox
+    _cx, _cy = (_x0 + _x1) / 2, (_y0 + _y1) / 2
+    return [
+        (int(_cx), int(_y0), "top"),
+        (int(_x1), int(_cy), "right"),
+        (int(_cx), int(_y1), "bottom"),
+        (int(_x0), int(_cy), "left"),
+    ]

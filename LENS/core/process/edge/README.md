@@ -5,7 +5,7 @@ edge 를 검출하고(탐색), 닫힌 윤곽으로 다듬어 영역 mask 를 만
 
 전형 파이프라인: `detect_edge` → (`close_edge`) → `fill_edge` → `split_objects`,
 또는 `detect_edge` → `edge_blob` → `combine_mask` (subtract 모드, mask 안 큰 edge 덩어리 제외),
-또는 `segment_with_hole` → `detect_edge` → `remove_edge_holes` → `split_objects`
+또는 `segment` → `detect_edge` → `remove_edge_holes` → `split_objects`
 (SAM 이 메운 구멍·슬릿을 edge 로 되뚫기).
 
 ## 탐색 (`canny.py`)

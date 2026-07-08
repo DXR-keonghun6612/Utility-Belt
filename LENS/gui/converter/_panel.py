@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from gui._worker import Pipeline_worker
-from gui.widgets import List_editor, List_row, Pair_list_editor, Path_row
+from gui.widgets import List_editor, List_row, Pair_list_editor
 
 
 # ── glob 편집기 ────────────────────────────────────────────────────────────────
@@ -276,13 +276,6 @@ class Converter_panel(QWidget):
         self._run_btn = QPushButton("Convert ▶")
         self._run_btn.clicked.connect(self._on_convert)
 
-        # id_map 정의 파일 (class→scope→id yaml) — 지정 시 Convert가 읽어 적용
-        self._id_map_row = Path_row(
-            "id_map", placeholder="class→scope→id 정의 yaml (선택)",
-            mode="file", file_filter="YAML (*.yaml *.yml)")
-        self._id_map_row.committed.connect(self.changed)
-        _lay.addWidget(self._id_map_row)
-
         # 타입별 설정 스택
         self._stack = QStackedWidget()
         self._settings_widgets: dict[str, QWidget] = {}
@@ -357,9 +350,6 @@ class Converter_panel(QWidget):
         _type = self._type_combo.currentText()
         _specific = self._settings_widgets[_type].to_config()  # type: ignore[attr-defined]
         _conv: dict = {"object_type": _type, **_specific}
-        _id_map = self._id_map_row.text().strip()
-        if _id_map:
-            _conv["id_map"] = _id_map
         return {"converter": _conv}
 
     def load(self, d: dict) -> None:
@@ -369,4 +359,3 @@ class Converter_panel(QWidget):
         if _type in _CONVERTER_WIDGETS:
             self._type_combo.setCurrentText(_type)
             self._settings_widgets[_type].load(_conv)  # type: ignore[attr-defined]
-        self._id_map_row.setText(str(_conv.get("id_map", "") or ""))

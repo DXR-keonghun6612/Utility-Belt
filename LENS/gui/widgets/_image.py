@@ -27,6 +27,7 @@ class Image_label(QWidget):
         mouse_pressed: 좌클릭 시 **원본 이미지 픽셀 좌표** ``(x, y)`` 를 emit (interactive 일 때).
         mouse_moved: 마우스 이동 시 원본 좌표 ``(x, y)`` 를 emit (interactive 일 때).
         mouse_released: 좌클릭 해제 시 원본 좌표 ``(x, y)`` 를 emit (interactive 일 때).
+        mouse_right_pressed: 우클릭 시 원본 좌표 ``(x, y)`` 를 emit (interactive 일 때 — 그리기 취소용).
 
     Note:
         ``zoom`` 이 None이면 뷰포트에 맞춰 자동 리스케일(fit)되고, float이면 원본 픽셀
@@ -39,6 +40,7 @@ class Image_label(QWidget):
     mouse_pressed  = Signal(int, int)   # 원본 픽셀 좌표
     mouse_moved    = Signal(int, int)
     mouse_released = Signal(int, int)
+    mouse_right_pressed = Signal(int, int)   # 우클릭 (그리는 중 마지막 동작 취소용)
 
     _STEP = 1.15
     _ZOOM_MIN = 0.05
@@ -220,6 +222,10 @@ class Image_label(QWidget):
                 _p = self._to_orig(event.position())
                 if _p is not None:
                     self.mouse_pressed.emit(*_p)
+            elif _et == QEvent.Type.MouseButtonPress and event.button() == Qt.RightButton:
+                _p = self._to_orig(event.position())
+                if _p is not None:
+                    self.mouse_right_pressed.emit(*_p)
             elif _et == QEvent.Type.MouseMove:
                 _p = self._to_orig(event.position())
                 if _p is not None:

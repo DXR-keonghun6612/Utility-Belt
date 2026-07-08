@@ -54,7 +54,9 @@ class Stem_list(QWidget):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
+        self._editable = True               # 편집 잠금 (잠그면 전이/삭제 메뉴만 막고 선택은 유지)
         self._counts: dict[str, int] = {}   # 상태별 개수 — load 가 meta.STATES 로 채운다
+        self._focus_after: str | None = None  # 전이 후 포커스할 stem (이동 전에 계산해 다음 load 가 소비)
         _lay = QVBoxLayout(self)
         _lay.setContentsMargins(0, 0, 0, 0)
         _lay.setSpacing(2)
@@ -86,6 +88,8 @@ class Stem_list(QWidget):
         `Dataset_Meta.STATES` 를 순회해 현재 상태가 아닌 대상마다 "→ 라벨 로 보내기 (n)" 를 만든다 —
         상태 수가 늘어도(예: skipped) 코드 수정 없이 항목이 생긴다. 보낼 대상 0이면 그 항목은 뺀다.
         """
+        if not self._editable:               # 잠금 중(백그라운드 작업)엔 전이/삭제 메뉴 없음
+            return
         _items = self._list.selectedItems()
         if not _items:
             return
@@ -98,15 +102,86 @@ class Stem_list(QWidget):
             _label = _badge(_state)[0]
             _a = QAction(f"→ '{_label}' 로 보내기  ({len(_targets)})", _menu)
             _a.triggered.connect(
-                lambda _checked=False, s=_state, t=_targets: self.to_state_requested.emit(s, t))
+                lambda _checked=False, s=_state, t=_targets: self._request_to_state(s, t))
             _menu.addAction(_a)
         if _menu.actions():
             _menu.addSeparator()
         _all = [_it.data(_STEM_ROLE) for _it in _items]
         _del = QAction(f"🗑  삭제  ({len(_all)})", _menu)
-        _del.triggered.connect(lambda _checked=False, t=_all: self.delete_requested.emit(t))
+        _del.triggered.connect(lambda _checked=False, t=_all: self._request_delete(t))
         _menu.addAction(_del)
         _menu.exec(self._list.viewport().mapToGlobal(pos))
+
+    def _request_to_state(self, state: str, targets: list) -> None:
+        """전이 요청을 올리되, **이동 전** 목록 기준으로 전이 후 포커스할 stem 을 미리 잡아둔다.
+
+        포커스는 이동 대상을 따라가지 않고 소스 카테고리에 남는다 — 다음 ``load`` 가 소비한다.
+        """
+        self._focus_after = self._next_focus(targets)
+        self.to_state_requested.emit(state, targets)
+
+    def _request_delete(self, targets: list) -> None:
+        """삭제 요청을 올리되, **삭제 전** 목록 기준으로 삭제 후 포커스할 stem 을 미리 잡아둔다.
+
+        전이와 같은 이웃 규칙이되, 소스 카테고리가 통째로 사라지면 (따라갈 목적지가 없으므로)
+        다음 카테고리로 옮긴다 — 다음 ``load`` 가 소비한다.
+        """
+        self._focus_after = self._next_focus(targets, removed=True)
+        self.delete_requested.emit(targets)
+
+    def _next_focus(self, moved: list, *, removed: bool = False) -> str | None:
+        """전이/삭제 후 포커스할 stem 을 **현재(작업 전) 목록 순서**로 고른다.
+
+        소스 카테고리(가장 위 대상의 상태) 안에서: ① 선택 중 가장 작은 순번의 **한 칸 앞**, 없으면
+        ② 가장 큰 순번 **+1**(한 칸 뒤). 둘 다 없으면(그 카테고리가 통째로 비면) ③ 전이는 이동 대상을
+        그대로 반환해 이동한 곳으로 따라가고, **삭제는 다음 카테고리**(뒤 우선, 없으면 앞)로 옮긴다.
+
+        Args:
+            moved: 이동/삭제할 stem 목록.
+            removed: 삭제면 True (③ 처리가 다름 — 목적지가 없으므로).
+
+        Returns:
+            포커스할 stem (목록에 없거나 대상이 비면 None → 기본 동작).
+        """
+        _moved = set(moved)
+        _src = None                                    # 소스 카테고리 = 첫(최상위) 대상의 상태
+        for _i in range(self._list.count()):
+            if self._list.item(_i).data(_STEM_ROLE) in _moved:
+                _src = self._list.item(_i).data(_STATE_ROLE)
+                break
+        if _src is None:
+            return None
+        _seq = [self._list.item(_i).data(_STEM_ROLE)   # 소스 카테고리 stem 들 (목록 순서 = 순번)
+                for _i in range(self._list.count())
+                if self._list.item(_i).data(_STATE_ROLE) == _src]
+        _sel = [_i for _i, _s in enumerate(_seq) if _s in _moved]
+        if not _sel:
+            return None
+        _lo, _hi = min(_sel), max(_sel)
+        if _lo - 1 >= 0:                               # ① 가장 작은 순번 한 칸 앞
+            return _seq[_lo - 1]
+        if _hi + 1 < len(_seq):                        # ② 가장 큰 순번 +1
+            return _seq[_hi + 1]
+        if not removed:                                # ③(전이) 소스 카테고리가 비게 됨 → 따라가기
+            return moved[0]
+        return self._next_category_stem(_src, _moved)  # ③(삭제) 다음 카테고리로
+
+    def _next_category_stem(self, src: str, moved: set) -> str | None:
+        """소스 카테고리가 삭제로 통째로 비게 될 때, 남는 항목 중 **소스 뒤(다음 카테고리) 우선**,
+        없으면 앞(이전 카테고리)을 고른다 (목록이 통째로 비면 None)."""
+        _idx = [_i for _i in range(self._list.count())
+                if self._list.item(_i).data(_STATE_ROLE) == src]
+        if not _idx:
+            return None
+        for _i in range(max(_idx) + 1, self._list.count()):      # 뒤(다음 카테고리) 우선
+            _s = self._list.item(_i).data(_STEM_ROLE)
+            if _s not in moved:
+                return _s
+        for _i in range(min(_idx) - 1, -1, -1):                  # 없으면 앞(이전 카테고리)
+            _s = self._list.item(_i).data(_STEM_ROLE)
+            if _s not in moved:
+                return _s
+        return None
 
     # ── 조회 ──────────────────────────────────────────────────────────────────
     def current_stem(self) -> str:
@@ -122,22 +197,34 @@ class Stem_list(QWidget):
         """목록(QListWidget)이 현재 키보드 포커스를 쥐고 있으면 True (Tab 토글 판정용)."""
         return self._list.hasFocus()
 
+    def set_editable(self, editable: bool) -> None:
+        """편집 잠금 토글 — 목록은 열어두고(선택·팝아웃 보기 유지) 전이/삭제 메뉴만 막는다."""
+        self._editable = editable
+
     # ── 채우기/증분 갱신 ───────────────────────────────────────────────────────
     def load(self, meta: Dataset_Meta, keep: str = "") -> None:
         """두 버킷의 stem 을 상태 뱃지와 함께 채운다 (``keep`` 선택 유지 시도).
+
+        카테고리 순서(``STATES``)는 유지하되 **각 카테고리 안은 stem 이름 오름차순**으로 정렬한다
+        (전이로 순서가 뒤섞이지 않게). 전이 직후엔 미리 잡아둔 ``_focus_after`` 가 ``keep`` 을 덮어써
+        포커스가 이동 대상을 따라가지 않게 한다(일회성).
 
         Args:
             meta: 표시할 ``Dataset_Meta``.
             keep: 갱신 후 선택을 유지할 stem (없거나 사라졌으면 첫 항목).
         """
+        if self._focus_after is not None:              # 전이 후 지정 포커스가 우선 (일회성)
+            keep = self._focus_after
+            self._focus_after = None
         self._list.blockSignals(True)
         self._list.clear()
         _target: QListWidgetItem | None = None
-        for _state, _stem, _frame in meta.Iter_all():
-            _it = self._make_item(_stem, _state)
-            self._list.addItem(_it)
-            if _stem == keep:
-                _target = _it
+        for _state in meta.STATES:                     # 카테고리 순서 유지 + 카테고리 안 오름차순
+            for _stem in sorted(meta.Bucket(_state)):
+                _it = self._make_item(_stem, _state)
+                self._list.addItem(_it)
+                if _stem == keep:
+                    _target = _it
         self._renumber()
         if _target is None and self._list.count():
             _target = self._list.item(0)

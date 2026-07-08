@@ -149,6 +149,18 @@ class Pipeline:
         """등록된 tasker 목록 (``{name: sample config}``) — ``{root}/sample/taskers.yaml``."""
         return Load_taskers(self._sample_root)
 
+    def List_taskers(self) -> list[str]:
+        """GUI 목록용 tasker 이름 — 등록 레시피(taskers.yaml) ∪ 실제 빌드 폴더(``{root}/sample/*``).
+
+        레시피와 산출물 폴더가 어긋나도(한쪽만 존재) 둘 다 보이게 합쳐 돌려준다 — 레시피 없이
+        폴더만 남은 orphan 도 목록에 떠 ``Delete_tasker`` 로 폴더째 지울 수 있다.
+        """
+        _names = set(self.Taskers())
+        if self._sample_root.exists():
+            _names |= {_p.name for _p in self._sample_root.iterdir()
+                       if _p.is_dir() and not _p.name.startswith(".")}
+        return sorted(_names)
+
     def Load_sample(self, name: str) -> Sample_Set:
         """이름 붙은 tasker 의 ``Sample_Set`` 을 복원한다 (``{root}/sample/{name}``)."""
         return Sample_Set.Restore(self._sample_root / name)
@@ -186,6 +198,29 @@ class Pipeline:
         _taskers[name] = _cfg
         Save_taskers(self._sample_root, _taskers)
         return sum(len(_sset.Bucket(_s)) for _s in _sset.CATEGORIES)
+
+    def Export_tasker(self, name: str, dest: str | Path) -> Path:
+        """빌드된 tasker 산출물(``{root}/sample/{name}``)을 외부 경로로 복사한다.
+
+        ImageFolder 트리(+사이드카)를 그대로 ``dest/{name}`` 에 떨군다 (원본 비파괴). 데이터
+        라이프사이클(내보내기)은 binder 소유 — GUI 가 이 메서드를 직접 부른다.
+
+        Args:
+            name: 내보낼 tasker 이름.
+            dest: 대상 상위 디렉터리 — 이 아래 ``{name}`` 폴더로 복사된다.
+
+        Returns:
+            복사된 경로 (``dest/{name}``).
+
+        Raises:
+            FileNotFoundError: tasker 폴더가 없으면 (아직 빌드 안 됨).
+        """
+        _src = self._sample_root / name
+        if not _src.exists():
+            raise FileNotFoundError(f"빌드된 tasker 가 없습니다: {name!r} (먼저 Sample 실행)")
+        _out = Path(dest) / name
+        shutil.copytree(_src, _out, dirs_exist_ok=True)
+        return _out
 
     def Delete_tasker(self, name: str) -> None:
         """tasker 를 제거한다 — 폴더(``{root}/sample/{name}``)와 ``taskers.yaml`` 항목 (없으면 no-op)."""

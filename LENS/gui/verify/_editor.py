@@ -24,10 +24,10 @@ from PySide6.QtWidgets import (
 from core.data.handler import Data_Ref
 from core.data.meta import Dataset_Meta
 from core.data.schema import Attr
-from gui.verify import _overlay, _segment
+from gui.verify import _fill, _overlay, _segment
 from gui.verify._annotation import _Annotation_panel
 from gui.verify._draw import Draw_controller
-from gui.verify._helpers import _bbox_of, _corners
+from gui.verify._helpers import _bbox_of, _corners, _edge_midpoints
 from gui.verify._history import Edit_history
 from gui.widgets import Image_label, make_tree
 
@@ -53,6 +53,10 @@ class Stem_editor(QWidget):
         # 데이터 시각화 토글(키별 on/off) — stem 전환에도 유지하려 보관한다.
         self._data_vis: dict[str, bool] = {}
         self._brush_size = 8                          # 그리기/지우기 브러시 반지름(px, stem 넘어 유지)
+        self._fill_radius = 30                        # 채우기(magic-wand) 원형 ROI 반지름(px) — 굵기와 독립
+        self._tolerance = 20                          # 채우기(magic-wand) 색 허용오차 (stem 넘어 유지)
+        self._brightness = 0                          # 표시용 base 밝기 가감 (view aid, stem 넘어 유지)
+        self._editable = True                         # 편집 잠금 토글 (백그라운드 작업 중엔 보기만)
         # 모드/마우스 인터랙션(transient 상태 소유) · undo/redo 스택 — 분리된 헬퍼.
         self._draw = Draw_controller(self)
         self._history = Edit_history(self._snapshot, self._restore)
@@ -69,7 +73,7 @@ class Stem_editor(QWidget):
         * ``Ctrl+A``       : object 추가
         * ``Delete``       : 선택 object 삭제
         * ``V / R / D / E``: 조작 — 보기 / RoI / 그리기 / 지우기 (``V`` 가 그리기 취소 겸용)
-        * ``B / P / C``    : 모양 — 브러시 / 다각형 / 원 (그리기·지우기에 적용; 보기/RoI 면 그리기로 전환)
+        * ``B / P / C / F``: 모양 — 브러시 / 다각형 / 원 / 채우기 (그리기·지우기에 적용; 보기/RoI 면 그리기로 전환)
         * ``[ / ]``        : 브러시 굵기 -/+
 
         stem 내비게이션(다음/이전)·창 닫기(Esc)는 이 위젯의 책임이 아니다 — 목록·창을 가진 호출
@@ -83,14 +87,15 @@ class Stem_editor(QWidget):
         _sc("Ctrl+Z", self.undo)
         _sc("Ctrl+Y", self.redo)
         _sc("Ctrl+S", self.save)
-        _sc("Ctrl+A", self._add_object)
+        _sc("A", self._add_object)
         _sc("Delete", self._delete_object)
         for _i in range(10):
             _sc(str(_i), lambda i=_i: self._anns.select_index(i))
         for _key, _mode in (("V", "view"), ("R", "bbox"),
                             ("D", "paint"), ("E", "erase")):
             _sc(_key, lambda m=_mode: self._set_mode(m))
-        for _key, _shape in (("B", "brush"), ("P", "polygon"), ("C", "circle")):
+        for _key, _shape in (("B", "brush"), ("P", "polygon"), ("C", "circle"),
+                             ("F", "fill")):
             _sc(_key, lambda s=_shape: self._set_shape(s))
         _sc("[", lambda: self._bump_brush(-2))
         _sc("]", lambda: self._bump_brush(+2))
@@ -113,13 +118,41 @@ class Stem_editor(QWidget):
         """object 트리가 현재 키보드 포커스를 쥐고 있으면 True (Tab 토글 판정용)."""
         return self._anns is not None and self._anns.tree_has_focus()
 
+    # ── 편집 잠금 (백그라운드 작업 중 — 보기·선택·줌은 유지, 수정만 차단) ──────────
+    def set_editable(self, editable: bool) -> None:
+        """편집 잠금을 토글한다 — 잠그면 mask/bbox/object 편집·저장을 막고 보기만 남긴다.
+
+        백그라운드 작업 중 데이터가 워커에서 변형되므로 편집을 잠근다. 이미지 뷰(줌·오버레이
+        토글·object 선택)는 그대로 두어 stem 을 계속 검토할 수 있게 한다.
+        """
+        self._editable = editable
+        self._apply_editable()
+
+    def _apply_editable(self) -> None:
+        """현재 편집 가능 상태를 편집 컨트롤에 반영한다 (토글 시·stem 재구성 후)."""
+        if not self._editable:
+            self._draw.set_mode("view")                # 편집 조작(그리기/RoI) 해제
+        for _m in ("bbox", "paint", "erase"):          # 보기만 남기고 편집 조작 버튼 비활성
+            self._mode_btns[_m].setEnabled(self._editable)
+        for _b in self._shape_btns.values():
+            _b.setEnabled(self._editable)
+        self._brush.setEnabled(self._editable)
+        self._fill_roi.setEnabled(self._editable)
+        self._tol.setEnabled(self._editable)
+        if self._anns is not None:
+            self._anns.set_editable(self._editable)
+
     def _bump_brush(self, delta: int) -> None:
         self._brush.setValue(self._brush.value() + delta)
 
     def _add_object(self) -> None:
+        if not self._editable:
+            return
         self._anns.add_object()
 
     def _delete_object(self) -> None:
+        if not self._editable:
+            return
         self._anns.delete_selected()
 
     # ── 골격 ────────────────────────────────────────────────────────────────
@@ -181,16 +214,16 @@ class Stem_editor(QWidget):
         self._mode_btns: dict[str, QToolButton] = {}
         _mode_group = QButtonGroup(_left)         # 조작 버튼 상호배타 (한 번에 하나)
         _mode_group.setExclusive(True)
-        for _m, _text, _tip in (
-            ("view",  "👆 보기",  "RoI 코너 핸들을 드래그해 수정 (선택/조회)"),
-            ("bbox",  "⬚ RoI",   "점 2개를 찍어 활성 object 의 RoI(사각형)를 그린다"),
-            ("paint", "✏ 그리기", "선택한 모양으로 활성 object 의 mask 를 칠한다"),
-            ("erase", "⌫ 지우기", "선택한 모양으로 활성 object 의 mask 를 지운다"),
+        for _m, _text, _key, _tip in (
+            ("view",  "👆 보기",  "V", "RoI 코너·변 핸들을 드래그해 수정 (선택/조회)"),
+            ("bbox",  "⬚ RoI",   "R", "점 2개를 찍어 활성 object 의 RoI(사각형)를 그린다"),
+            ("paint", "✏ 그리기", "D", "선택한 모양으로 활성 object 의 mask 를 칠한다"),
+            ("erase", "⌫ 지우기", "E", "선택한 모양으로 활성 object 의 mask 를 지운다"),
         ):
             _b = QToolButton()
             _b.setText(_text)
             _b.setCheckable(True)
-            _b.setToolTip(_tip)
+            _b.setToolTip(f"{_tip}  [단축키 {_key}]")
             _b.clicked.connect(lambda _c=False, m=_m: self._set_mode(m))
             _mode_group.addButton(_b)
             self._mode_btns[_m] = _b
@@ -203,29 +236,68 @@ class Stem_editor(QWidget):
         self._shape_btns: dict[str, QToolButton] = {}
         _shape_group = QButtonGroup(_left)        # 모양 버튼 상호배타 (한 번에 하나)
         _shape_group.setExclusive(True)
-        for _s, _text, _tip in (
-            ("brush",   "🖌 브러시", "드래그로 자유롭게 칠/지운다 (반지름=굵기)"),
-            ("polygon", "⬠ 다각형", "꼭짓점을 클릭해 그리고 첫 점 근처를 클릭해 닫는다"),
-            ("circle",  "◯ 원",     "중심을 클릭한 뒤 한 번 더 클릭해 반지름을 정한다"),
+        for _s, _text, _key, _tip in (
+            ("brush",   "🖌 브러시", "B", "드래그로 자유롭게 칠/지운다 (반지름=굵기)"),
+            ("polygon", "⬠ 다각형", "P", "꼭짓점을 클릭해 그리고 첫 점 근처를 클릭해 닫는다 (우클릭=점 취소)"),
+            ("circle",  "◯ 원",     "C", "중심을 클릭한 뒤 한 번 더 클릭해 반지름을 정한다 (우클릭=중심 취소)"),
+            ("fill",    "🪣 채우기", "F", "클릭점 중심 '채우기 반경' 원 안에서 색 유사 + LoG edge 경계까지 채운다 (반경=ROI, 허용=색차)"),
         ):
             _b = QToolButton()
             _b.setText(_text)
             _b.setCheckable(True)
-            _b.setToolTip(_tip)
+            _b.setToolTip(f"{_tip}  [단축키 {_key}]")
             _b.clicked.connect(lambda _c=False, s=_s: self._set_shape(s))
             _shape_group.addButton(_b)
             self._shape_btns[_s] = _b
             _tool.addWidget(_b)
         self._shape_btns[self._draw.shape].setChecked(True)
 
+        # ── 굵기 (브러시/원 스트로크 반경) — 채우기 아닐 때만 노출 ────────────
         _tool.addSpacing(12)
-        _tool.addWidget(QLabel("굵기"))
+        self._brush_controls = QWidget()
+        _brush_lay = QHBoxLayout(self._brush_controls)
+        _brush_lay.setContentsMargins(0, 0, 0, 0)
+        _brush_lay.addWidget(QLabel("굵기"))
         self._brush = QSpinBox()
         self._brush.setRange(1, 200)
         self._brush.setValue(self._brush_size)
-        self._brush.setToolTip("브러시 반지름(px)")
+        self._brush.setToolTip("브러시/원 반지름(px)  [단축키 [ / ] 로 -/+]")
         self._brush.valueChanged.connect(lambda v: setattr(self, "_brush_size", v))
-        _tool.addWidget(self._brush)
+        _brush_lay.addWidget(self._brush)
+        _tool.addWidget(self._brush_controls)
+
+        # ── 채우기 전용 (ROI 반경 + 색 허용오차) — 채우기 활성 시에만 노출 ────
+        self._fill_controls = QWidget()
+        _fill_lay = QHBoxLayout(self._fill_controls)
+        _fill_lay.setContentsMargins(0, 0, 0, 0)
+        _fill_lay.addWidget(QLabel("채우기 반경"))
+        self._fill_roi = QSpinBox()
+        self._fill_roi.setRange(1, 500)
+        self._fill_roi.setValue(self._fill_radius)
+        self._fill_roi.setToolTip("채우기 원형 ROI 반지름(px) — 이 원 안만 채운다 (굵기와 독립)")
+        self._fill_roi.valueChanged.connect(lambda v: setattr(self, "_fill_radius", v))
+        _fill_lay.addWidget(self._fill_roi)
+        _fill_lay.addSpacing(8)
+        _fill_lay.addWidget(QLabel("허용"))
+        self._tol = QSpinBox()
+        self._tol.setRange(0, 255)
+        self._tol.setValue(self._tolerance)
+        self._tol.setToolTip("채우기 색 허용오차 (클수록 넓게 번진다)")
+        self._tol.valueChanged.connect(lambda v: setattr(self, "_tolerance", v))
+        _fill_lay.addWidget(self._tol)
+        _tool.addWidget(self._fill_controls)
+
+        # ── 밝기 (표시용 base 보정) — 편집 잠금과 무관한 view aid, 항상 활성 ────
+        _tool.addSpacing(12)
+        _tool.addWidget(QLabel("밝기"))
+        self._bright = QSpinBox()
+        self._bright.setRange(-100, 100)
+        self._bright.setValue(self._brightness)
+        self._bright.setToolTip("표시용 밝기 조정 — 어두워 안 보이는 부분을 들어올린다 "
+                                "(저장 데이터·채우기엔 영향 없음)")
+        self._bright.valueChanged.connect(self._on_brightness)
+        _tool.addWidget(self._bright)
+
         _tool.addStretch()
         _left_lay.addLayout(_tool)
 
@@ -234,6 +306,7 @@ class Stem_editor(QWidget):
         self._view.mouse_pressed.connect(self._draw.on_press)
         self._view.mouse_moved.connect(self._draw.on_move)
         self._view.mouse_released.connect(self._draw.on_release)
+        self._view.mouse_right_pressed.connect(self._draw.on_right_press)
         _left_lay.addWidget(self._view, stretch=1)
         _split.addWidget(_left)
 
@@ -253,6 +326,8 @@ class Stem_editor(QWidget):
         _split.addWidget(_panel)
         _split.setSizes([640, 360])
         self._content_lay.addWidget(_split)
+        self._apply_editable()                   # 재구성된 컨트롤에 현재 잠금 상태 반영
+        self._update_fill_ui()                   # 현재 모양에 맞춰 굵기/채우기 컨트롤 노출
 
     def _rebuild_panel(self, masks: dict | None = None) -> None:
         """object 패널만 다시 구성한다 (이미지 뷰/툴바는 유지).
@@ -280,6 +355,8 @@ class Stem_editor(QWidget):
 
     def _on_merge(self) -> None:
         """병합 선택된 object 들을 합집합 bbox + 합집합 mask 의 한 object 로 병합한다."""
+        if not self._editable:
+            return
         _sel = self._anns.checked_merge()
         if len(_sel) < 2:
             return
@@ -381,8 +458,14 @@ class Stem_editor(QWidget):
             and _it.checkState(0) == Qt.CheckState.Checked
         ]
 
+    def _on_brightness(self, value: int) -> None:
+        """표시용 밝기 값을 바꾸고 화면만 다시 그린다 (저장 데이터 불변)."""
+        self._brightness = value
+        self._refresh_image()
+
     def _refresh_image(self, *_args) -> None:
-        _base = _overlay.merge_bases(self._selected_bases())
+        _base = _overlay.adjust_brightness(
+            _overlay.merge_bases(self._selected_bases()), self._brightness)
         _layers = self._anns.layers()
         _size = None
         if _base is None:
@@ -394,27 +477,65 @@ class Stem_editor(QWidget):
         _preview = self._draw.preview_rect()
         _preview_circle = self._draw.preview_circle()
         _preview_poly = self._draw.preview_poly()
+        _preview_brush = self._draw.preview_brush()
+        # 코너·변 핸들은 bbox 를 편집하는 view 모드에서만 (그리기/RoI 중엔 방해되니 숨김).
         _handles = None
-        if _preview is None and _preview_circle is None and not _preview_poly:
+        _edge_handles = None
+        if self._draw.mode == "view":
             _obj = self._anns.selected_obj()
             if _obj is not None:
                 _bb = _bbox_of(_obj)
                 if _bb is not None:
                     _handles = _corners(_bb)
+                    _edge_handles = [(_x, _y) for _x, _y, _ in _edge_midpoints(_bb)]
 
         _img = _overlay.compose(
-            _base, _layers, size=_size, handles=_handles, preview=_preview,
-            preview_circle=_preview_circle, preview_poly=_preview_poly)
+            _base, _layers, size=_size, handles=_handles, edge_handles=_edge_handles,
+            preview=_preview, preview_circle=_preview_circle, preview_poly=_preview_poly,
+            preview_brush=_preview_brush)
         self._view.set_image(_img)
 
     # ── 편집 모드 ────────────────────────────────────────────────────────────
     def _set_mode(self, mode: str) -> None:
         """편집 조작을 바꾼다 (툴바 버튼·단축키 → 컨트롤러로 위임)."""
+        if not self._editable and mode != "view":     # 잠금 중엔 보기만 허용
+            return
         self._draw.set_mode(mode)
 
     def _set_shape(self, shape: str) -> None:
         """mask 편집 모양을 바꾼다 (툴바 버튼·단축키 → 컨트롤러로 위임)."""
+        if not self._editable:
+            return
         self._draw.set_shape(shape)
+        self._update_fill_ui()
+
+    def _update_fill_ui(self) -> None:
+        """채우기 모양이 활성일 때만 채우기 전용 컨트롤(ROI·허용)을 노출하고 굵기는 숨긴다."""
+        _is_fill = self._draw.shape == "fill"
+        self._fill_controls.setVisible(_is_fill)
+        self._brush_controls.setVisible(not _is_fill)
+
+    def _fill_at(self, x: int, y: int, erase: bool) -> bool:
+        """seed ``(x, y)`` 중심 '채우기 반경' 원 안에서 색 유사 + LoG edge 경계까지 채워 활성 mask 에 적용.
+
+        원형 ROI 반경은 채우기 전용 ``_fill_radius`` (브러시 굵기와 독립), 색 허용오차는 ``_tolerance``.
+        보이는 base(선택된 데이터 병합)를 기준으로 채운다 — base 가 없으면 no-op(조용한 전체 채움 금지).
+
+        Args:
+            x: seed 원본 픽셀 x.
+            y: seed 원본 픽셀 y.
+            erase: True면 지우고, False면 칠한다.
+
+        Returns:
+            채운 대상이 있었으면 True.
+        """
+        _base = _overlay.merge_bases(self._selected_bases())
+        if _base is None:
+            return False
+        _region = _fill.magic_wand(_base, (x, y), self._tolerance, self._fill_radius)
+        if _region is None:
+            return False
+        return self._anns.fill_region_active(_region, erase, self._canvas_size())
 
     def _canvas_size(self) -> tuple[int, int] | None:
         """새 mask 를 만들 때 쓸 캔버스 크기 ``(H, W)`` (base 우선, 없으면 기존 mask)."""
@@ -449,10 +570,14 @@ class Stem_editor(QWidget):
 
     def undo(self) -> None:
         """편집 실행취소 — 직전 이력 상태로 되돌린다 (단축키 Ctrl+Z)."""
+        if not self._editable:
+            return
         self._history.undo()
 
     def redo(self) -> None:
         """편집 다시실행 — 취소했던 다음 이력 상태로 되돌린다 (단축키 Ctrl+Y)."""
+        if not self._editable:
+            return
         self._history.redo()
 
     # ── 저장 ────────────────────────────────────────────────────────────────
@@ -464,6 +589,8 @@ class Stem_editor(QWidget):
         (``{root}/{state}``)에 저장한다. 상태 승격(stage/commit)은 하지 않는다 — 그건 목록의
         버튼이 ``meta.Move`` 로 따로 한다. ``saved`` 에 저장한 stem 을 실어 보낸다.
         """
+        if not self._editable:                # 잠금 중(백그라운드 작업)엔 저장 금지
+            return
         _segment.write_segment(
             self._meta.State_root(self._state), self._stem, self._work,
             self._anns.all_masks(), self._bbox_orig, self._canvas_size())

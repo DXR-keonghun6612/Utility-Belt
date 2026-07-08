@@ -243,12 +243,13 @@ class Main_page(QWidget):
     def _start_worker(self, task, on_finished, *, busy_label: str) -> bool:
         """단일 워커로 ``task`` 를 백그라운드 실행한다 — 진행바 표시 + 실행 중 meta 편집 차단.
 
-        이미 워커가 돌고 있으면 ``False`` (동시 실행 금지). 실행 중엔 ``Meta_view`` 를 통째로 비활성화해
-        데이터가 워커에서 변형되는 동안 편집이 끼어들어 상태가 꼬이는 걸 막는다.
+        이미 워커가 돌고 있으면 ``False`` (동시 실행 금지). 실행 중엔 ``Meta_view`` 를 **편집 잠금**
+        상태로 둔다 — 데이터가 워커에서 변형되는 동안 편집(값 수정·저장·전이/삭제)이 끼어드는 건 막되,
+        stem 목록 클릭·이미지 보기는 계속 되게 한다(뷰 전체를 얼리지 않음).
         """
         if self._thread is not None:
             return False
-        self._meta_view.setEnabled(False)                  # 실행 중 편집 차단
+        self._meta_view.set_editable(False)                # 실행 중 수정 차단 (보기는 유지)
         self._run_btn.setEnabled(False)
         self._set_progress(0, 0, busy_label)
         self._thread = QThread()
@@ -268,7 +269,7 @@ class Main_page(QWidget):
         self._thread = None
         self._worker = None
         self._run_btn.setEnabled(True)
-        self._meta_view.setEnabled(True)
+        self._meta_view.set_editable(True)                 # 편집 잠금 해제
         self._set_progress(0, 0, "완료" if ok else "실패")
 
     # ── run (보유 Pipeline + 현재 프로필) ───────────────────────────────────────

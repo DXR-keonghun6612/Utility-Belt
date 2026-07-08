@@ -83,6 +83,7 @@ class _Annotation_panel(QWidget):
         self._meta = meta
         self._stem = stem
         self._work = work
+        self._editable = True              # 편집 잠금 토글 (백그라운드 작업 중엔 보기만)
         self._masks = masks                # obj_id → (mask|None, dirty) 강제 주입 (없으면 segment)
         # 프레임의 인스턴스 라벨맵 1장 — 객체별 mask 는 여기서(segment==obj_id+1) 파생한다.
         self._segment = _overlay.load_segment(meta, stem)
@@ -113,17 +114,17 @@ class _Annotation_panel(QWidget):
         self._tree.currentItemChanged.connect(self._on_select)
         self._tree.itemChanged.connect(lambda *_: self.changed.emit())
 
-        _add_btn = QPushButton("＋ 추가")
-        _add_btn.clicked.connect(self.add_object)
-        _del_btn = QPushButton("－ 삭제")
-        _del_btn.clicked.connect(self.delete_selected)
-        _merge_btn = QPushButton("⛶ 병합")
-        _merge_btn.setToolTip("체크한 object 들을 하나로 병합 (합집합 bbox + mask)")
-        _merge_btn.clicked.connect(self.merge_requested)
+        self._add_btn = QPushButton("＋ 추가")
+        self._add_btn.clicked.connect(self.add_object)
+        self._del_btn = QPushButton("－ 삭제")
+        self._del_btn.clicked.connect(self.delete_selected)
+        self._merge_btn = QPushButton("⛶ 병합")
+        self._merge_btn.setToolTip("체크한 object 들을 하나로 병합 (합집합 bbox + mask)")
+        self._merge_btn.clicked.connect(self.merge_requested)
         _btn_row = QHBoxLayout()
-        _btn_row.addWidget(_add_btn)
-        _btn_row.addWidget(_del_btn)
-        _btn_row.addWidget(_merge_btn)
+        _btn_row.addWidget(self._add_btn)
+        _btn_row.addWidget(self._del_btn)
+        _btn_row.addWidget(self._merge_btn)
 
         _lay = QVBoxLayout(self)
         _lay.setContentsMargins(0, 0, 0, 0)
@@ -146,6 +147,15 @@ class _Annotation_panel(QWidget):
         """패널(트리·버튼·편집폼 등) 안 어딘가가 포커스를 쥐고 있으면 True (재구성 시 복원 판정용)."""
         _fw = QApplication.focusWidget()
         return _fw is not None and (_fw is self or self.isAncestorOf(_fw))
+
+    def set_editable(self, editable: bool) -> None:
+        """편집 잠금 — 추가/삭제/병합 버튼과 값 편집 폼을 막는다 (시각화 토글·선택은 유지)."""
+        self._editable = editable
+        self._add_btn.setEnabled(editable)
+        self._del_btn.setEnabled(editable)
+        self._merge_btn.setEnabled(editable)
+        for _n in self._nodes:               # 트리에 임베드된 값 편집 폼(class_id/obj_id/bbox)
+            _n.form.setEnabled(editable)
 
     def selected_node(self) -> _Ann_node | None:
         """현재 선택과 연결된 object 의 _Ann_node 를 반환한다."""
@@ -414,6 +424,31 @@ class _Annotation_panel(QWidget):
             return False
         _pts = np.array([[int(_x), int(_y)] for _x, _y in points], dtype=np.int32)
         cv2.fillPoly(_node.mask, [_pts], 0 if erase else 1)
+        _node.dirty = True
+        self.changed.emit()
+        return True
+
+    def fill_region_active(self, region: np.ndarray, erase: bool,
+                           size: tuple[int, int] | None) -> bool:
+        """미리 계산된 영역(uint8 mask)을 활성 object mask 에 통째로 칠하거나(1) 지운다(0).
+
+        magic-wand 채우기용 — 브러시/다각형과 달리 도형이 아니라 임의 영역(flood fill 결과)을 받는다.
+
+        Args:
+            region: ``(H, W)`` uint8 (0/1) 적용할 영역.
+            erase: True면 0 으로 지우고, False면 1 로 칠한다.
+            size: mask 가 없을 때 새로 만들 캔버스 크기 ``(H, W)``.
+
+        Returns:
+            적용했으면 True (선택 없음/캔버스 모름/크기 불일치면 False).
+        """
+        _node = self._active_mask_node(size)
+        if _node is None:
+            return False
+        _sel = region > 0
+        if _sel.shape != _node.mask.shape[:2]:
+            return False
+        _node.mask[_sel] = 0 if erase else 1
         _node.dirty = True
         self.changed.emit()
         return True

@@ -40,8 +40,6 @@ def _resolve_config_paths(config_path: Path, d: dict) -> dict:
     _conv = d.get("converter", {})
     if _conv.get("sources"):
         _conv["sources"] = [_resolve(_base, _s) for _s in _conv["sources"]]
-    if _conv.get("id_map"):
-        _conv["id_map"] = _resolve(_base, _conv["id_map"])
     if _conv.get("params"):
         _conv["params"] = {_k: _resolve_spec_path(_base, _v) for _k, _v in _conv["params"].items()}
     return d

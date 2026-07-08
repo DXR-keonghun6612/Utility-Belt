@@ -21,18 +21,14 @@
 frame `info` 의 객체 bbox)을 box 프롬프트로 줘 깨끗한 segmentation mask(학습용 실루엣)를 얻는 게
 목적이다. `class_id` 는 backend 가 정하지 않고 기존 객체 값을 **그대로 유지**한다.
 
-- **`_base.py::Base_segment`** — 기본 정책 프로세스(모델 무관, 미등록 base). `unit: frame` 으로
-  `meta`/`stem` 을 통해 frame `info` 의 객체(stem) 전체를 읽어, backend 이미지 인코딩을 **프레임당 1회**
-  (`encode`)만 돌리고 객체 box 마다 가벼운 `run` 디코드로 분할한다(비싼 인코딩 1회 = batch 이득;
-  객체 수만큼 인코딩 반복 안 함). best mask 로 (1) 인스턴스 라벨맵 `segment`(픽셀=obj_id+1) 재칠
-  (2) bbox 를 mask 기준 재계산. best mask 그대로 채택(`conf=0`; 우리가 지목한 영역이라 점수로
-  거르지 않음), `min_area` 미만만 버린다. 특화는 `_segment_box` 오버라이드로 얹는다.
-- **`with_hole.py::Segment_with_hole`** — `Base_segment` 의 `_segment_box` 를 오버라이드한
-  **등록되는 실제 프로세스**. `preserve_holes` 면 채워진 mask 안의 구멍/슬릿(사출 관통부)을 파낸다:
-  Pass-1(채운 mask + logit + low-res) → `_detect_enclosed_holes`(배경 참조 없이 코어 대표 외형
-  대비 편차로 검출, 순수 CV) → (옵션) negative-point Pass-2 재예측(`hole_refine`) → 검출 구멍을
-  AND-NOT 로 carve. 관련 파라미터(`hole_*`)는 process step config 로 노출된다. carve 가 세서
-  **물체까지 파이면** `hole_color_thr`↑ · `hole_max_area_frac`↓ 부터 — 방향별 튜닝 가이드는
-  `Segment_with_hole` 클래스 도크스트링 참조.
+- **`_base.py::Segment`** — 등록되는 유일한 분할 프로세스(모델 무관, plain box→best mask).
+  `unit: frame` 으로 `meta`/`stem` 을 통해 frame `info` 의 객체(stem) 전체를 읽어, backend 이미지
+  인코딩을 **프레임당 1회**(`encode`)만 돌리고 객체 box 마다 가벼운 `run` 디코드로 분할한다(비싼
+  인코딩 1회 = batch 이득; 객체 수만큼 인코딩 반복 안 함). best mask 로 (1) 인스턴스 라벨맵
+  `segment`(픽셀=obj_id+1) 재칠 (2) bbox 를 mask 기준 재계산. best mask 그대로 채택(`conf=0`;
+  우리가 지목한 영역이라 점수로 거르지 않음), `min_area` 미만만 버린다.
   - 출력 `segment` 는 config outputs(`{to: storage, level: frame, type: segmap}`)로 저장, `object`
     는 flow 가 frame `info` 의 객체(stem) entry 를 교체(leaf 는 보존).
+  - **영역 제거(구멍/슬릿 carve)는 여기 넣지 않는다** — SAM3 는 순수 분할만 하고, carve 는
+    downstream process(edge·fill·combine)로 flow 에서 조합한다. 예: `segment` → `detect_edge` →
+    `remove_edge_holes` → `split_objects` (`config/run/extrack_sam_hole_by_edge_flows.yaml`).

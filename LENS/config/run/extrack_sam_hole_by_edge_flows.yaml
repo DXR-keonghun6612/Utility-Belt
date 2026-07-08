@@ -1,7 +1,7 @@
 # SAM3 부품 mask 에서 "메워진 구멍·슬릿"을 edge 로 다시 뚫는 단일 per-frame flow.
 #
 # 프레임마다:
-#   1. segment_with_hole — 객체 bbox 를 SAM3 로 분할해 부품 라벨맵 segment (구멍이 메워진 solid).
+#   1. segment — 객체 bbox 를 SAM3 로 분할해 부품 라벨맵 segment (구멍이 메워진 solid).
 #   2. detect_edge         — 프레임 Canny edge.
 #   3. remove_edge_holes   — edge 로 mask 를 절단해 경계에 닿는 몸통만 남기고, edge 에 갇힌
 #                            구멍·슬릿을 제거 (표면·반사광 edge 는 가두지 못해 무시, 작은 폐쇄
@@ -18,7 +18,7 @@ flows:
     processes:
 
     # 1. SAM3 분할 → 부품 라벨맵 (구멍제거 스킵 시 fallback 으로 남는다)
-    -   object_type: segment_with_hole
+    -   object_type: segment
         text: Top-down view, solid plastic body only, ignore holes, ignore shadow,
             ignore conveyor background.
         conf: 0.0

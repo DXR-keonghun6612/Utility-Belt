@@ -5,7 +5,7 @@ flows:
     shared:
         space: hsv
     processes:
-    -   object_type: segment_with_hole
+    -   object_type: segment
         text: Top-down view, solid plastic body only, ignore holes, ignore shadow,
             ignore conveyor background.
         conf: 0.0
