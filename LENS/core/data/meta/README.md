@@ -1,11 +1,11 @@
 # meta
 
-정본(canonical) 스테이지 — raw 에서 뽑은 **정본 annotation** 을 담고 디스크와 오간다.
-데이터 구조(`Dataset_Meta`)와 그 영속·전이를 소유한다.
+정본(canonical) 스테이지 — raw 에서 뽑은 **정본 annotation** 을 담는 데이터 구조(`Dataset_Meta`)를 든다.
+그 영속·전이(디스크 I/O)는 여기가 아니라 [`../store_io.py`](../store_io.py) 자유함수가 수행한다.
 
-`data` 계층의 두 구체 스테이지 중 정본 쪽(파생은 [`../sample`](../sample), 현재 보류). 공유 컨테이너·
-노드는 [`../schema.py`](../schema.py), payload/구조 I/O 는 [`../handler`](../handler), raw 수집은
-[`../converter`](../converter) 가 각각 소유한다.
+`data` 계층의 두 구체 스테이지 중 정본 쪽(파생은 [`../sample`](../sample), 현재 보류). 공유 데이터모델은
+[`../schema.py`](../schema.py), 그 I/O 는 [`../store_io.py`](../store_io.py), payload/구조 핸들러는
+[`../handler`](../handler), raw 수집은 [`../converter`](../converter) 가 각각 소유한다.
 
 ---
 
@@ -17,7 +17,7 @@ meta/
 └── __init__.py
 ```
 
-`Dataset_Meta` 는 별도 `schema.py` 없이 `store.py` 에 산다 — 영속·전이는 `Bucket_Store` 상속이라, 여기
+`Dataset_Meta` 는 별도 `schema.py` 없이 `store.py` 에 산다 — 영속·전이는 `store_io` 자유함수라, 여기
 남는 건 `CATEGORIES` 고정 + staging 용어 편의뿐이다.
 
 ---
@@ -47,9 +47,10 @@ class Dataset_Meta(Bucket_Store):
 
 ---
 
-## 영속·전이 (Bucket_Store 인스턴스 메서드)
+## 영속·전이 (`store_io` 자유함수)
 
-`Bucket_Store` 가 forest 영속을 소유한다 — 구조 사이드카는 `Structure` 핸들러, payload 는 `handler` 위임.
+`store_io` 가 forest 영속을 수행한다(store 인자) — 구조 사이드카는 `Structure` 핸들러, payload 는 `handler`
+위임. 데이터모델 `Bucket_Store` 는 I/O 를 모른다(호출측이 `store_io.X(meta, …)` 를 직접 부른다).
 
 **구조(JSON).** stem 서브트리(`Serialize`)를 top(params) + per-stem 사이드카로 **분산** 저장한다(항목을
 사이드카로 흩어, 20k+ 프레임에서 한 stem 편집이 한 파일 즉시 쓰기가 되게).
@@ -66,33 +67,33 @@ class Dataset_Meta(Bucket_Store):
 
 ### API
 
-| 메서드 | 축 | 역할 |
+| 함수 (`store_io.`) | 축 | 역할 |
 |---|---|---|
-| `Dataset_Meta.Load(root)` | 구조(read) | top + 상태별 사이드카를 읽어 복원 (root 는 위치에서 주입) |
-| `Scatter()` | 구조(write) | 전체 흩기 — top + 전 사이드카 |
-| `Save_item(stem)` | 구조(write) | 그 항목 사이드카 하나만 (증분) |
-| `Save_top()` | 구조(write) | params(top)만 |
-| `Gather(categories=["staged"]) → path` | 구조(write) | 선택 범주를 한 파일로 뭉친 자기완결 번들 |
-| `Move(stem, to_state)` | 전이 | payload 이동(handler) + 버킷 이동 + 사이드카 재배치 |
-| `Copy(stem, to_state)` | 전이 | **비파괴** — 원본 유지 + payload 복사(handler.Copy) + 깊은 사본 사이드카 |
-| `Delete(stem)` | 전이 | payload·사이드카·버킷 제거 |
-| `Merge(other, *, override=False)` | 전이 | 다른 meta 를 상태 보존해 병합 (payload 복사 + params 병합) |
-| `Merge_conflicts(other) → list[str]` | 조회 | 병합 전 stem 중복 목록 (GUI 질의용) |
+| `Restore(Dataset_Meta, root)` | 구조(read) | top + 상태별 사이드카를 읽어 복원 (root 는 위치에서 주입) |
+| `Scatter(m)` | 구조(write) | 전체 흩기 — top + 전 사이드카 |
+| `Save_item(m, stem)` | 구조(write) | 그 항목 사이드카 하나만 (증분) |
+| `Save_top(m)` | 구조(write) | params(top)만 |
+| `Gather(m, categories=["staged"]) → path` | 구조(write) | 선택 범주를 한 파일로 뭉친 자기완결 번들 |
+| `Move(m, stem, to_state)` | 전이 | payload 이동(handler) + 버킷 이동 + 사이드카 재배치 |
+| `Copy(m, stem, to_state)` | 전이 | **비파괴** — 원본 유지 + payload 복사(handler.Copy) + 깊은 사본 사이드카 |
+| `Delete(m, stem)` | 전이 | payload·사이드카·버킷 제거 |
+| `Merge(m, other, *, override=False)` | 전이 | 다른 meta 를 상태 보존해 병합 (payload 복사 + params 병합) |
+| `Merge_conflicts(m, other) → list[str]` | 조회 | 병합 전 stem 중복 목록 (GUI 질의용) |
 
 ---
 
 ## 라이프사이클 — raw → 학습 annotation
 
 ```text
-① Convert   raw 탐색 → modified 에 stem 등록      (../converter + Scatter)
+① Convert   raw 탐색 → modified 에 stem 등록      (../converter + store_io.Scatter)
 ② Run       flow 로 mask/segment/bbox 채움         (../process, modified)
-③ Verify    GUI 검수·수정 → 맞으면 staged 로       meta.Move(stem, "staged")
-④ Gather    staged 를 뭉쳐 annotation.json 생성    meta.Gather()
-⑤ 학습      annotation 로드 → 트리 순회 → handler  Load + handler.Load
+③ Verify    GUI 검수·수정 → 맞으면 staged 로       store_io.Move(meta, stem, "staged")
+④ Gather    staged 를 뭉쳐 annotation.json 생성    store_io.Gather(meta)
+⑤ 학습      annotation 로드 → 트리 순회 → handler  Restore + handler.Load
 ```
 
 ⑤ 소비 — annotation 을 로드해 각 leaf `Data_Ref` 를 `handler.Load` 로 실제 payload 로 푼다. class 이름 →
 정수 id 는 sample 의 id_map 이 맡는다(보류).
 
 조율(Convert/Run/Verify)은 바인더(`Pipeline`, [`../../_base.py`](../../_base.py))가 하고, meta 는
-데이터·영속만 소유한다.
+데이터 구조만 든다(영속·전이 I/O 는 [`../store_io.py`](../store_io.py)).

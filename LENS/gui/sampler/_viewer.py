@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core.data import handler
+from core.data import handler, store_io
 from core.data.handler import Data_Ref
 from core.data.schema import Attr, Set_attr
 from gui.verify._overlay import load_base_images, merge_bases
@@ -210,7 +210,7 @@ class Sample_viewer(Pop_dialog):
             QMessageBox.warning(self, "재배정", f"source obj '{_obj}' 를 찾지 못했습니다.")
             return False
         Set_attr(_target, "class_id", new_class)      # 정본 write-back (인라인 attr)
-        pipe.meta.Save_item(_src)
+        store_io.Save_item(pipe.meta, _src)
         return True
 
     def _move_sample(self, split: str, old_class: str, sid: str,
@@ -233,9 +233,9 @@ class Sample_viewer(Pop_dialog):
         Set_attr(ref, "class_id", new_class)
         _new_stem = self._sset.Bucket(split).setdefault(new_class, Data_Ref(type="stem", info={}))
         _new_stem.info[sid] = ref
-        self._sset.Save_item(new_class)                # 두 class 사이드카만 (증분)
+        store_io.Save_item(self._sset, new_class)      # 두 class 사이드카만 (증분)
         if _old_stem.info:
-            self._sset.Save_item(old_class)
+            store_io.Save_item(self._sset, old_class)
         else:                                          # 빈 class 는 사이드카·버킷에서 제거
-            self._sset.Drop(split, old_class)
+            store_io.Drop(self._sset, split, old_class)
             self._sset.Bucket(split).pop(old_class, None)

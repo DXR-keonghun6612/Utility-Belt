@@ -4,9 +4,9 @@ dataset_meta 중심 GUI. dataset_root 를 열어 `Dataset_Meta` 를 로드하고
 flow 실행(run)으로 가공한 뒤 학습 annotation 을 내보낸다. core 의 `Pipeline`(= core 자체)을
 구동한다 — 설계는 [`../core/README.md`](../core/README.md).
 
-메인은 영속 `Pipeline` 을 하나 보유한다(`meta = pipeline.meta` 단일 소스). Convert·Run·
-staging(`Move`)·편집 저장(`Save`)·meta 가져오기(`Merge`)·annotation 내보내기(`Export`)가 모두 이
-하나의 Pipeline 을 거친다.
+메인은 영속 `Pipeline` 을 하나 보유한다(`meta = pipeline.meta` 단일 소스). Convert·Run 은 Pipeline 을
+거치고, staging(`Move`)·편집 저장(`Save_item`)·meta 가져오기(`Merge`)·annotation 내보내기(`Gather`)는
+그 `meta` 를 인자로 `store_io` 자유함수에 직접 넘긴다(데이터모델은 I/O 를 모른다).
 
 ---
 
@@ -49,10 +49,10 @@ Main_page
       ▼
 dataset_root 열기 → Dataset_Meta 로드
   → [flow 빌더 + ▶ run]  flow 실행 → modified 채움     Pipeline.Run(flows)
-  → [Meta 뷰어]          검수·편집 → 작업/검수/보류 전이   meta.Move / meta.Delete (백그라운드)
-  → [meta 가져오기]      다른 결과 병합(상태 보존)        meta.Merge
+  → [Meta 뷰어]          검수·편집 → 작업/검수/보류 전이   store_io.Move / store_io.Delete (백그라운드)
+  → [meta 가져오기]      다른 결과 병합(상태 보존)        store_io.Merge
   → [Sampler 창]         staged → 파생 tasker + crop      Pipeline.Sample(name, cfg)  (gui/sampler)
-  → [annotation 생성]    staged → {root}/annotation.json   meta.Gather(["staged"], ANNOTATION_FILE)
+  → [annotation 생성]    staged → {root}/annotation.json   store_io.Gather(meta, ["staged"], ANNOTATION_FILE)
 ```
 
 flow 한 장(카드) = `flows:` 리스트의 1 엔트리 — `object_type`·`unit`·`shared`·`processes`/

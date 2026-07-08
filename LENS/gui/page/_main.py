@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from core import Pipeline, Pipeline_config
+from core.data import store_io
 from core.data.meta import ANNOTATION_FILE, Dataset_Meta
 from gui._worker import Pipeline_worker
 from gui.meta_view import Meta_view
@@ -309,7 +310,7 @@ class Main_page(QWidget):
         def _task(_progress) -> None:
             _n = len(stems)
             for _i, _stem in enumerate(stems, 1):
-                _pipe.meta.Move(_stem, to_state)           # payload+사이드카+버킷 (store 소유)
+                store_io.Move(_pipe.meta, _stem, to_state)  # payload+사이드카+버킷 (store_io 소유)
                 _progress("이동 중", _i, _n)
 
         self._txn = (to_state, stems)
@@ -332,7 +333,7 @@ class Main_page(QWidget):
         def _task(_progress) -> None:
             _n = len(stems)
             for _i, _stem in enumerate(stems, 1):
-                _pipe.meta.Delete(_stem)                   # payload+사이드카+버킷 제거 (store 소유)
+                store_io.Delete(_pipe.meta, _stem)          # payload+사이드카+버킷 제거 (store_io 소유)
                 _progress("삭제 중", _i, _n)
 
         self._rm = stems
@@ -358,13 +359,13 @@ class Main_page(QWidget):
     def _export_annotation(self) -> None:
         """staged 프레임을 뭉친 annotation 을 dataset root 에 생성한다 (store ``Gather`` 직접 호출).
 
-        데이터 라이프사이클은 store(``Dataset_Meta``)가 소유하므로 여긴 ``meta.Gather`` 를 직접 부른다 —
+        데이터 라이프사이클은 ``store_io`` 자유함수가 소유하므로 여긴 ``store_io.Gather`` 를 직접 부른다 —
         대상 범주(staged)와 파일명(``ANNOTATION_FILE``)만 정하고 경로 안내.
         """
         if self._pipeline is None:
             QMessageBox.information(self, "annotation 생성", "먼저 dataset_root 를 여세요.")
             return
-        _path = self._pipeline.meta.Gather(["staged"], ANNOTATION_FILE)
+        _path = store_io.Gather(self._pipeline.meta, ["staged"], ANNOTATION_FILE)
         QMessageBox.information(self, "annotation 생성", f"생성했습니다:\n{_path}")
 
     # ── 외부 meta 가져오기 (다른 dataset_meta 를 상태 보존해 들임) ─────────────────
@@ -372,14 +373,14 @@ class Main_page(QWidget):
     def _on_import_meta(self) -> None:
         """dataset_meta 폴더를 골라 상태 보존해 들인다.
 
-        ``Dataset_Meta.Restore`` 는 디렉터리(dataset root)를 받아 사이드카(``.meta/*.json``)를 복원한다 —
+        ``store_io.Restore`` 는 디렉터리(dataset root)를 받아 사이드카(``.meta/*.json``)를 복원한다 —
         폴더를 고른다. host 없음 -> 그 폴더를 그대로 연다(Pipeline 이 로드). host 있음 -> 충돌 질의 후
         현재 root 로 복사 병합(``Merge``). 어느 쪽이든 meta 는 in-place 갱신(뷰 stale 방지).
         """
         _dir = QFileDialog.getExistingDirectory(self, "가져올 dataset_meta 폴더 선택")
         if not _dir:
             return
-        _other = Dataset_Meta.Restore(_dir)                  # 폴더 복원 — root = 그 폴더 (Restore 계약)
+        _other = store_io.Restore(Dataset_Meta, _dir)        # 폴더 복원 — root = 그 폴더 (Restore 계약)
         _n = sum(len(_other.Bucket(_s)) for _s in _other.STATES)
         if _n == 0:
             QMessageBox.information(self, "meta 가져오기", "그 폴더에서 가져올 프레임을 찾지 못했습니다.")
@@ -388,14 +389,14 @@ class Main_page(QWidget):
             self._set_root(_other.root)                   # Pipeline 이 그 폴더의 meta 를 로드
             self._meta_view.refresh()
             return
-        _conf = self._pipeline.meta.Merge_conflicts(_other)
+        _conf = store_io.Merge_conflicts(self._pipeline.meta, _other)
         _overwrite = False
         if _conf:
             _ans = self._ask_import_conflict(_conf)
             if _ans is None:                              # 취소
                 return
             _overwrite = _ans
-        self._pipeline.meta.Merge(_other, override=_overwrite)
+        store_io.Merge(self._pipeline.meta, _other, override=_overwrite)
         self._meta_view.refresh()
         QMessageBox.information(
             self, "meta 가져오기", f"{_n}개 프레임을 상태 보존해 가져왔습니다.")

@@ -1,13 +1,13 @@
 """core 기본 구조 — Pipeline(계산 오케스트레이션 binder) + 모델 풀.
 
 ``Pipeline`` 은 정본(``Dataset_Meta``)을 중심으로 **계산 단계**(Convert → Run)를 조율하고 결과를
-``meta.Scatter()`` 로 영속한다. flow 시퀀스를 조립·실행하며, 무거운 prediction 모델을 **클래스 dict
-풀**(``Pipeline._RESOURCE_POOL``)로 공유한다(프로세스 수명, 인스턴스 간 공유 — GUI 가 실행마다 새
+``store_io.Scatter(meta)`` 로 영속한다. flow 시퀀스를 조립·실행하며, 무거운 prediction 모델을 **클래스
+dict 풀**(``Pipeline._RESOURCE_POOL``)로 공유한다(프로세스 수명, 인스턴스 간 공유 — GUI 가 실행마다 새
 바인더를 만들어도 재사용).
 
 staging 전이·병합·내보내기(Move/Delete/Merge/Gather) 같은 **데이터 라이프사이클**은 바인더가 아니라
-``data`` 계층(``store``)이 소유한다 — 호출 측(GUI 등)이 ``store.*(meta, …)`` 를 직접 부른다. Verify
-(품질 검수)는 Sampling 이후로 미룬다.
+``data`` 계층 ``store_io`` **자유함수**가 소유한다 — 호출 측(GUI 등)이 ``store_io.Move(meta, …)`` 등을
+직접 부른다. Verify(품질 검수)는 Sampling 이후로 미룬다.
 
 진입점·경로 resolve 는 [`__init__.py`](__init__.py).
 """
@@ -21,6 +21,7 @@ from typing import Any, Callable, ClassVar
 
 from python_toolbox.project.config import Base_Config
 
+from .data import store_io
 from .data.meta import Dataset_Meta
 from .data.sample import SAMPLE_DIR, Sample_Set
 from .converter import Convert_stage
@@ -76,7 +77,7 @@ class Pipeline:
         self._flow_cfgs      = cfg.flows
         self._sample_cfg     = cfg.sample
         self._verify_cfg     = cfg.verify
-        self.meta            = Dataset_Meta.Restore(self.root)   # 정본 (Dataset_Meta)
+        self.meta            = store_io.Restore(Dataset_Meta, self.root)   # 정본 (Dataset_Meta)
         self._sample_root    = self.root / SAMPLE_DIR            # 파생 root ({root}/sample/{tasker})
 
     # ── config 섹션 갱신 (단일 Pipeline 에 섹션별 주입) ─────────────────────────
@@ -127,7 +128,7 @@ class Pipeline:
         )
         _stage(self.meta)
         # class→id 매핑(id_map)은 파생(sample) 소유 — 정본은 class 이름만 든다.
-        self.meta.Scatter()
+        store_io.Scatter(self.meta)
         return len(self.meta.Bucket("modified"))
 
     def Run(self, progress: Callable[[str, int, int], None] | None = None,
@@ -142,7 +143,7 @@ class Pipeline:
         _flows = [Build_flow(self._resolve_models(_cfg)) for _cfg in _cfgs]
         for _flow in _flows:
             _flow(self.meta, progress=progress)
-        self.meta.Scatter()
+        store_io.Scatter(self.meta)
 
     # ── 파생(Sample) — 이름 붙은 tasker ({root}/sample/{name} + taskers.yaml) ────
     def Taskers(self) -> dict[str, dict]:
@@ -163,7 +164,7 @@ class Pipeline:
 
     def Load_sample(self, name: str) -> Sample_Set:
         """이름 붙은 tasker 의 ``Sample_Set`` 을 복원한다 (``{root}/sample/{name}``)."""
-        return Sample_Set.Restore(self._sample_root / name)
+        return store_io.Restore(Sample_Set, self._sample_root / name)
 
     def Sample(self, name: str, cfg: dict | None = None) -> int:
         """staged 정본을 소비해 이름 붙은 tasker 를 (재)빌드·영속하고 ``taskers.yaml`` 에 등록한다.
@@ -193,7 +194,7 @@ class Pipeline:
             _kw["ratios"] = _cfg["ratios"]
         _stage = Sample_stage(**_kw)
         _stage(self.meta)
-        _sset.Scatter()
+        store_io.Scatter(_sset)
         _taskers = self.Taskers()                  # 레시피 등록 (name ↔ 폴더 매칭)
         _taskers[name] = _cfg
         Save_taskers(self._sample_root, _taskers)

@@ -21,8 +21,8 @@ class Sample_Set(Bucket_Store):
 - 한 split 버킷(`buckets[split]`)의 **항목 key 가 무엇인지는 task(sampler)가 정한다** —
   classification 은 class(그 안에 sample 중첩), detection 은 image(그 안에 object 중첩). `Sample_Set`
   은 그 의미를 모른다 — split 안의 트리 모양은 `Data_Ref` stem 중첩이 임의 depth 로 흡수한다.
-- 영속(`Scatter`/`Save_item`/`Load`)·전이·번들(`Gather`)은 전부 `Bucket_Store` 상속 — 정본과 **완전히
-  같은 per-item 사이드카 메커니즘**이라 sample 전용 영속 코드가 없다. 사이드카 단위 = 범주(split) 직속
+- 영속(`Scatter`/`Save_item`/`Restore`)·전이·번들(`Gather`)은 전부 [`../store_io.py`](../store_io.py) 자유
+  함수 — 정본과 **완전히 같은 per-item 사이드카 메커니즘**이라 sample 전용 영속 코드가 없다. 사이드카 단위 = 범주(split) 직속
   항목(classification=class 통째 / detection=image 통째).
 
 ---

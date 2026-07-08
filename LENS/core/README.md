@@ -85,18 +85,20 @@ core/                  ← 데이터(data) + 계산(process/converter/sampler) +
     필드가 없어 frame/object 가 균일한 stem.
 - **`Bucket_Store`** — 트리 노드가 **아니라 forest 파사드**(`Data_Ref` 상속 안 함). `params`(범주 무관 root
   leaf) + `buckets: {category → {key: stem Data_Ref}}`(n개 독립 persistence root) + **`CATEGORIES`**
-  ClassVar. 트리 재귀(순회·전이·병합)는 `type` 으로 leaf/stem 을 갈라 **stateless 헬퍼**로 소유. 서브클래스는
-  CATEGORIES 만 고정: `Dataset_Meta`=`META_STATES`, `Sample_Set`=split(보류).
+  ClassVar. 순회 헬퍼(`_iter_leaves`)만 데이터모델이 소유하고, **전이·병합·영속 I/O 는 [`store_io`](data/store_io.py)
+  자유함수**가 store 를 받아 수행한다(데이터모델은 I/O 를 모름). 서브클래스는 CATEGORIES 만 고정:
+  `Dataset_Meta`=`META_STATES`, `Sample_Set`=split(보류).
 
-**흩기 / 모으기 — 두 구조 연산.** leaf payload 는 `Data_Ref` → `handler` 위임, 차이는 **트리 레이아웃**뿐.
+**흩기 / 모으기 — 두 구조 연산** (`store_io` 자유함수). leaf payload 는 `Data_Ref` → `handler` 위임,
+차이는 **트리 레이아웃**뿐.
 
 | 연산 | 하는 일 | 언제 |
 |---|---|---|
-| `Scatter()` / `Save_item(key)` | **흩기** — 전체(top+전 사이드카) / 항목 하나(증분) 구조 사이드카로 | 수정 시 |
-| `Gather(categories)` | **모으기** — 흩어진 항목을 모아 자기완결 번들 한 파일로 | hand-off |
+| `store_io.Scatter(s)` / `Save_item(s, key)` | **흩기** — 전체(top+전 사이드카) / 항목 하나(증분) 구조 사이드카로 | 수정 시 |
+| `store_io.Gather(s, categories)` | **모으기** — 흩어진 항목을 모아 자기완결 번들 한 파일로 | hand-off |
 
-증분 저장이 `Save_item(stem)` 로 first-class 라 "하나 바뀌었다고 전체 내보내기" 없이 **실시간 편집**.
-flow resolve 는 `Bucket_Store.Iter_refs` + `handler` **직접**(payload Load/Save).
+증분 저장이 `store_io.Save_item(s, stem)` 로 first-class 라 "하나 바뀌었다고 전체 내보내기" 없이 **실시간
+편집**. flow resolve 는 `Bucket_Store.Iter_refs` + `handler` **직접**(payload Load/Save).
 
 ### `handler/` — Data_Ref 실체화
 
@@ -141,8 +143,8 @@ COCO detection 은 `{split}/{image}/{object}` + split 별 manifest. 이 depth �
 Convert → Run → [staging 전이는 meta] → (Sample) → Verify
 ```
 
-- **`Convert`** — raw → modified 에 stem 컨테이너 등록(`converter` + `meta.Scatter`).
-- **`Run`** — flow 시퀀스를 meta 위에서 구동(process 체인, frame 축) + `meta.Scatter`.
+- **`Convert`** — raw → modified 에 stem 컨테이너 등록(`converter` + `store_io.Scatter`).
+- **`Run`** — flow 시퀀스를 meta 위에서 구동(process 체인, frame 축) + `store_io.Scatter`.
 - **`Sample`** — 이름 붙은 tasker 재생성(`Sample(name, cfg)` → `Sample_stage(staged meta)` → `Sample_Set.Scatter`
   → `taskers.yaml` 등록). `{root}/sample/{name}`, crop 체인 있으면 실체화.
 - **`Verify`** — 품질 검수(선택적). 미구현.
@@ -150,7 +152,8 @@ Convert → Run → [staging 전이는 meta] → (Sample) → Verify
   공유 — GUI 가 실행마다 새 바인더를 만들어도 재사용).
 
 **데이터 라이프사이클**(staging 전이·병합·내보내기 `Move`/`Delete`/`Merge`/`Gather`)은 바인더가 아니라
-`Dataset_Meta`(=`Bucket_Store`) 인스턴스 메서드가 소유한다 — 호출 측(GUI 등)이 `meta.*(…)` 를 직접 부른다.
+`data` 계층 **`store_io` 자유함수**가 수행한다(데이터모델 `Bucket_Store` 는 I/O 를 모른다) — 호출 측
+(GUI 등)이 `store_io.Move(meta, …)` 등을 직접 부른다.
 
 ---
 

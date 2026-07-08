@@ -42,10 +42,20 @@
       과 짝 맞춤). `Frame`→`Stem_Block` 은 R1b.
 
 ### R2 — schema.py 축소 (R1 이후)
-- [ ] `Bucket_Store` 의 **영속**(`Restore`/`Scatter`/`Save_item`/`Gather`) + **전이**(`Move`/`Copy`/
-      `Delete`/`Merge` + `_transit`/`_merge_ref`)를 별 모듈로 분리. schema.py 는 데이터모델(forest 파사드
-      + 범주 편의 + `Attr`/`Set_attr`)만. R1 로 sink 압력이 사라졌는지 보고 최종 경계 결정.
-- [ ] caller 배선 확인(`gui/*`·`_base.py`) — store 고급 메서드(`Move`/`Merge`/`Gather` …) 직접 호출부.
+- [x] **완료** — 영속(`Restore`/`Scatter`/`Save_item`/`Save_top`/`Drop`/`Gather`) + 전이(`Move`/`Copy`/
+      `Delete`/`Merge`/`Merge_conflicts` + `_transit`/`_merge_ref`)를 신규 **`data/store_io.py` 자유함수**로
+      분리(방식: 위임 없이 `store_io.Move(store, …)` — 데이터모델이 I/O 를 아예 모름). `schema.py` 는
+      forest 파사드(`params`/`buckets`/`CATEGORIES`) + 범주 편의 + 순회(`Iter_*`/`_iter_leaves`) + `Attr`/
+      `Set_attr`만. `_base.py`(`Restore`/`Scatter`) 배선 + 왕복 스모크 검증. core 문서 정합.
+- [x] **gui/* store_io 배선** **완료** — `page/_main`(`Move`/`Delete`/`Gather`/`Restore`/`Merge_conflicts`/
+      `Merge`)·`meta_view/_view`(`Save_item`/`Save_top`)·`sampler/_viewer`(`Save_item`/`Drop`)의 인스턴스
+      호출을 `store_io.X(store, …)` 자유함수로 전환(+`from core.data import store_io`). gui/README 문구 정합.
+      process/converter/sampler 리팩은 `Pipeline` 파사드 아래 갇혀 gui 코드 변경 불필요(직접 import 3곳
+      `PROCESS_REGISTRY`/`log_edges`/`MODEL_BUILDERS` 전부 유지). **store_io.py: `Move`/`Copy` → 공유
+      `_transfer(keep=…)` 병합.**
+- [ ] **`test_dataset.py` 정리** — store_io 배선(`Scatter`/`Restore`/`Move`/`Delete`/`Merge*` 인스턴스 호출)
+      **에 더해** 더 깊은 낡음까지: 생성자 `Dataset_Meta(modified={…}, staged={…})` 가 이제 무효(kwarg 아님
+      → `buckets={…}`), 헤더 NOTE(구 sample eager-import stub)도 폐물. [[정리/검증]] 항목과 병합.
 
 ### Verify (R1 이후 — 거의 공짜)
 - [ ] `Pipeline.Verify` 를 `staged` 위 Stage 로 구현(check process 체인 + 결과 params route).

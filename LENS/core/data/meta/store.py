@@ -1,8 +1,9 @@
 """정본 스테이지 — thin ``Dataset_Meta``(``Bucket_Store`` 서브클래스, 범주 = staging 상태).
 
-영속(Scatter/Gather/Load)·전이(Move/Delete/Merge)는 전부 ``Bucket_Store`` 상속이라, 여기는
-``CATEGORIES`` + top 파일명 + annotation 내보내기 편의만 둔다. 공유 컨테이너·영속·전이 구현은
-[`../schema.py`](../schema.py), leaf 서술자 ``Data_Ref`` 는 [`../handler`](../handler).
+영속(Scatter/Gather/Restore)·전이(Move/Delete/Merge)는 ``Bucket_Store`` 가 아니라 [`../store_io.py`](
+../store_io.py) **자유함수**(store 인자)가 수행하므로, 여기는 ``CATEGORIES`` + top 파일명 + staging 용어
+편의만 둔다. 공유 데이터모델은 [`../schema.py`](../schema.py), leaf 서술자 ``Data_Ref`` 는
+[`../handler`](../handler).
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ class Dataset_Meta(Bucket_Store):
 
     ``modified`` = flow 출력·가져오기, ``staged`` = 검수 완료(annotation 대상). 한 stem 은 한 범주에만
     (멤버십이 곧 상태). class→id 매핑(id_map)은 meta 소유가 아니라 파생(sample)이 받아 쓴다 — meta 는
-    class **이름**만 ``frame.info["class_id"]`` 로 든다. 범주 조회·영속·전이는 ``Bucket_Store`` 상속.
+    class **이름**만 ``frame.info["class_id"]`` 로 든다. 범주 조회는 ``Bucket_Store`` 상속, 영속·전이는 ``store_io``.
     여기 더하는 건 staging 용어 편의(``STATES``/``State_of``/``modified``/``staged``/``Get``/``Has``)뿐 —
     범주(category) = 상태(state) 라 ``Bucket_Store`` 의 범주 API 를 상태 이름으로 감싼다.
     """
