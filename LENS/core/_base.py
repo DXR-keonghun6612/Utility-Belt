@@ -14,6 +14,7 @@ staging 전이·병합·내보내기(Move/Delete/Merge/Gather) 같은 **데이�
 
 from __future__ import annotations
 
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, ClassVar
@@ -21,8 +22,9 @@ from typing import Any, Callable, ClassVar
 from python_toolbox.project.config import Base_Config
 
 from .data.meta import Dataset_Meta
-from .data.sample import SAMPLE_DIR, SAMPLERS, Base_Sampler, Sample_Set
-from .data.converter import Base_Converter, Glob_Discover
+from .data.sample import SAMPLE_DIR, Sample_Set
+from .converter import Convert_stage
+from .sampler import Load_taskers, Sample_stage, Save_taskers
 from .process import Build_flow
 from .process.model._sam3 import Sam3_runner
 
@@ -43,38 +45,6 @@ def _is_model_spec(value: Any) -> bool:
 def _model_key(spec: dict) -> tuple:
     """공유 key — canonical 스펙 ``(type, 정렬 params)``. 같은 스펙이면 한 번만 빌드."""
     return (spec["type"], tuple(sorted((_k, repr(_v)) for _k, _v in spec.items() if _k != "type")))
-
-
-# ── converter factory ─────────────────────────────────────────────────────────
-
-_CONVERTERS: dict[str, type[Base_Converter]] = {
-    "glob": Glob_Discover,
-}
-
-
-def _build_converter(cfg: dict) -> Base_Converter:
-    _name   = cfg.get("object_type", "glob")
-    _kwargs = {_k: _v for _k, _v in cfg.items() if _k != "object_type"}
-    _cls    = _CONVERTERS.get(_name)
-    if _cls is None:
-        raise ValueError(f"알 수 없는 converter type: {_name!r}")
-    return _cls(**_kwargs)
-
-
-# ── sampler factory ─────────────────────────────────────────────────────────
-
-def _build_sampler(cfg: dict) -> Base_Sampler:
-    """sample config → task sampler 인스턴스 (converter factory 와 대칭).
-
-    ``object_type`` 이 task(classification/detection)를 고르고, 나머지 키(``ratios``/``salt``/``unit``)는
-    sampler dataclass 필드로 넘어간다.
-    """
-    _name   = cfg.get("object_type", "classification")
-    _kwargs = {_k: _v for _k, _v in cfg.items() if _k != "object_type"}
-    _cls    = SAMPLERS.get(_name)
-    if _cls is None:
-        raise ValueError(f"알 수 없는 sampler type: {_name!r}")
-    return _cls(**_kwargs)
 
 
 # ── config ────────────────────────────────────────────────────────────────────
@@ -106,8 +76,8 @@ class Pipeline:
         self._flow_cfgs      = cfg.flows
         self._sample_cfg     = cfg.sample
         self._verify_cfg     = cfg.verify
-        self.meta            = Dataset_Meta.Load(self.root)   # 정본 (Dataset_Meta)
-        self.sample          = Sample_Set.Load(self.root / SAMPLE_DIR)   # 파생 (Sample_Set)
+        self.meta            = Dataset_Meta.Restore(self.root)   # 정본 (Dataset_Meta)
+        self._sample_root    = self.root / SAMPLE_DIR            # 파생 root ({root}/sample/{tasker})
 
     # ── config 섹션 갱신 (단일 Pipeline 에 섹션별 주입) ─────────────────────────
     def set_converter(self, cfg: dict) -> None:
@@ -142,18 +112,23 @@ class Pipeline:
     def Convert(self) -> int:
         """raw 파일을 탐색해 modified 버킷에 컨테이너 ``Data_Ref`` 를 등록하고 저장한다.
 
+        ``Convert_stage``(``Raw_source`` → ``Register_sink``)를 meta 위에서 구동한다 — Run 과 같은
+        Stage 엔진(source→sink). config ``sources``/``globs``/``params`` 는 ``Raw_source`` 로 넘어간다.
+
         Returns:
-            등록된 stem 수. 0이면 sources/globs 가 어떤 파일도 매칭하지 못한 것.
+            modified 버킷의 총 frame 수. 0이면 sources/globs 가 어떤 파일도 매칭하지 못한 것.
         """
-        _converter      = _build_converter(self._converter_cfg)
-        # 새 항목은 modified 버킷({root}/modified), params 는 상태 무관하게 root 직속.
-        _nodes, _params = _converter.Convert(self.meta.Category_root("modified"), self.meta.root)
-        for _stem, _node in _nodes:
-            self.meta.Bucket("modified")[_stem] = _node
-        self.meta.params.update(_params)
-        # class→id 매핑(Load_id_map)은 파생(sample) 소유 — 정본은 class 이름만 든다(TODO: sample).
+        _cfg = self._converter_cfg
+        _stage = Convert_stage(
+            sources=_cfg.get("sources", []),
+            globs=_cfg.get("globs", {}),
+            params=_cfg.get("params", {}),
+            processes=_cfg.get("processes", []),   # raw→정본 변환 체인 (보통 빔)
+        )
+        _stage(self.meta)
+        # class→id 매핑(id_map)은 파생(sample) 소유 — 정본은 class 이름만 든다.
         self.meta.Scatter()
-        return len(_nodes)
+        return len(self.meta.Bucket("modified"))
 
     def Run(self, progress: Callable[[str, int, int], None] | None = None,
             flows: list | None = None) -> None:
@@ -169,19 +144,57 @@ class Pipeline:
             _flow(self.meta, progress=progress)
         self.meta.Scatter()
 
-    def Sample(self) -> int:
-        """staged 정본을 소비해 파생(Sample_Set)을 재생성하고 저장한다 (A+ 순수 재생성).
+    # ── 파생(Sample) — 이름 붙은 tasker ({root}/sample/{name} + taskers.yaml) ────
+    def Taskers(self) -> dict[str, dict]:
+        """등록된 tasker 목록 (``{name: sample config}``) — ``{root}/sample/taskers.yaml``."""
+        return Load_taskers(self._sample_root)
 
-        ``sample`` config 의 ``object_type`` 이 task(classification/detection)를 고른다. 매 호출이
-        staged 에서 트리를 새로 지어 ``self.sample`` 을 교체하므로, 이전 파생은 흩기로 덮인다.
+    def Load_sample(self, name: str) -> Sample_Set:
+        """이름 붙은 tasker 의 ``Sample_Set`` 을 복원한다 (``{root}/sample/{name}``)."""
+        return Sample_Set.Restore(self._sample_root / name)
+
+    def Sample(self, name: str, cfg: dict | None = None) -> int:
+        """staged 정본을 소비해 이름 붙은 tasker 를 (재)빌드·영속하고 ``taskers.yaml`` 에 등록한다.
+
+        ``Sample_stage``(``Staged_source`` → ``Sample_sink[task]``)를 meta 위에서 구동한다 — Run/Convert 와
+        같은 Stage 엔진(source=staged meta, sink=새 ``Sample_Set``). 매 호출이 그 tasker 트리를 새로 지어
+        ``{root}/sample/{name}`` 에 흩고(A+ 순수 재생성), 레시피(``cfg``)를 ``taskers.yaml`` 에 등록한다.
+
+        Args:
+            name: tasker 이름 (폴더·레지스트리 key).
+            cfg:  sample 설정(``task``/``ratios``/``unit``/``salt``). None 이면 등록된 레시피(없으면
+                  생성 시 ``sample`` 섹션).
 
         Returns:
             파생된 sample(=범주 직속 항목) 수 합계.
         """
-        _sampler = _build_sampler(self._sample_cfg)
-        self.sample = _sampler.Build(self.meta)
-        self.sample.Scatter()
-        return sum(len(self.sample.Bucket(_s)) for _s in self.sample.CATEGORIES)
+        _cfg = cfg if cfg is not None else self.Taskers().get(name, self._sample_cfg)
+        _sset = Sample_Set(root=str(self._sample_root / name))
+        _kw = dict(
+            task=_cfg.get("task", _cfg.get("object_type", "classification")),
+            salt=_cfg.get("salt", ""),
+            unit=_cfg.get("unit", "object"),
+            target=_sset,
+            processes=_cfg.get("processes", []),   # crop 실체화 체인 (Phase B)
+        )
+        if _cfg.get("ratios"):                     # 없으면 Sample_stage 기본(DEFAULT_RATIOS)
+            _kw["ratios"] = _cfg["ratios"]
+        _stage = Sample_stage(**_kw)
+        _stage(self.meta)
+        _sset.Scatter()
+        _taskers = self.Taskers()                  # 레시피 등록 (name ↔ 폴더 매칭)
+        _taskers[name] = _cfg
+        Save_taskers(self._sample_root, _taskers)
+        return sum(len(_sset.Bucket(_s)) for _s in _sset.CATEGORIES)
+
+    def Delete_tasker(self, name: str) -> None:
+        """tasker 를 제거한다 — 폴더(``{root}/sample/{name}``)와 ``taskers.yaml`` 항목 (없으면 no-op)."""
+        _dir = self._sample_root / name
+        if _dir.exists():
+            shutil.rmtree(_dir)
+        _taskers = self.Taskers()
+        if _taskers.pop(name, None) is not None:
+            Save_taskers(self._sample_root, _taskers)
 
     def Verify(self) -> None:
         """생성 결과의 품질 검수 — Sampling 이후로 미룸(또는 Run 결과에서 대상 선택). 미구현."""

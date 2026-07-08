@@ -2,39 +2,37 @@
 
 완료 이력은 git, 최종 설계는 각 `README.md`. 여기엔 남은 것만.
 
-flat `Data_Ref` 스키마 마이그레이션은 **core/data(sample 제외)·process·_base·gui 완료** — `import core`
-동작, meta 영속/전이·process flow·GUI 전부 flat 기준. 아래는 그 다음.
-
 ---
 
-## sample 파생 — 보류 (flat 재설계)
+## 논의 필요 (미구현 — 재정리 대상)
 
-`sample/` 은 아직 옛 `Node` API 기준이라 import 체인에서 빠져 있고 `Pipeline.Sample()` 은
-`NotImplementedError`. flat `Data_Ref` 로 재작성 후 복구:
+- [ ] **재-convert 덮어쓰기/교차상태 중복** — `Register_sink` 가 무검사로 modified 에 등록 →
+      기존 modified 덮어씀 + staged/skipped 인 stem 도 modified 에 재등록(one-stem-one-state 위반).
+      합의 정책: 정해진게 없음. **이 영역 전체 재정리 후 구현**
+      (현재 무검사). 상세 [`converter/README.md`](converter/README.md) "⚠ 논의 필요".
 
-- [ ] **`sample/store.py`·`sampler.py` flat 전환** — `Sample_Set(Bucket_Store)` split→class→sample 을
-      stem `Data_Ref`(`info` 중첩)로, `Place`/`Iter_samples`/`Assign`/`Build` 를 `categories`/`info` 기준으로.
-- [ ] **`core/_base` 배선 복구** — `_build_sampler` 팩토리·`self.sample`·`Pipeline.Sample()` 되살리기.
-- [ ] **id_map 연결** — converter `Load_id_map` 결과를 sample 스테이지가 수용(정본은 class 이름만).
-      GUI `Idmap_panel` 연결(현재 빈 dict 스텁).
-- [ ] **crop 실체화** — sample sink 가 `Base_Process` 체인(crop/normalize)을 태워 `{split}/{class}/{id}`
-      (handler)로 payload 떨구고 sample `info["crop"]` 채움. (지금은 `(stem, obj_id)` 역참조만.)
+## sampler / 파생
+
+- [ ] **id_map 위치 정리** — id_map 은 detection tasker(sample) 소유(`Detection_sink.Finalize` → sample
+      params). 그런데 `gui/meta_view` 는 아직 `Idmap_panel` 을 들고 빈 `{}` 를 로드하는 **vestigial 스텁**
+      (`_view.py:99`). meta view 에서 제거하고 sampler 뷰어(detection tasker)로 옮길지 결정.
 - [ ] `excluded` 큐레이션 영속 (A+ = 순수 재생성 + 솎아내기).
-- [ ] detection/seg task sampler (classification 다음).
+- [ ] detection COCO manifest 에 bbox/segmentation 채우기 + detection crop/class 재배정 GUI
+      (뷰어는 현재 classification 편집만).
 
-## 잔여 정리
+## 정리 / 검증
 
-- [ ] **`meta/test_dataset.py`** — 4개 테스트(`test_meta_merge_*`)가 옛 kwarg(`modified=`/`staged=`) 사용 →
-      `categories=` 로. 파일 상단 `core`/`core.data` namespace stub 은 이제 불필요(sample 만 마이그레이션되면
-      제거 가능).
-- [ ] **GUI end-to-end 런타임 검증** — 코드·import 는 검증됨. 실제 띄워 Convert→Run→Verify 흐름 확인.
+- [ ] **`meta/test_dataset.py`** — `test_meta_merge_*` 등이 옛 kwarg(`modified=`/`staged=`)로 `Dataset_Meta`
+      를 생성 → 지금은 필드가 `categories=` 뿐이라 **현재 깨짐**. `categories=` 로 고치고 3-state(skipped)
+      반영. 파일 상단 `core`/`core.data` namespace stub 도 이제 불필요(제거 검토).
+- [ ] **GUI end-to-end 런타임 검증** — 코드·import·offscreen 은 검증됨. 실제 데스크톱에서 띄워
+      Convert→Run→전이→Sample→뷰어 흐름 확인.
 
 ## 외부 계층 재배치
 
 - [ ] `analysis/` → `core/` 흡수 + `Pipeline.Verify` 구현 (Sampling 이후/선택적 — 현재 `NotImplementedError`).
-      import 경로·`__main__.py` 포함.
-- [ ] **converter 를 `core/data` 밖으로** (선택) — "생산자-scatter" 관점이면 converter 는 data 계층 설비가
-      아니라 생산자(handler.Save 위임 + 자기 항목 저장). data 는 표현·영속만, ingest 는 생산자 쪽으로.
+      `analysis/` 는 `_base.py`·`chroma/`·`mask/` + `temp_crop_mask.py`·`temp_shape_embed.py`·
+      `temp_split_train_val.py`(임시 스크립트). (`__main__.py` 는 이미 삭제됨.)
 
 ## 미구현 기능 (future)
 

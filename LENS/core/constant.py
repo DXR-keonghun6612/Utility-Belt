@@ -8,6 +8,8 @@ from __future__ import annotations
 
 # ── staging 상태 어휘 ──────────────────────────────────────────────────────────
 
-MODIFIED = "modified"                 # working 버킷 — flow 가공 대상
-STAGED   = "staged"                   # 검수 완료 버킷 — annotation 대상
-META_STATES: tuple[str, ...] = (MODIFIED, STAGED)   # 정본(meta) 스테이지 범주
+MODIFIED = "modified"                 # working 버킷 — flow 가공 대상 (작업 할거)
+STAGED   = "staged"                   # 검수 완료 버킷 — annotation 대상 (검수한거)
+SKIPPED  = "skipped"                  # 보류 버킷 — 작업 대상 외 (되돌리기 가능, 모든 파이프라인서 제외)
+# 정본(meta) 스테이지 범주. Run→modified·Sample/Export→staged 만 지목하므로 skipped 는 자연히 빠진다.
+META_STATES: tuple[str, ...] = (MODIFIED, STAGED, SKIPPED)

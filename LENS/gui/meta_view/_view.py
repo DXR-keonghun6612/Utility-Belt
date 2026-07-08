@@ -22,9 +22,13 @@ class Meta_view(QWidget):
 
     Attributes:
         meta_changed: id_map 등 meta 내용이 편집돼 영속됐을 때 emit (상위 알림용).
+        transition_requested: 대량 stem 전이 요청 ``(to_state, [stem…])`` — 상위가 백그라운드로 실행.
+        remove_requested: 대량 stem 삭제 요청 ``[stem…]`` — 상위가 백그라운드로 실행.
     """
 
-    meta_changed = Signal()
+    meta_changed         = Signal()
+    transition_requested = Signal(str, list)
+    remove_requested     = Signal(list)
 
     def __init__(self, pipeline=None, parent=None) -> None:
         super().__init__(parent)
@@ -155,31 +159,38 @@ class Meta_view(QWidget):
             self._editor = None
 
     def _move_many(self, to_state: str, stems: list) -> None:
-        """선택 stem 들을 ``to_state`` 버킷으로 전이한다 (목록은 뱃지만 증분 갱신)."""
-        if self._pipeline is None:
+        """대량 전이 요청을 상위로 올린다 — 실제 이동은 백그라운드(UI 멈춤·상태 꼬임 방지).
+
+        대량 이동은 payload 파일 이동이라 느려 UI 가 "응답 없음"으로 보였다. 상위(`Main_page`)가 워커로
+        돌리며 진행바에 표시하고 그동안 편집을 차단한다. 완료 후 `apply_transition` 으로 목록을 동기화.
+        """
+        if self._pipeline is None or not stems:
             return
-        for _stem in stems:
-            self._pipeline.Move(_stem, to_state)         # 데이터+사이드카 이동 (즉시)
-            self._stem_list.update_state(_stem, to_state)  # 뱃지 하나만 갱신
-            if self._editor is not None and self._editor._stem == _stem:
-                self._editor.reload()                    # 상태(루트) 갱신
-            self._reload_popouts(_stem)
-        self.meta_changed.emit()
+        self.transition_requested.emit(to_state, stems)
 
     def _delete_many(self, stems: list) -> None:
-        """선택 stem 들을 완전히 삭제한다 (데이터+사이드카+버킷, 목록·창 정리)."""
-        if self._pipeline is None:
+        """대량 삭제 요청을 상위로 올린다 — 관련 팝아웃만 먼저 닫고(빠름) 실제 삭제는 백그라운드."""
+        if self._pipeline is None or not stems:
             return
-        _cur = self._editor._stem if self._editor is not None else ""
-        for _stem in stems:
-            self._pipeline.Delete(_stem)
-            self._stem_list.remove(_stem)                # 항목 하나만 제거
-            for _dlg in list(self._dialogs):             # 그 stem 팝아웃 창 닫기
-                if _dlg._stem == _stem:
-                    _dlg.close()
-        if _cur in stems:                                # 편집 중이던 stem 삭제 → 현재로 동기화
-            self._on_select(self._stem_list.current_stem())
-        self.meta_changed.emit()
+        for _dlg in list(self._dialogs):                 # 그 stem 팝아웃 창 닫기 (즉시)
+            if _dlg._stem in stems:
+                _dlg.close()
+        self.remove_requested.emit(stems)
+
+    def apply_transition(self, to_state: str, stems: list) -> None:
+        """백그라운드 전이 완료 후 목록·편집기·팝아웃을 **한 번의 refresh** 로 재동기화한다.
+
+        stem 마다 증분 갱신(``update_state``)은 리스트 전체 재스캔 + `_renumber`(전 항목 재기록)라 O(n²)
+        → 2만 건이면 폭발한다(파일 이동보다 이게 병목이었음). 통째로 다시 그리면 O(n)(19k도 <1s). 편집기는
+        refresh 가 선택 유지로 재로드하고, 팝아웃(소수)만 따로 갱신한다.
+        """
+        self.refresh()
+        for _dlg in list(self._dialogs):
+            _dlg.reload()
+
+    def apply_removal(self, stems: list) -> None:
+        """백그라운드 삭제 완료 후 목록을 **한 번의 refresh** 로 재동기화한다 (팝아웃은 요청 시 이미 닫음)."""
+        self.refresh()
 
     def _on_editor_saved(self, stem: str) -> None:
         """편집 저장 반영 — 그 stem 사이드카만 기록 + 그 stem 만 재동기화 (목록 전체 재로드 안 함)."""

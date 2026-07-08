@@ -17,8 +17,8 @@ Main_page
   ├── dataset_root [뷰어 ▸ Converter 창에서 설정] [↺]        [Converter…]
   ├── [flow_profile 가져오기] [▶ run]   현재 프로필: 3 flow — …
   ├── ── 진행바 ──
-  ├── 본문 = Meta_view   (stem 목록 상태 뱃지 + 임베드 Stem_editor + id_map/params)
-  └── [meta 가져오기] [전부 비우기]                     [annotation 생성]
+  ├── 본문 = Meta_view   (stem 목록 상태 뱃지[작업/검수/보류] + 임베드 Stem_editor + id_map/params)
+  └── [meta 가져오기] [전부 비우기] [Sampler…]          [annotation 생성]
 ```
 
 - dataset_root 는 읽기전용 뷰어 — 값 편집은 Converter 창에서만.
@@ -49,19 +49,25 @@ Main_page
       ▼
 dataset_root 열기 → Dataset_Meta 로드
   → [flow 빌더 + ▶ run]  flow 실행 → modified 채움     Pipeline.Run(flows)
-  → [Meta 뷰어]          검수·편집 → staged 전이         Pipeline.Move
-  → [meta 가져오기]      다른 결과 병합(상태 보존)        Pipeline.Merge
-  → [annotation 생성]    staged → {root}/annotation.json   Pipeline.Export
+  → [Meta 뷰어]          검수·편집 → 작업/검수/보류 전이   meta.Move / meta.Delete (백그라운드)
+  → [meta 가져오기]      다른 결과 병합(상태 보존)        meta.Merge
+  → [Sampler 창]         staged → 파생 tasker + crop      Pipeline.Sample(name, cfg)  (gui/sampler)
+  → [annotation 생성]    staged → {root}/annotation.json   meta.Gather(["staged"], ANNOTATION_FILE)
 ```
 
 flow 한 장(카드) = `flows:` 리스트의 1 엔트리 — `object_type`·`unit`·`shared`·`processes`/
 `finalize_processes`·`carry`·`cacheable`. `model` 필드를 가진 process 는 모델 주입 서브폼을 연다.
 
-- Convert·Run 은 `Pipeline_worker` 하나로 백그라운드 실행 — 무엇을 돌릴지는 task 콜러블이 정하고,
-  보유 Pipeline 을 그대로 돌린다. meta 가 in-place 갱신돼 화면과 일치한다.
-- meta 가져오기 — 파일을 고르면 root = 그 파일 폴더(자기완결 폴더 전제). 열린 root 없으면 그 폴더를
-  그대로 열고, 있으면 충돌 질의 후 현재 root 로 복사 병합. 어느 쪽이든 meta 는 in-place 로 갱신
-  한다(객체 교체 아님 — 편집기가 같은 meta 객체를 봐 stale 을 막는다).
+- Convert·Run·**전이/삭제**는 `Pipeline_worker` 하나로 백그라운드 실행 — 무엇을 돌릴지는 task 콜러블이
+  정하고, 보유 Pipeline 을 그대로 돌린다. 실행 중엔 진행바 표시 + `Meta_view` 비활성(편집 차단). 상태 전이는
+  **대량 아니어도 항상 백그라운드**이고, 완료 후 목록은 단일 `refresh()`(O(n))로 동기화한다.
+- 상태는 **3-버킷(작업=modified / 검수=staged / 보류=skipped)**. 보류는 지우지 않고 치워둔 것(되돌리기
+  가능)으로 모든 파이프라인에서 자연히 제외된다.
+- meta 가져오기 — **폴더**를 고른다(`Dataset_Meta.Restore` 가 dataset root 디렉터리에서 `.meta/*.json`
+  사이드카를 복원 — 파일이 아니라 폴더). 열린 root 없으면 그 폴더를 그대로 열고, 있으면 충돌 질의 후
+  현재 root 로 복사 병합. 어느 쪽이든 meta 는 in-place 로 갱신한다(객체 교체 아님 — 편집기가 같은 meta
+  객체를 봐 stale 을 막는다).
+- [Sampler 창] — 파생 tasker 빌더 + tasker별 sample 뷰어([`sampler/`](sampler/README.md)).
 
 ---
 
@@ -72,11 +78,12 @@ flow 한 장(카드) = `flows:` 리스트의 1 엔트리 — `object_type`·`uni
 | `page/` | 메인 조립(`_main.py`) + Converter 다이얼로그(`_converter_dialog.py`) |
 | `converter/` | Converter 패널 — raw 소스 탐색 설정 (`Pipeline.Convert`) |
 | `run/` | flow 시퀀스 빌더(`Flow_card`/`Flow_sequence`) + 실행 다이얼로그 |
+| `sampler/` | 파생 tasker 빌더 창 + tasker별 sample 뷰어(트리+crop+class write-back) (`Pipeline.Sample`) |
 | `meta_view/` | Dataset_Meta 뷰어 — stem 목록 + 임베드 편집기 + id_map/params |
 | `verify/` | `Stem_editor` — base 이미지 + mask/bbox 오버레이 편집 |
 | `form/` | process/모델 파라미터 폼 자동 생성 (`Annotated[UI]` 기반) |
 | `widgets/` | 슬라이더·줌 이미지뷰·경로행 등 공통 위젯 (core 의존 0) |
-| `_worker.py` | `Pipeline_worker` — 보유 Pipeline 의 한 단계 백그라운드 실행 (Convert/Run 공용) |
+| `_worker.py` | `Pipeline_worker` — 보유 Pipeline 의 한 단계 백그라운드 실행 (Convert/Run/전이/삭제 공용) |
 | `_io.py` | 파일 선택 + dict 직렬화 (converter/flow 저장·불러오기) |
 
 잔여 작업: [`TODO.md`](TODO.md).

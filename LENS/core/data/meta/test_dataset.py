@@ -125,7 +125,7 @@ def test_meta_scatter_load() -> None:
     m.params["cls"] = _attr(["a"])
     m.Bucket("modified")["s0"] = _stem(**{"0": _stem(bbox=_attr([1, 2, 3, 4]))})
     m.Scatter()
-    m2 = Dataset_Meta.Load(d)
+    m2 = Dataset_Meta.Restore(d)
     assert m2.params["cls"].info["value"] == ["a"]
     assert m2.Find("s0").info["0"].info["bbox"].info["value"] == [1, 2, 3, 4]
 

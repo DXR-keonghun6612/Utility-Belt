@@ -12,7 +12,7 @@ import dataclasses
 
 from python_toolbox.registry import Registry
 
-from ._base import Flow, Base_Process, UI, BBOX, GRAY_IMAGE
+from ._base import Flow, Stage, Base_Process, UI, BBOX, GRAY_IMAGE
 
 PROCESS_REGISTRY = Registry[type]("process", Base_Process)
 
@@ -36,6 +36,7 @@ from .preprocess import Frame_crop, Normalize_color  # noqa: E402
 from .mask       import Threshold_score, Normalize_mask, Morph_mask, Combine_mask, Split_objects  # noqa: E402
 from .edge       import Detect_edge, Close_edge, Fill_edge, Edge_blob, Remove_edge_holes  # noqa: E402
 from .model      import Segment_with_hole  # noqa: E402
+from .select     import Center_distance, Attr_gate  # noqa: E402
 
 
 def Build_flow(cfg: dict) -> Flow:
@@ -53,7 +54,7 @@ def Build_flow(cfg: dict) -> Flow:
 
 __all__ = [
     # 기본 구조
-    "Flow", "Base_Process", "UI", "BBOX", "GRAY_IMAGE",
+    "Flow", "Stage", "Base_Process", "UI", "BBOX", "GRAY_IMAGE",
     # 레지스트리·조립
     "PROCESS_REGISTRY", "Build_process", "Build_flow",
     # process 유닛
@@ -63,4 +64,5 @@ __all__ = [
     "Frame_crop", "Normalize_mask", "Normalize_color", "Split_objects",
     "Threshold_score", "Morph_mask", "Detect_edge", "Close_edge", "Fill_edge",
     "Edge_blob", "Remove_edge_holes", "Combine_mask",
+    "Center_distance", "Attr_gate",
 ]

@@ -7,7 +7,7 @@ Convert·Run·staging(``Move``)·편집 저장·meta 가져오기(``Merge``)·�
 
 from __future__ import annotations
 
-from PySide6.QtCore import QThread
+from PySide6.QtCore import Qt, QThread
 from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
@@ -20,11 +20,12 @@ from PySide6.QtWidgets import (
 )
 
 from core import Pipeline, Pipeline_config
-from core.data.meta import Dataset_Meta
+from core.data.meta import ANNOTATION_FILE, Dataset_Meta
 from gui._worker import Pipeline_worker
 from gui.meta_view import Meta_view
 from gui.page._converter_dialog import _Converter_dialog
 from gui.run import Run_dialog
+from gui.sampler import Sample_viewer, Sampler_dialog
 from gui.widgets import Path_row
 
 
@@ -43,8 +44,12 @@ class Main_page(QWidget):
         self._converter_cfg: dict = {}              # converter 레시피 (다이얼로그가 소유 UI)
         self._converter_dlg: _Converter_dialog | None = None   # 비모달 창 (열려 있으면 보유)
         self._flow_dlg: Run_dialog | None = None               # 비모달 창 (열려 있으면 보유)
+        self._sampler_dlg: Sampler_dialog | None = None        # 비모달 Sampler 창
+        self._sample_viewers: list[Sample_viewer] = []         # tasker별 뷰어 (GC 방지)
         self._thread: QThread | None = None
         self._worker: Pipeline_worker | None = None
+        self._txn: tuple[str, list] | None = None    # 진행 중 전이 완료 컨텍스트 (to_state, stems)
+        self._rm: list | None = None                 # 진행 중 삭제 완료 컨텍스트 (stems)
         self._build()
 
     def _build(self) -> None:
@@ -99,6 +104,9 @@ class Main_page(QWidget):
 
         # ── 본문: Meta_view (stem 목록 + 편집기 + id_map/params) ───────────────
         self._meta_view = Meta_view()
+        # 전이/삭제는 상위에서 백그라운드로 실행(진행바 표시 + 실행 중 편집 차단).
+        self._meta_view.transition_requested.connect(self._on_transition)
+        self._meta_view.remove_requested.connect(self._on_remove)
         _lay.addWidget(self._meta_view, stretch=1)
 
         # ── 하단: meta 가져오기 | annotation 생성 ─────────────────────────────
@@ -109,6 +117,9 @@ class Main_page(QWidget):
         _bottom.addWidget(_btn(
             "전부 비우기", "보유 세션(dataset_root·converter·flows·meta 뷰)을 모두 비운다 (디스크는 보존)",
             self._on_clear_all))
+        _bottom.addWidget(_btn(
+            "Sampler…", "정본(staged) → 파생 학습셋(tasker) 빌드 + tasker별 sample 뷰어",
+            self._open_sampler))
         _bottom.addStretch()
         _bottom.addWidget(_btn(
             "annotation 생성", "commit 된 프레임만 뭉친 clean dataset(annotation) 생성·내보내기",
@@ -190,6 +201,76 @@ class Main_page(QWidget):
         _names = " → ".join(_flow_label(_f) for _f in self._flows)
         self._profile_label.setText(f"현재 프로필: {len(self._flows)} flow — {_names}")
 
+    # ── sampler (파생 tasker 빌더 + tasker별 뷰어, 비모달) ──────────────────────
+
+    def _open_sampler(self) -> None:
+        """Sampler 창(tasker 목록 + 설정 + ``▶ sample``)을 비모달로 띄운다 (보유 Pipeline 위에서 빌드)."""
+        if self._sampler_dlg is not None:                  # 이미 열려 있으면 앞으로
+            self._sampler_dlg.raise_()
+            self._sampler_dlg.activateWindow()
+            return
+        _dlg = Sampler_dialog(get_pipeline=lambda: self._pipeline, parent=self)
+        _dlg.view_requested.connect(self._open_sample_viewer)
+        _dlg.finished.connect(self._on_sampler_closed)
+        self._sampler_dlg = _dlg
+        _dlg.show()
+
+    def _on_sampler_closed(self, _result: int) -> None:
+        if self._sampler_dlg is not None:
+            self._sampler_dlg.deleteLater()
+            self._sampler_dlg = None
+
+    def _open_sample_viewer(self, name: str) -> None:
+        """tasker 하나의 sample 뷰어(트리+crop 미리보기+class 재배정)를 비모달로 띄운다."""
+        if not name:
+            return
+        if self._pipeline is None:
+            QMessageBox.information(self, "Sample 뷰어", "먼저 dataset_root 를 여세요.")
+            return
+        _v = Sample_viewer(get_pipeline=lambda: self._pipeline, name=name, parent=self)
+        _v.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        _v.meta_changed.connect(self._meta_view.refresh)   # class write-back → meta 뷰 갱신
+        _v.finished.connect(lambda _r, w=_v: self._forget_viewer(w))
+        self._sample_viewers.append(_v)
+        _v.show()
+
+    def _forget_viewer(self, viewer: Sample_viewer) -> None:
+        if viewer in self._sample_viewers:
+            self._sample_viewers.remove(viewer)
+
+    # ── 공용 백그라운드 워커 (Run·전이·삭제 공유; 진행바 + 실행 중 편집 차단) ──────
+
+    def _start_worker(self, task, on_finished, *, busy_label: str) -> bool:
+        """단일 워커로 ``task`` 를 백그라운드 실행한다 — 진행바 표시 + 실행 중 meta 편집 차단.
+
+        이미 워커가 돌고 있으면 ``False`` (동시 실행 금지). 실행 중엔 ``Meta_view`` 를 통째로 비활성화해
+        데이터가 워커에서 변형되는 동안 편집이 끼어들어 상태가 꼬이는 걸 막는다.
+        """
+        if self._thread is not None:
+            return False
+        self._meta_view.setEnabled(False)                  # 실행 중 편집 차단
+        self._run_btn.setEnabled(False)
+        self._set_progress(0, 0, busy_label)
+        self._thread = QThread()
+        self._worker = Pipeline_worker(self._pipeline, task)
+        self._worker.moveToThread(self._thread)
+        self._thread.started.connect(self._worker.run)
+        self._worker.progress.connect(self._set_progress)
+        self._worker.finished.connect(on_finished)
+        self._thread.start()
+        return True
+
+    def _end_worker(self, ok: bool) -> None:
+        """워커 스레드 정리 + UI 복구 (편집 재활성·버튼 복구·진행바 상태)."""
+        if self._thread is not None:
+            self._thread.quit()
+            self._thread.wait()
+        self._thread = None
+        self._worker = None
+        self._run_btn.setEnabled(True)
+        self._meta_view.setEnabled(True)
+        self._set_progress(0, 0, "완료" if ok else "실패")
+
     # ── run (보유 Pipeline + 현재 프로필) ───────────────────────────────────────
 
     def _on_run(self) -> None:
@@ -202,31 +283,66 @@ class Main_page(QWidget):
             QMessageBox.information(
                 self, "run", "flow 프로필이 비어 있습니다 (flow_profile 가져오기).")
             return
-
         _pipe, _flows = self._pipeline, self._flows        # 보유 Pipeline + 편집한 프로필 주입
-        self._run_btn.setEnabled(False)
-        self._set_progress(0, 0, "실행 중…")
-        self._thread = QThread()
-        self._worker = Pipeline_worker(
-            _pipe, lambda _prog: _pipe.Run(progress=_prog, flows=_flows))
-        self._worker.moveToThread(self._thread)
-        self._thread.started.connect(self._worker.run)
-        self._worker.progress.connect(self._set_progress)
-        self._worker.finished.connect(self._on_run_finished)
-        self._thread.start()
+        self._start_worker(lambda _prog: _pipe.Run(progress=_prog, flows=_flows),
+                           self._on_run_finished, busy_label="실행 중…")
 
     def _on_run_finished(self, ok: bool, info: str) -> None:
-        self._run_btn.setEnabled(True)
-        self._set_progress(0, 0, "완료" if ok else "실패")
         if ok:
             self._meta_view.refresh()              # in-place 갱신된 meta(modified) 반영
-        else:
+        self._end_worker(ok)
+        if not ok:
             QMessageBox.critical(self, "run 실패", info)
-        if self._thread is not None:
-            self._thread.quit()
-            self._thread.wait()
-        self._thread = None
-        self._worker = None
+
+    # ── stem 전이·삭제 (항상 백그라운드 — 대량 아니어도 UI 멈춤·꼬임 방지) ──────────
+
+    # 완료 컨텍스트는 self 에 둔다 — finished 는 **bound method**(QObject slot)로 연결해야 cross-thread
+    # 큐드 연결이 돼 메인 스레드에서 돈다(lambda 는 affinity 없어 direct=워커 스레드 실행 → wait-on-self).
+
+    def _on_transition(self, to_state: str, stems: list) -> None:
+        """선택 stem 들을 ``to_state`` 로 전이한다 (백그라운드, 진행바; 완료 후 목록 동기화)."""
+        if self._pipeline is None or not stems:
+            return
+        _pipe = self._pipeline
+
+        def _task(_progress) -> None:
+            _n = len(stems)
+            for _i, _stem in enumerate(stems, 1):
+                _pipe.meta.Move(_stem, to_state)           # payload+사이드카+버킷 (store 소유)
+                _progress("이동 중", _i, _n)
+
+        self._txn = (to_state, stems)
+        self._start_worker(_task, self._on_transition_done, busy_label="이동 중…")
+
+    def _on_transition_done(self, ok: bool, info: str) -> None:
+        _to_state, _stems = self._txn
+        if ok:
+            self._meta_view.apply_transition(_to_state, _stems)
+        self._end_worker(ok)
+        if not ok:
+            QMessageBox.critical(self, "이동 실패", info)
+
+    def _on_remove(self, stems: list) -> None:
+        """선택 stem 들을 완전히 삭제한다 (백그라운드, 진행바; 완료 후 목록 정리)."""
+        if self._pipeline is None or not stems:
+            return
+        _pipe = self._pipeline
+
+        def _task(_progress) -> None:
+            _n = len(stems)
+            for _i, _stem in enumerate(stems, 1):
+                _pipe.meta.Delete(_stem)                   # payload+사이드카+버킷 제거 (store 소유)
+                _progress("삭제 중", _i, _n)
+
+        self._rm = stems
+        self._start_worker(_task, self._on_remove_done, busy_label="삭제 중…")
+
+    def _on_remove_done(self, ok: bool, info: str) -> None:
+        if ok:
+            self._meta_view.apply_removal(self._rm)
+        self._end_worker(ok)
+        if not ok:
+            QMessageBox.critical(self, "삭제 실패", info)
 
     def _set_progress(self, done: int, total: int, label: str = "") -> None:
         if total <= 0:
@@ -239,39 +355,37 @@ class Main_page(QWidget):
         self._progress.setFormat(f"{label} : %v / %m" if label else "%v / %m")
 
     def _export_annotation(self) -> None:
-        """staged 프레임을 뭉친 annotation 을 dataset root 에 생성한다 (Pipeline 에 위임).
+        """staged 프레임을 뭉친 annotation 을 dataset root 에 생성한다 (store ``Gather`` 직접 호출).
 
-        경로·파일명은 Pipeline→store 가 소유하므로 여긴 단순 콜 + 결과 안내뿐이다.
+        데이터 라이프사이클은 store(``Dataset_Meta``)가 소유하므로 여긴 ``meta.Gather`` 를 직접 부른다 —
+        대상 범주(staged)와 파일명(``ANNOTATION_FILE``)만 정하고 경로 안내.
         """
         if self._pipeline is None:
             QMessageBox.information(self, "annotation 생성", "먼저 dataset_root 를 여세요.")
             return
-        _path = self._pipeline.Export()
+        _path = self._pipeline.meta.Gather(["staged"], ANNOTATION_FILE)
         QMessageBox.information(self, "annotation 생성", f"생성했습니다:\n{_path}")
 
     # ── 외부 meta 가져오기 (다른 dataset_meta 를 상태 보존해 들임) ─────────────────
 
     def _on_import_meta(self) -> None:
-        """dataset_meta 파일을 골라 상태 보존해 들인다.
+        """dataset_meta 폴더를 골라 상태 보존해 들인다.
 
-        host 없음 -> 그 파일의 폴더를 그대로 연다 (복사 없이). host 있음 -> 충돌 질의 후 현재 root 로
-        복사 병합(``Merge``). 어느 쪽이든 meta 는 in-place 갱신(뷰 stale 방지).
+        ``Dataset_Meta.Restore`` 는 디렉터리(dataset root)를 받아 사이드카(``.meta/*.json``)를 복원한다 —
+        폴더를 고른다. host 없음 -> 그 폴더를 그대로 연다(Pipeline 이 로드). host 있음 -> 충돌 질의 후
+        현재 root 로 복사 병합(``Merge``). 어느 쪽이든 meta 는 in-place 갱신(뷰 stale 방지).
         """
-        _file, _ = QFileDialog.getOpenFileName(
-            self, "가져올 dataset_meta 파일 선택", "", "meta (*.json *.yaml *.yml)")
-        if not _file:
+        _dir = QFileDialog.getExistingDirectory(self, "가져올 dataset_meta 폴더 선택")
+        if not _dir:
             return
-        _other = Dataset_Meta.Load(_file)                 # 파일 로드 — root = 파일이 놓인 폴더
+        _other = Dataset_Meta.Restore(_dir)                  # 폴더 복원 — root = 그 폴더 (Restore 계약)
         _n = sum(len(_other.Bucket(_s)) for _s in _other.STATES)
         if _n == 0:
-            QMessageBox.information(self, "meta 가져오기", "그 파일에서 가져올 프레임을 찾지 못했습니다.")
+            QMessageBox.information(self, "meta 가져오기", "그 폴더에서 가져올 프레임을 찾지 못했습니다.")
             return
         if self._pipeline is None:                        # host 없음 → 그 폴더를 그대로 연다
-            self._root_edit.setText(_other.root)
-            self._open_root()
-            if self._pipeline is not None:
-                self._pipeline.meta.Merge(_other)         # 파일이 이미 root 에 있음 → meta 만 in-place
-                self._meta_view.refresh()
+            self._set_root(_other.root)                   # Pipeline 이 그 폴더의 meta 를 로드
+            self._meta_view.refresh()
             return
         _conf = self._pipeline.meta.Merge_conflicts(_other)
         _overwrite = False
@@ -315,6 +429,10 @@ class Main_page(QWidget):
             self._converter_dlg.close()
         if self._flow_dlg is not None:
             self._flow_dlg.close()
+        if self._sampler_dlg is not None:
+            self._sampler_dlg.close()
+        for _v in list(self._sample_viewers):             # 열린 sample 뷰어 (WA_DeleteOnClose)
+            _v.close()
         self._pipeline = None
         self._converter_cfg = {}
         self._flows = []

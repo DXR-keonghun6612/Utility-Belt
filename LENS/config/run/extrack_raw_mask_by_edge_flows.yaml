@@ -53,3 +53,12 @@ flows:
                 type: segmap
                 format: png
                 dir: raw_mask
+    -   object_type: order_objects
+        outputs:
+            object: {}
+            segment:
+                to: storage
+                level: frame
+                type: segmap
+                format: png
+                dir: raw_mask

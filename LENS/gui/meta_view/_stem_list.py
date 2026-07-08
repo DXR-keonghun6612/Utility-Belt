@@ -23,11 +23,18 @@ from core.data.meta import Dataset_Meta
 _STEM_ROLE  = Qt.ItemDataRole.UserRole
 _STATE_ROLE = Qt.ItemDataRole.UserRole + 1
 
-# 상태별 뱃지 텍스트 + 색 (목록 항목 전경색)
+# 상태별 뱃지 텍스트 + 색 (목록 항목 전경색). 새 상태 추가 시 여기에 한 줄만 더하면 된다 —
+# 카운트·메뉴·번호는 meta.STATES 기준으로 제네릭하게 돈다(미등록 상태는 회색+상태명으로 degrade).
 _BADGE: dict[str, tuple[str, QColor]] = {
-    "modified": ("변경됨", QColor(0xE0, 0x7B, 0x00)),   # 주황
-    "staged":   ("staged", QColor(0x1E, 0x6F, 0xD0)),   # 파랑
+    "modified": ("작업", QColor(0xE0, 0x7B, 0x00)),   # 주황 — 작업 할거
+    "staged":   ("검수", QColor(0x1E, 0x6F, 0xD0)),   # 파랑 — 검수한거
+    "skipped":  ("보류", QColor(0x8A, 0x8A, 0x8A)),   # 회색 — 작업 대상 외
 }
+
+
+def _badge(state: str) -> tuple[str, QColor]:
+    """상태 → (라벨, 색). 미등록 상태는 상태명 + 회색으로 degrade."""
+    return _BADGE.get(state, (state, QColor(0x8A, 0x8A, 0x8A)))
 
 
 class Stem_list(QWidget):
@@ -47,7 +54,7 @@ class Stem_list(QWidget):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self._counts: dict[str, int] = {"modified": 0, "staged": 0}
+        self._counts: dict[str, int] = {}   # 상태별 개수 — load 가 meta.STATES 로 채운다
         _lay = QVBoxLayout(self)
         _lay.setContentsMargins(0, 0, 0, 0)
         _lay.setSpacing(2)
@@ -74,31 +81,30 @@ class Stem_list(QWidget):
             self.popout_requested.emit(_stem)
 
     def _on_menu(self, pos) -> None:
-        """선택 stem 들에 대한 우클릭 메뉴 — 보낼 곳별로 **이미 그 상태가 아닌 것만** 센다.
+        """선택 stem 들에 대한 우클릭 메뉴 — **모든 다른 상태**로 보내기(그 상태가 아닌 것만) + 삭제.
 
-        예) 선택 5개 중 3개가 modified 면 'staged 로 보내기 (3)', 2개가 staged 면 'modified 로
-        보내기 (2)'. 보낼 대상이 0이면 그 항목은 뺀다. 삭제는 선택 전체.
+        `Dataset_Meta.STATES` 를 순회해 현재 상태가 아닌 대상마다 "→ 라벨 로 보내기 (n)" 를 만든다 —
+        상태 수가 늘어도(예: skipped) 코드 수정 없이 항목이 생긴다. 보낼 대상 0이면 그 항목은 뺀다.
         """
         _items = self._list.selectedItems()
         if not _items:
             return
-        _to_staged = [_it.data(_STEM_ROLE) for _it in _items if _it.data(_STATE_ROLE) != "staged"]
-        _to_mod    = [_it.data(_STEM_ROLE) for _it in _items if _it.data(_STATE_ROLE) != "modified"]
-        _all       = [_it.data(_STEM_ROLE) for _it in _items]
-
         _menu = QMenu(self)
-        if _to_staged:
-            _a = QAction(f"→ staged 로 보내기  ({len(_to_staged)})", _menu)
-            _a.triggered.connect(lambda: self.to_state_requested.emit("staged", _to_staged))
-            _menu.addAction(_a)
-        if _to_mod:
-            _a = QAction(f"→ modified 로 보내기  ({len(_to_mod)})", _menu)
-            _a.triggered.connect(lambda: self.to_state_requested.emit("modified", _to_mod))
+        for _state in Dataset_Meta.STATES:
+            _targets = [_it.data(_STEM_ROLE) for _it in _items
+                        if _it.data(_STATE_ROLE) != _state]
+            if not _targets:
+                continue
+            _label = _badge(_state)[0]
+            _a = QAction(f"→ '{_label}' 로 보내기  ({len(_targets)})", _menu)
+            _a.triggered.connect(
+                lambda _checked=False, s=_state, t=_targets: self.to_state_requested.emit(s, t))
             _menu.addAction(_a)
         if _menu.actions():
             _menu.addSeparator()
+        _all = [_it.data(_STEM_ROLE) for _it in _items]
         _del = QAction(f"🗑  삭제  ({len(_all)})", _menu)
-        _del.triggered.connect(lambda: self.delete_requested.emit(_all))
+        _del.triggered.connect(lambda _checked=False, t=_all: self.delete_requested.emit(t))
         _menu.addAction(_del)
         _menu.exec(self._list.viewport().mapToGlobal(pos))
 
@@ -142,9 +148,11 @@ class Stem_list(QWidget):
         self.selected.emit(self.current_stem())
 
     def _refresh_count(self) -> None:
-        """상단 개수 라벨 갱신 — 전체 / 변경됨(modified) / staged."""
-        _m, _s = self._counts.get("modified", 0), self._counts.get("staged", 0)
-        self._count_label.setText(f"전체 {_m + _s}   ·   변경됨 {_m}   ·   staged {_s}")
+        """상단 개수 라벨 갱신 — 전체 + 상태별(라벨 순, meta.STATES 기준 제네릭)."""
+        _total = sum(self._counts.values())
+        _parts = "   ·   ".join(
+            f"{_badge(_st)[0]} {self._counts.get(_st, 0)}" for _st in Dataset_Meta.STATES)
+        self._count_label.setText(f"전체 {_total}" + (f"   ·   {_parts}" if _parts else ""))
 
     @staticmethod
     def _make_item(stem: str, state: str) -> QListWidgetItem:
@@ -167,7 +175,7 @@ class Stem_list(QWidget):
             _state = _it.data(_STATE_ROLE)
             _id = _seq.get(_state, 0)
             _seq[_state] = _id + 1
-            _label, _color = _BADGE.get(_state, (_state, QColor(0, 0, 0)))
+            _label, _color = _badge(_state)
             _it.setText(f"#{_id}  {_stem}   [{_label}]")
             _it.setForeground(_color)
 

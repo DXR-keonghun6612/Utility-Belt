@@ -462,7 +462,7 @@ class Stem_editor(QWidget):
         반영 전에 모든 객체 mask 를 인스턴스 ``segment`` 한 장으로 합치며 obj_id 를 압축한다
         (``_segment.write_segment`` — 지워진 객체 정리 + 재번호). 파일은 이 stem 의 상태 루트
         (``{root}/{state}``)에 저장한다. 상태 승격(stage/commit)은 하지 않는다 — 그건 목록의
-        버튼이 ``Pipeline.Move`` 로 따로 한다. ``saved`` 에 저장한 stem 을 실어 보낸다.
+        버튼이 ``meta.Move`` 로 따로 한다. ``saved`` 에 저장한 stem 을 실어 보낸다.
         """
         _segment.write_segment(
             self._meta.State_root(self._state), self._stem, self._work,

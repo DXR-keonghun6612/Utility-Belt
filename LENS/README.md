@@ -19,12 +19,16 @@ python cli.py --config config.yaml --stages converter run verify  # 전체
 
 ## 데이터 흐름
 
-```
+```text
 raw 파일
-  └─ converter ─→ Dataset_Meta        (stem = 컨테이너 Data_Ref, 객체 없이 시작)
-                    └─ run(flows) ─→ Dataset_Meta   (mask·bbox·통계 채움)
-                                       └─ verify ─→ 검수 (미구현)
+  └─ Convert ─→ Dataset_Meta          (stem = 컨테이너 Data_Ref, 객체 없이 시작)
+                  └─ Run(flows) ─→ Dataset_Meta     (mask·bbox·통계 채움 → 검수 후 staged)
+                                     └─ Sample ─→ Sample_Set   (staged → train/val/test, task별 트리)
+                                                    └─ Verify ─→ 검수 (미구현)
 ```
+
+세 스테이지(Convert/Run/Sample)는 모두 `process` 의 **`Stage` 엔진**(source→체인→sink)이고, source/sink 만
+다르다 — Convert=raw 발견/정본 등록, Run=정본 순회/정본 라우팅, Sample=정본 순회/파생 배치.
 
 - 모든 데이터는 **단일 재귀 노드 `Data_Ref(type, format, info)`** 로 기술된다 — `type="stem"` 이면
   컨테이너(`info` = 자식 `Data_Ref` 들), 아니면 leaf(payload). 로드/저장은 dataset 핸들러가 담당한다
@@ -74,14 +78,17 @@ flow 작성 템플릿은 [`core/process/presets.example.yaml`](core/process/pres
 
 ```text
 core/           ← pipeline binder
-├── _base.py    Pipeline (Convert/Run/Verify + 모델 풀) · __init__.py = Load_pipeline 진입점
-├── data/       Data_Ref(재귀 노드) · Bucket_Store · handler · converter · meta (데이터 계층)
-├── process/    process 유닛 + flow(체인 엔진, _base.py) — 계산 계층
-└── (data/converter) raw 탐색 → Dataset_Meta 초기화 (stem 목록 + params)
+├── _base.py    Pipeline (Convert→Run→Sample→Verify + 모델 풀) · __init__.py = Load_pipeline 진입점
+├── data/       Data_Ref(재귀 노드) · Bucket_Store · handler · meta(정본 store) · sample(파생 store)
+├── process/    Base_Process 유닛 + Stage 엔진(source→체인→sink) + Run(Flow) — 계산 계층
+├── converter/  Convert 스테이지 — Raw_source(raw 발견) → Register_sink(정본 등록)
+└── sampler/    Sample 스테이지 — Staged_source(정본 순회) → Sample_sink[task](파생 배치)
 cli.py          CLI 진입점
 gui/            dataset_meta 중심 GUI — core Pipeline 구동 (converter/run/meta_view/verify, gui/README.md)
 analysis/       크로마 진단 (core 로 흡수 예정 — Verify 연계)
 ```
+
+세 스테이지는 단위 계약(`Base_Process`)이 같고 source/sink 만 다르다 — `process` 의 `Stage` 엔진을 공유한다.
 
 남은 작업은 [`core/TODO.md`](core/TODO.md).
 

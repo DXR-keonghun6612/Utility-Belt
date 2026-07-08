@@ -1,7 +1,8 @@
 # TODO — gui/
 
-dataset_meta 중심 재구성 완료 — 보유 `Pipeline` 하나(meta 단일 소스), 본문은 stem 목록(상태 뱃지)과
-임베드 `Stem_editor`, id_map/params. Converter·flow 는 비모달 창. 구조는 [`README.md`](README.md).
+dataset_meta 중심 — 보유 `Pipeline` 하나(meta 단일 소스), 본문은 stem 목록(3-상태 뱃지 작업/검수/보류)과
+임베드 `Stem_editor`, id_map/params. Converter·flow·Sampler 는 비모달 창. 전이/삭제는 백그라운드.
+구조는 [`README.md`](README.md).
 
 ## 후속 기능
 

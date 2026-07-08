@@ -168,7 +168,7 @@ class Bucket_Store:
 
     # ── 구조 영속 (top = params; 범주-항목 사이드카; 전부 Structure 위임) ─────────
     @classmethod
-    def Load(cls, root: str | Path) -> Self:
+    def Restore(cls, root: str | Path) -> Self:
         """디렉터리에서 복원한다 — top(params) + 범주별 항목 사이드카 (경로·읽기는 ``Structure`` 소유)."""
         _top = Structure.Read(str(root), cls.TOP_STEM) or {}
         _store = cls(root=str(root), params=_top.get("params", {}))
@@ -227,6 +227,25 @@ class Bucket_Store:
         self._transit(_item, _src_root, _dst_root, op="Move", stem=key)   # payload 파일 이동
         self.categories[to_category][key] = self.categories[_src].pop(key)
         Structure.Move(_src_root, _dst_root, key)                         # 구조 사이드카 이동
+
+    def Copy(self, key: str, to_category: str) -> None:
+        """항목을 ``to_category`` 버킷으로 **복제**한다 — 원본(현재 범주)은 유지 (``Move`` 의 비파괴 짝).
+
+        병합처럼 원본을 그대로 두고 대상 범주에 사본을 얹을 때 쓴다. payload 파일은 ``handler.Copy`` 로
+        복사하고(원본 보존), 구조 사이드카는 대상에 새로 쓴다. 대상 트리가 원본과 aliasing 하지 않도록
+        ``Serialize`` 왕복으로 깊은 사본을 만든다(한쪽 편집이 다른 쪽에 새지 않음). 같은 범주면 no-op.
+        """
+        _src = self.Category_of(key)
+        if _src is None:
+            raise KeyError(f"복사할 항목이 없음: {key}")
+        if _src == to_category:
+            return
+        _src_root, _dst_root = self.Category_root(_src), self.Category_root(to_category)
+        _item = self.categories[_src][key]
+        self._transit(_item, _src_root, _dst_root, op="Copy", stem=key)   # payload 파일 복사 (원본 보존)
+        _clone = Data_Ref(**_item.Serialize())                            # 깊은 사본 (트리 aliasing 방지)
+        self.categories[to_category][key] = _clone
+        Structure.Write(_dst_root, key, _clone.Serialize())               # 구조 사이드카 write
 
     def Delete(self, key: str) -> None:
         """항목을 완전히 제거한다 — payload 파일·구조 사이드카·버킷 (없으면 no-op)."""

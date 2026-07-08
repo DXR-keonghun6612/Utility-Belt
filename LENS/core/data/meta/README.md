@@ -22,18 +22,22 @@ meta/
 
 ---
 
-## Dataset_Meta — staging 2-버킷
+## Dataset_Meta — staging 3-버킷
 
 `Bucket_Store`(forest 파사드)를 상속해 **범주만 고정**한다.
 
 ```python
 class Dataset_Meta(Bucket_Store):
-    CATEGORIES = META_STATES        # ("modified", "staged")
+    CATEGORIES = META_STATES        # ("modified", "staged", "skipped")
 ```
 
-- **`modified`** — flow 출력·외부 가져오기가 들어오는 working 버킷.
-- **`staged`** — 검수 완료(그대로 학습 annotation 으로 나감).
+- **`modified`** (작업) — flow 출력·외부 가져오기가 들어오는 working 버킷.
+- **`staged`** (검수) — 검수 완료(그대로 학습 annotation 으로 나감).
+- **`skipped`** (보류) — 작업 대상 외. 지우지 않고 치워둔 것(되돌리기 가능). **모든 파이프라인에서 자연히
+  제외**된다 — Convert/Run 은 `modified` 만, Sample/Export 는 `staged` 만 지목하므로 skipped 는 어디에도 안 걸림.
 - 한 stem 은 **한 버킷에만** 있고, 버킷 멤버십이 곧 상태(라벨 필드 없음). 상태 전이 = 버킷 이동 (`Move`).
+  상태 추가는 `core/constant.py` `META_STATES` 한 줄 + GUI 뱃지(`gui/meta_view/_stem_list._BADGE`) 한 줄이면
+  된다 — store·전이·순회는 `CATEGORIES` 제네릭이라 자동.
 - 항목(stem)은 컨테이너 `Data_Ref`(`type="stem"`), 그 `info` 의 자식 stem 이 객체(obj_id = key). class 는
   `info["class_id"]` attr(`schema.Attr`/`Set_attr`). class→정수 id 매핑(`id_map`)은 meta 가 아니라 파생
   (sample)이 소유한다 — meta 는 class **이름**만 든다.
@@ -70,6 +74,7 @@ class Dataset_Meta(Bucket_Store):
 | `Save_top()` | 구조(write) | params(top)만 |
 | `Gather(categories=["staged"]) → path` | 구조(write) | 선택 범주를 한 파일로 뭉친 자기완결 번들 |
 | `Move(stem, to_state)` | 전이 | payload 이동(handler) + 버킷 이동 + 사이드카 재배치 |
+| `Copy(stem, to_state)` | 전이 | **비파괴** — 원본 유지 + payload 복사(handler.Copy) + 깊은 사본 사이드카 |
 | `Delete(stem)` | 전이 | payload·사이드카·버킷 제거 |
 | `Merge(other, *, override=False)` | 전이 | 다른 meta 를 상태 보존해 병합 (payload 복사 + params 병합) |
 | `Merge_conflicts(other) → list[str]` | 조회 | 병합 전 stem 중복 목록 (GUI 질의용) |

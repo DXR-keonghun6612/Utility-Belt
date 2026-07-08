@@ -1,16 +1,24 @@
 # process
 
-process 유닛들과, 그걸 잇는 flow(체인 엔진)를 담는 패키지. `__init__`이 레지스트리·조립
-(`PROCESS_REGISTRY`/`Build_process`/`Build_flow`)을, `_base.py`가 기본 구조
-(`Base_Process` + Flow callable)를, 하위 패키지(preprocess/mask/edge/chroma/model/utils)가 구현을 갖는다.
+process 유닛들과, 그걸 잇는 **Stage 엔진**(`source → Base_Process 체인 → sink`)을 담는 패키지.
+`__init__`이 레지스트리·조립(`PROCESS_REGISTRY`/`Build_process`/`Build_flow`)을, `_base.py`가 기본 구조
+(`Base_Process` + `Stage` 엔진 + `Flow`)를, `source.py`/`sink.py`가 입출력 계약(`Base_Source`/`Base_Sink`)과
+Run 구현(`Frame_source`/`Meta_sink`)을, 하위 패키지(preprocess/mask/edge/chroma/model/utils)가 유닛 구현을 갖는다.
 
-flow — process 들을 잇는 한 체인. dataset 위를 순회하며 chain을 실행하고 결과를 선언된
-것만 `dataset_meta`로 남긴다. callable — chain·`unit` 등 config는 dataclass 필드로 묶고
-호출은 stateless다. flow는 config 의 step 목록으로 `Build_process` 가 만든 process 인스턴스를
-들고, 무거운 모델은 pipeline 이 빌드해 주입한다(소유는 pipeline).
+**Stage** — `source`(무엇을 순회·resolve) → `Base_Process` 체인 → `sink`(출력을 어디로)의 엔진. source/sink 를
+갈아끼워 **Convert/Run/Sample 을 한 엔진**으로 표현한다 — 셋은 단위 계약(`Base_Process`)이 같고 source/sink 만
+다르기 때문이다(Convert=[`../converter`](../converter), Sample=[`../sampler`](../sampler)).
 
-상위 구조·용어는 [`../README.md`](../README.md), 데이터 계층은
-[`../dataset/README.md`](../dataset/README.md).
+| stage | source | sink |
+|---|---|---|
+| **Run** (`Flow`) | `Frame_source`(modified 프레임/객체) | `Meta_sink`(frame/object/params 라우팅) |
+| **Convert** | `Raw_source`(glob 발견) | `Register_sink`(stem 등록) |
+| **Sample** | `Staged_source`(staged 순회) | `Sample_sink[task]`(트리 배치) |
+
+**Flow** = Run 구성의 `Stage`(= `Stage(Frame_source, Meta_sink)`). config 의 step 목록으로 `Build_process` 가
+만든 process 인스턴스를 들고, 무거운 모델은 pipeline 이 빌드해 주입한다(소유는 pipeline).
+
+상위 구조·용어는 [`../README.md`](../README.md), 데이터 계층은 [`../data/README.md`](../data/README.md).
 
 ---
 
@@ -128,13 +136,16 @@ step config 의 `slots: {port: slot}` 로 특정 출력을 다른 slot 으로 �
 ```text
 process/
 ├── __init__.py            PROCESS_REGISTRY · Build_process · Build_flow + 유닛 등록
-├── _base.py               Base_Process(계약: Run/__call__)/UI/types + Flow callable + ref 헬퍼
+├── _base.py               Base_Process(계약: Run/__call__) + Stage 엔진 + Flow(Run 구성)
+├── source.py              Base_Source·Frame·Unit·resolve(계약) + Frame_source(Run)
+├── sink.py                Base_Sink(계약) + Meta_sink(Run) + ref 헬퍼(_data_ref/_params_ref)
 ├── presets.example.yaml   flow config 작성용 템플릿 (코드가 읽지 않음 — 복붙 참고용)
 ├── preprocess/            전처리 — crop(크롭) · color(색보정)
-├── mask/                  마스크 — threshold(이진화) · cleanup(정리) · separate(분리)
+├── mask/                  마스크 — threshold(이진화) · cleanup(정리) · separate(분리) · order(중심순 정렬)
 ├── edge/                  엣지 — canny(탐색) · edge(기본: 닫기·채우기·blob)
 ├── chroma/                색공간 — convert_to/distance/accumulate/robust_stats + _space/_core
 ├── model/                 모델 — segment(SAM3 분할) + _sam3 런타임
+├── select/                선택/게이트 — center(중심거리 측정) · gate(범용 값 게이트, Run·Sample 공용)
 └── utils/                 공유 마스크 유틸
 ```
 

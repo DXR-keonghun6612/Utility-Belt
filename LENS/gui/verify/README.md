@@ -15,7 +15,7 @@ base 이미지 + mask/bbox 오버레이(좌) + 데이터/object 편집(우).
 
 stem 파일은 그 stem 의 상태 버킷(`{root}/{state}`)에 산다 — 로드/저장 모두
 `meta.State_root(meta.State_of(stem))` 기준. 저장은 작업 사본을 그 버킷에 되쓴다. 상태 승격은
-별개다(호출 측 버튼이 `Pipeline.Move`).
+별개다(호출 측 버튼이 `meta.Move`).
 
 ## 구성
 

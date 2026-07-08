@@ -32,13 +32,18 @@ task-특화(classification=class 폴더, detection/seg=frame 축 + class 통계)
 ## 디렉토리
 
 ```text
-core/                  ← 데이터(data) + 계산(process) 두 축 + 횡단(typing·constant) + 바인더(_base)
+core/                  ← 데이터(data) + 계산(process/converter/sampler) + 횡단(typing·constant) + 바인더(_base)
 ├── typing.py    횡단 타입 — Arg_Info·Arg(표시 힌트) · BBOX · GRAY_IMAGE
 ├── constant.py  횡단 상수 — MODIFIED·STAGED·META_STATES …
-├── data/        데이터 계층 — schema(Data_Ref·Bucket_Store) · handler · converter · meta(정본) · sample(파생, 보류)
-├── process/     계산 계층 — 공유 process 유닛 + flow 엔진 (frame 축)
-└── _base.py     Pipeline(Convert→Run→Verify) + 모델 풀
+├── data/        데이터 계층(store) — schema(Data_Ref·Bucket_Store) · handler · meta(정본) · sample(파생)
+├── process/     계산 엔진 — Base_Process 유닛 + Stage(source→체인→sink) + Run(Flow)
+├── converter/   Convert 스테이지 — Raw_source(발견) → Register_sink(등록)  (raw → 정본)
+├── sampler/     Sample 스테이지 — Staged_source(순회) → Sample_sink[task]  (정본 → 파생)
+└── _base.py     Pipeline(Convert→Run→Sample→Verify) + 모델 풀
 ```
+
+세 스테이지(Convert/Run/Sample)는 **단위 계약(`Base_Process`)이 같고 source/sink 만 다르다** — `process` 의
+`Stage` 엔진을 공유하고, `converter`·`sampler` 는 그 위의 source/sink 를 얹는다. data 는 표현·영속(store)만.
 
 하위 패키지는 범위별 `README.md`(설계)를 둔다. 데이터 계층 상세는 [`data/README.md`](data/README.md),
 잔여 작업은 [`TODO.md`](TODO.md).
@@ -138,7 +143,8 @@ Convert → Run → [staging 전이는 meta] → (Sample) → Verify
 
 - **`Convert`** — raw → modified 에 stem 컨테이너 등록(`converter` + `meta.Scatter`).
 - **`Run`** — flow 시퀀스를 meta 위에서 구동(process 체인, frame 축) + `meta.Scatter`.
-- **`Sample`** — 파생 재생성(`_build_sampler` → `sampler.Build(staged meta)` → `sample.Scatter`).
+- **`Sample`** — 이름 붙은 tasker 재생성(`Sample(name, cfg)` → `Sample_stage(staged meta)` → `Sample_Set.Scatter`
+  → `taskers.yaml` 등록). `{root}/sample/{name}`, crop 체인 있으면 실체화.
 - **`Verify`** — 품질 검수(선택적). 미구현.
 - 무거운 prediction 모델은 **클래스 dict 풀**(`Pipeline._RESOURCE_POOL`)로 공유(프로세스 수명, 인스턴스
   공유 — GUI 가 실행마다 새 바인더를 만들어도 재사용).
@@ -151,13 +157,17 @@ Convert → Run → [staging 전이는 meta] → (Sample) → Verify
 ## 구현 상태
 
 - **횡단** — `typing.py`(`Arg_Info`/`Arg`/`BBOX`/`GRAY_IMAGE`)·`constant.py`(`META_STATES` …) 안정.
-- **`data/`** — 완료. `schema`(flat `Data_Ref` + forest `Bucket_Store` + stateless 재귀 헬퍼)
-  · `handler`(payload I/O+RLE + `Structure` 구조 사이드카) · `converter`(raw→stem `Data_Ref`) · `meta`(정본:
-  `Dataset_Meta` + 영속 `Scatter`/`Save_item`/`Gather`/`Load` + 전이 `Move`/`Delete`/`Merge`, 인스턴스 메서드)
-  · `sample`(파생: `Sample_Set` + task 별 `Base_Sampler` — classification/detection, split 결정적 배정, `id_map`).
-- **`process/`** — 완료. process 유닛 + `Flow`(flat `Data_Ref` 엔진, frame 축) + 모델 풀 (알고리즘 불변).
-- **`_base.py`** — 완료. slim `Pipeline`(Convert→Run→Sample→Verify) + `self.meta`/`self.sample`, 모델
-  ClassVar 풀. `import core` 동작.
-- **`gui/`** — 완료(코드). flat 스키마 기준 전면 마이그레이션 + PySide6 import 검증(런타임 end-to-end 는 미확인).
-- **보류/다음** — `converter`·`sampler` 를 **process 기반으로 통합**(예정), sample crop 실체화(process
-  재사용), `Pipeline.Verify` + `analysis/` 흡수, GUI 런타임 검증. 잔여 체크리스트는 [`TODO.md`](TODO.md).
+- **`data/`** — 완료(store). `schema`(flat `Data_Ref` + forest `Bucket_Store` + stateless 재귀 헬퍼)
+  · `handler`(payload I/O+RLE + `Structure` 구조 사이드카) · `meta`(정본 `Dataset_Meta` + 영속 `Scatter`/
+  `Save_item`/`Gather`/`Load` + 전이 `Move`/`Delete`/`Merge`) · `sample`(파생 `Sample_Set` store만).
+- **`process/`** — 완료. `Base_Process` 유닛 + **`Stage` 엔진**(source→체인→sink) + Run(`Flow`=`Frame_source`/
+  `Meta_sink`) + 모델 풀. source/sink 계약은 `source.py`/`sink.py`.
+- **`converter/`·`sampler/`** — 완료. process 기반 top-level 스테이지 — Convert=`Raw_source`/`Register_sink`,
+  Sample=`Staged_source`/`Sample_sink[task]`(classification/detection, split 결정적 배정, crop 실체화, `id_map`).
+  이름 붙은 tasker(`sampler/tasker.py` + `taskers.yaml`).
+- **`_base.py`** — 완료. slim `Pipeline`(Convert→Run→Sample→Verify) + `self.meta` + tasker API
+  (`Taskers`/`Sample(name,cfg)`/`Load_sample`/`Delete_tasker`), 모델 ClassVar 풀. `import core` 동작.
+- **`gui/`** — 완료(코드). flat 스키마 전면 마이그레이션 + `gui/sampler`(tasker 빌더 + sample 뷰어, class
+  write-back). offscreen 구성·핵심 흐름 검증, 실제 데스크톱 런타임은 미확인.
+- **보류/다음** — `Pipeline.Verify` + `analysis/` 흡수, detection crop/재배정 GUI, GUI 데스크톱 런타임
+  검증. 잔여 체크리스트는 [`TODO.md`](TODO.md).
