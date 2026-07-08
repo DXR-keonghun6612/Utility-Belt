@@ -16,6 +16,13 @@ from ._base import Data_Ref, Handler
 @HANDLER_REGISTRY.Register_module("attr")
 class Attr_Handler(Handler):
 
+    INLINE = True
+
+    @classmethod
+    def Claims(cls, value: Any, *, storage: bool, params: bool) -> int:
+        """meta(인라인) 요청의 최저 fallback — 스칼라·list·dict 등 파일 아닌 값 담당."""
+        return 1 if not storage else 0
+
     @classmethod
     def Load(
         cls, root: str, stem: str | None, name: str, ref: Data_Ref,

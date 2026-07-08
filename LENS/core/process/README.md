@@ -137,8 +137,8 @@ step config 의 `slots: {port: slot}` 로 특정 출력을 다른 slot 으로 �
 process/
 ├── __init__.py            PROCESS_REGISTRY · Build_process · Build_flow + 유닛 등록
 ├── _base.py               Base_Process(계약: Run/__call__) + Stage 엔진 + Flow(Run 구성)
-├── source.py              Base_Source·Frame·Unit·resolve(계약) + Frame_source(Run)
-├── sink.py                Base_Sink(계약) + Meta_sink(Run) + ref 헬퍼(_data_ref/_params_ref)
+├── source.py              Base_Source·Stem_Block·Unit·resolve(계약) + Frame_source/Meta_block(Run)
+├── sink.py                Base_Sink(계약) + Meta_sink(Run; 쓰기는 handler.Route 게이트)
 ├── presets.example.yaml   flow config 작성용 템플릿 (코드가 읽지 않음 — 복붙 참고용)
 ├── preprocess/            전처리 — crop(크롭) · color(색보정)
 ├── mask/                  마스크 — threshold(이진화) · cleanup(정리) · separate(분리) · order(중심순 정렬)

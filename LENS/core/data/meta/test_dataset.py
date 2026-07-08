@@ -102,7 +102,7 @@ def test_meta_buckets() -> None:
 
 
 def test_meta_post_init_converts() -> None:
-    m = Dataset_Meta(root="/r", categories={"modified": {
+    m = Dataset_Meta(root="/r", buckets={"modified": {
         "s0": {"type": "stem", "info": {"class_id": {"type": "attr", "info": {"value": "A"}}}}}})
     f = m.Bucket("modified")["s0"]
     assert isinstance(f, Data_Ref) and f.Is_stem()

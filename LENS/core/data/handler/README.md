@@ -44,7 +44,21 @@ class Handler(ABC):
     Default_format(cls) -> str
     Extensions(cls) -> tuple[str, ...]   # ext→type 추론용. 인라인은 ()
     Can_visualize(cls) -> bool
+    # ── 쓰기 기본 구성 선언 (Template 이 참조) ──
+    INLINE: ClassVar[bool]               # 값을 info 인라인(attr/rle) vs 파일(image/array/segmap)
+    Claims(cls, value, *, storage, params) -> int  # spec 이 type 미지정 시 value+맥락 담당 우선순위(0=미매칭)
 ```
+
+### 쓰기 기본 구성 — 각 핸들러가 선언, `Template` 이 병합
+
+값을 어떤 `Data_Ref` 서술자로 담을지(type·inline·format)는 **각 핸들러가 자기 규칙을 소유**한다 —
+중앙 테이블이 아니라 `INLINE`·`Default_format`·`Claims` 선언을, `__init__` 의 `Template` 이 registry
+전체에서 모아 결정한다. 새 type(mesh·points3d …)은 파일 하나로 자기 규칙을 들고 붙는다(중앙 수정 0).
+
+- **`Claims`** — spec 이 `type`/`format` 을 안 줄 때 value→type 을 정하는 우선순위. `storage`(=spec.to
+  =="storage")·`params`(위치 없는 dataset-wide) 맥락을 함께 봐 **같은 ndarray 를 rle/array/image 로
+  가른다**. 현재 선언: `attr`=1(meta fallback) · `rle`=3(frame meta 2D+) · `array`=3(params ndarray) ·
+  `image`=3(frame storage ndarray) · `segmap`=0(png 추론 불가 → 항상 `type: segmap` 명시).
 
 - `Save` 의 `src` 는 핸들러가 이해하는 입력 — converter 의 raw 파일 `Path` **또는** process 의
   in-memory payload(ndarray·값). 한 `Save` 가 두 생산자를 다 받는다.
@@ -91,7 +105,14 @@ handler.Copy(src_root, dst_root, stem, name, ref, *, obj_id=None)   # 병합 (�
 handler.Delete(root, stem, name, ref, *, obj_id=None)               # 인라인 no-op
 handler.Types() -> list[str]                                        # 등록 목록
 handler.Infer_type(ext) -> str | None                              # 확장자 → type (없으면 None=명시)
+# ── 쓰기 게이트 (spec → 템플릿 → 저장; sink 가 위치만 정하면 나머지는 여기서) ──
+handler.Template(spec, value, *, params=False) -> Data_Ref          # 값+맥락 → Data_Ref 서술자
+handler.Route(root, stem, name, spec, value, *, obj_id=None, params=False) -> Data_Ref  # Template + Save
 ```
+
+`Route` 는 sink(`Meta_sink`/`Sample_sink`)이 store 위치만 정하면 ref 구성·인코딩·경로 파생을 전부
+받는 단일 쓰기 게이트다 — 구 `_data_ref`/`_params_ref`/`_attach_crop`/`_set_param` 이 여기로 수렴.
+`spec` = `{to: meta|storage, level?, dir?, format?, type?}`.
 
 `stem` 은 Optional — params 는 stem 없이 `None`(파일명 = name). `Infer_type` 은 조용한 기본값을 두지
 않는다(추론 안 되면 호출 측이 type 명시).

@@ -18,7 +18,7 @@ import shutil
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from python_toolbox.data_schema import Data_Schema
 
@@ -68,7 +68,25 @@ class Handler(ABC):
 
     경로 파생·인코딩·인라인 규칙을 전부 핸들러가 소유한다. 외부(converter·pipeline·GUI)는
     type(=등록 이름)만 알면 된다.
+
+    **기본 구성 선언** — 쓰기 경로(``handler.Template``)가 값을 어떤 서술자로 담을지 정할 때
+    참조하는 type 별 규약을 핸들러가 소유한다(중앙 테이블 대신 각 핸들러가 자기 규칙을 든다 →
+    새 type=파일 하나로 확장). ``INLINE``(값을 info 인라인 vs 파일)·``Default_format``(ext 짝)·
+    ``Claims``(spec 이 type 을 안 줄 때 value+맥락으로 자기가 담당하는지)가 그것.
     """
+
+    # 값을 ``Data_Ref.info`` 에 인라인 보관(attr/rle)하면 True, 디스크 파일(image/array/segmap)이면 False.
+    INLINE: ClassVar[bool] = False
+
+    @classmethod
+    def Claims(cls, value: Any, *, storage: bool, params: bool) -> int:
+        """spec 이 ``type``/``format`` 을 안 줄 때, 이 value+맥락을 담당하는 우선순위 (0=미매칭).
+
+        ``handler.Template`` 의 value→type 추론을 각 핸들러로 이전한 자리. registry 를 순회해 최고
+        우선순위 핸들러가 선택된다. ``storage`` = spec.to=="storage"(파일 요청), ``params`` = 위치
+        없는 dataset-wide(finalize) 출력. 같은 ndarray 라도 맥락으로 rle/array/image 를 가른다.
+        """
+        return 0
 
     @classmethod
     @abstractmethod

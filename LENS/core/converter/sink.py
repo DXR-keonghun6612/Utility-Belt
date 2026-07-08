@@ -25,9 +25,10 @@ class Register_sink(Base_Sink):
         if unit.extra.get("target") == "params":           # dataset-wide root leaf
             for _name, _ref in _specs.items():
                 if _name in ctx:
-                    store.params[_name] = handler.Save(store.root, None, _name, _ref, ctx[_name])
+                    store.Set(_name, handler.Save(store.root, None, _name, _ref, ctx[_name]),
+                              is_param=True)
             return
         _root = store.Category_root(MODIFIED)               # frame: modified 버킷 stem
         _info = {_name: handler.Save(_root, unit.stem, _name, _ref, ctx[_name])
                  for _name, _ref in _specs.items() if _name in ctx}
-        store.Bucket(MODIFIED)[unit.stem] = Data_Ref(type="stem", info=_info)
+        store.Set(unit.stem, Data_Ref(type="stem", info=_info), category=MODIFIED)

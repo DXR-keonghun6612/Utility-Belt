@@ -22,7 +22,7 @@ data/
 
 - **`schema.py`** — 트리는 **단일 재귀 타입 `Data_Ref`**. `type="stem"` 이면 컨테이너(`info` = 자식
   `Data_Ref` 들), 아니면 leaf(payload). obj_id·이름은 부모 `info` 의 **key**, class 는 `info["class_id"]`
-  attr(`Attr`/`Set_attr`). `Bucket_Store` 는 트리 노드가 아니라 **forest 파사드**(`params` + `categories`)로,
+  attr(`Attr`/`Set_attr`). `Bucket_Store` 는 트리 노드가 아니라 **forest 파사드**(`params` + `buckets`)로,
   트리 재귀(순회·전이·병합)를 `type` 으로 leaf/stem 을 갈라 **stateless 헬퍼**로 소유한다.
 - **`handler/` (I/O 게이트)** — `Data_Ref.type` 이 지목하는 핸들러가 payload(이미지·배열·마스크)를 실제
   파일로 load/save/copy/move/delete 한다. 구조 사이드카(stem 서브트리 JSON)는 `Structure` 핸들러가 소유.
@@ -62,7 +62,7 @@ data/
 ## 구현 상태
 
 - `schema.py` — 완료. flat `Data_Ref`(재귀 노드, leaf/stem) + `Attr`/`Set_attr` + forest `Bucket_Store`
-  (`params`+`categories`, stateless 재귀 헬퍼·범주 편의·영속·전이).
+  (`params`+`buckets`, stateless 재귀 헬퍼·범주 편의·영속·전이).
 - `handler/` — 완료. `Data_Ref` 재귀 + payload I/O + RLE 코덱 + `Structure`(구조 사이드카 read/write/move/delete).
 - `meta/` — 완료. thin `Dataset_Meta(Bucket_Store)` — `CATEGORIES` + staging 편의(`State_of`/`modified`/
   `staged`/`Get`/`Has`). 영속·전이는 `Bucket_Store` 상속.

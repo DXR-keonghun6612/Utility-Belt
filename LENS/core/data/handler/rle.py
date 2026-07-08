@@ -36,6 +36,14 @@ def _encode(mask: np.ndarray) -> dict:
 @HANDLER_REGISTRY.Register_module("rle")
 class Rle_Handler(Handler):
 
+    INLINE = True
+
+    @classmethod
+    def Claims(cls, value: Any, *, storage: bool, params: bool) -> int:
+        """frame/object 인라인 마스크 — 2D+ ndarray 를 RLE 로(위치 있는 meta 출력만)."""
+        return 3 if (not storage and not params
+                     and isinstance(value, np.ndarray) and value.ndim >= 2) else 0
+
     @classmethod
     def Load(cls, root: str, stem: str | None, name: str, ref: Data_Ref,
              *, obj_id: str | None = None) -> Any:

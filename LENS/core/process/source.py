@@ -2,9 +2,13 @@
 
 ``Stage`` 엔진(``_base.py``)의 입력 축. source 는 처리 단위(``Unit``)를 내주고, 각 Unit 은 process
 체인이 먹을 **resolve 된 ctx**(handler.Load 로 푼 payload) + sink 가 쓸 **주소**(stem/obj_id/frame ref)를
-든다. 여기엔 **계약**(``Base_Source``·``Frame``·``Unit``·``resolve``)과 Run 구현(``Frame_source`` = modified
-프레임/객체)만 둔다 — Convert 의 ``Raw_source`` 는 [`../converter`](../converter), Sample 의 ``Staged_source``
-는 [`../sampler`](../sampler) 가 이 계약을 같은 모양으로 구현한다.
+든다. 여기엔 **계약**(``Base_Source``·``Stem_Block``·``Unit``·``resolve``)과 Run 구현(``Meta_block`` =
+modified 프레임/객체)만 둔다 — Convert 의 ``Raw_block`` 은 [`../converter`](../converter), Sample 의
+``Staged_block`` 은 [`../sampler`](../sampler) 가 이 계약을 같은 모양으로 구현한다.
+
+순회 배치는 **하나의 stem**(정본 프레임 / raw 그룹)이라 ``Stem_Block`` 이다. Meta·Staged 는 stem 의
+자식 stem(객체)을 unit 으로 분해하는 **골격(``units``)을 공유**하고, unit ctx 채우기(``_unit``)와 frame-
+단위 정책(``_frame_unit``)만 다르다. Raw 는 obj 분해가 없어 ``units`` 를 직접 낸다.
 
 resolve 는 여기(입력) / route 는 [`sink.py`](sink.py)(출력)로 갈린 대칭. 둘 다 payload I/O 는 ``handler``.
 """
@@ -53,41 +57,66 @@ def resolve(root: str, stem: str | None, data: dict[str, Data_Ref],
     return _out
 
 
-class Frame(ABC):
-    """한 프레임(순회 배치) — carry 는 프레임 경계에서 이월된다. 프레임 ctx + 그 안의 unit 들을 낸다."""
+class Stem_Block(ABC):
+    """한 순회 배치 = 한 stem(정본 프레임 / raw 그룹) — 배치 ctx + 그 안의 처리 단위(``Unit``)를 낸다.
 
-    stem: str
+    carry 는 배치 경계에서 이월된다. object 단위면 stem 의 자식 stem(=객체)마다 한 unit, frame 단위면
+    ``_frame_unit`` — 이 **분해 골격은 여기(``units``)가 소유**하고, 서브클래스는 "unit ctx 를 어떻게
+    채우나"(``_unit``)와 frame-단위 정책(``_frame_unit``)만 구현한다. obj 분해가 없는 배치(Raw)는
+    ``units`` 를 override 한다.
+    """
+
+    # Meta/Staged 가 쓰는 필드 (골격이 참조). Raw 는 units override 라 이 필드가 없어도 된다.
+    stem:  str
+    frame: Data_Ref
+    unit:  str
 
     @abstractmethod
     def context(self, store, params_ctx: dict) -> dict:
-        """프레임 단위 ctx (params + 프레임 leaf resolve; 객체 루프와 무관하게 1회)."""
+        """배치 단위 ctx (params + 배치 leaf resolve; unit 루프와 무관하게 1회)."""
 
-    @abstractmethod
     def units(self, store, fctx: dict) -> Iterator[Unit]:
-        """이 프레임의 처리 단위들을 ``Unit`` 으로 낸다 (frame/object)."""
+        """이 배치의 처리 단위들 — object=자식 obj 마다, frame=``_frame_unit`` (공통 분해 골격)."""
+        if self.unit == "object":
+            for _oid, _obj in self._objects().items():
+                yield self._unit(store, fctx, _oid, _obj)
+        else:
+            yield from self._frame_unit(store, fctx)
+
+    def _objects(self) -> dict[str, Data_Ref]:
+        """이 stem 의 자식 stem(=객체) 들 (leaf 는 제외)."""
+        return {_k: _v for _k, _v in self.frame.info.items() if _v.Is_stem()}
+
+    def _unit(self, store, fctx: dict, obj_id: str | None, obj: Data_Ref | None) -> Unit:
+        """한 객체(또는 frame-단위의 프레임 자신)를 처리 unit 으로 — 서브클래스가 ctx 채우기 구현."""
+        raise NotImplementedError
+
+    def _frame_unit(self, store, fctx: dict) -> Iterator[Unit]:
+        """frame-단위 기본 — 프레임 자신을 한 unit 으로(obj=frame). Meta 는 '첫 객체'로 override."""
+        yield self._unit(store, fctx, None, self.frame)
 
 
 class Base_Source(ABC):
-    """Stage 입력 축 — prelude(순회 전 1회 ctx) + frames(순회 배치)."""
+    """Stage 입력 축 — prelude(순회 전 1회 ctx) + blocks(순회 배치)."""
 
     @abstractmethod
     def prelude(self, store) -> dict:
         """순회 전 1회 resolve 하는 공통 ctx (예: params). 없으면 ``{}``."""
 
     @abstractmethod
-    def frames(self, store) -> Iterator[Frame]:
-        """순회할 프레임(배치)들을 낸다."""
+    def blocks(self, store) -> Iterator[Stem_Block]:
+        """순회할 배치(``Stem_Block``)들을 낸다."""
 
     def count(self, store) -> int:
-        """총 프레임 수 (cache-hit 시 진행 표시용). 기본은 frames 열거."""
-        return sum(1 for _ in self.frames(store))
+        """총 배치 수 (cache-hit 시 진행 표시용). 기본은 blocks 열거."""
+        return sum(1 for _ in self.blocks(store))
 
 
 # ── Run: modified 프레임/객체 ──────────────────────────────────────────────────
 
 @dataclass
-class Meta_frame(Frame):
-    """정본 프레임 하나 — leaf resolve + unit(frame/object) 분기."""
+class Meta_block(Stem_Block):
+    """정본 프레임 하나 — leaf resolve + unit(frame/object) 분기. frame-단위는 '첫 객체 1회'."""
 
     stem:  str
     frame: Data_Ref
@@ -98,22 +127,20 @@ class Meta_frame(Frame):
         _ctx.update(resolve(store.Category_root(MODIFIED), self.stem, self.frame.info))
         return _ctx
 
-    def units(self, store, fctx: dict) -> Iterator[Unit]:
-        _objs = {_k: _v for _k, _v in self.frame.info.items() if _v.Is_stem()}
-        _root = store.Category_root(MODIFIED)
-        if self.unit == "object":
-            _items = list(_objs.items())
-        elif _objs:                                   # unit=frame: 첫 객체 1회
+    def _unit(self, store, fctx: dict, obj_id: str | None, obj: Data_Ref | None) -> Unit:
+        _octx = dict(fctx)
+        _octx["obj_id"] = obj_id                        # gate·select 가 obj_id 로 거를 수 있게
+        if obj is not None:
+            _octx.update(resolve(store.Category_root(MODIFIED), self.stem, obj.info, obj_id=obj_id))
+        return Unit(stem=self.stem, ctx=_octx, frame=self.frame, obj_id=obj_id, obj=obj)
+
+    def _frame_unit(self, store, fctx: dict) -> Iterator[Unit]:
+        _objs = self._objects()
+        if _objs:                                       # unit=frame: 첫 객체 1회(obj_id 바인딩)
             _k = next(iter(_objs))
-            _items = [(_k, _objs[_k])]
-        else:
-            _items = [(None, None)]                   # 객체 없는 프레임
-        for _oid, _obj in _items:
-            _octx = dict(fctx)
-            _octx["obj_id"] = _oid                     # gate·select 가 obj_id 로 거를 수 있게
-            if _obj is not None:
-                _octx.update(resolve(_root, self.stem, _obj.info, obj_id=_oid))
-            yield Unit(stem=self.stem, ctx=_octx, frame=self.frame, obj_id=_oid, obj=_obj)
+            yield self._unit(store, fctx, _k, _objs[_k])
+        else:                                           # 객체 없는 프레임
+            yield self._unit(store, fctx, None, None)
 
 
 @dataclass
@@ -128,9 +155,9 @@ class Frame_source(Base_Source):
     def prelude(self, store) -> dict:
         return resolve(store.root, None, store.params)      # params(root leaf) 1회
 
-    def frames(self, store) -> Iterator[Meta_frame]:
+    def blocks(self, store) -> Iterator[Meta_block]:
         for _stem, _frame in store.Iter_category(MODIFIED):
-            yield Meta_frame(_stem, _frame, self.unit)
+            yield Meta_block(_stem, _frame, self.unit)
 
     def count(self, store) -> int:
         return len(store.Bucket(MODIFIED))

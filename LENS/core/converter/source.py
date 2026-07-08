@@ -1,8 +1,8 @@
 """Convert source — 폴더의 흩어진 raw 파일을 glob 로 묶어 stem 그룹으로 발견한다.
 
-``process`` 의 Stage 입력 계약(``Base_Source``/``Frame``/``Unit``)을 구현한다 — Run 의 ``Frame_source`` 가
-정본을 순회하듯, ``Raw_source`` 는 raw 를 발견한다. 실제 저장은 sink([`sink.py`](sink.py) ``Register_sink``)가
-handler 로 하고, source 는 발견·ref 템플릿만 정한다(정해진 포맷 파서 coco/yolo 는 다른 Source 로 추가).
+``process`` 의 Stage 입력 계약(``Base_Source``/``Stem_Block``/``Unit``)을 구현한다 — Run 의 ``Frame_source``
+가 정본을 순회하듯, ``Raw_source`` 는 raw 를 발견한다. 실제 저장은 sink([`sink.py`](sink.py) ``Register_sink``)
+가 handler 로 하고, source 는 발견·ref 템플릿만 정한다(정해진 포맷 파서 coco/yolo 는 다른 Source 로 추가).
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from typing import Any, Iterator
 
 from ..data import handler
 from ..data.handler import Data_Ref
-from ..process.source import Base_Source, Frame, Unit
+from ..process.source import Base_Source, Stem_Block, Unit
 
 
 def _extract_stem(filename: str, pattern: str) -> str:
@@ -60,11 +60,12 @@ def _spec_ref(spec: dict | str, default_dir: str | None) -> Data_Ref:
 
 
 @dataclass
-class Raw_frame(Frame):
+class Raw_block(Stem_Block):
     """발견된 raw 그룹 하나 — 파일 경로 + ref 템플릿을 unit 으로 낸다 (resolve 없음).
 
     ``target`` = 이 그룹이 향할 곳(``frame`` = modified 버킷 stem / ``params`` = dataset-wide root leaf) —
-    sink(``Register_sink``)가 이 정보로 저장 위치를 가른다.
+    sink(``Register_sink``)가 이 정보로 저장 위치를 가른다. obj 분해가 없어(raw 는 아직 트리 구조가 없음)
+    ``Stem_Block`` 의 unit 골격을 쓰지 않고 ``units`` 를 직접 낸다(그룹 하나 = unit 하나).
     """
 
     stem:   str
@@ -84,7 +85,7 @@ class Raw_frame(Frame):
 class Raw_source(Base_Source):
     """glob 발견 converter source. 각 glob key(``globs``)는 ``{pattern, type?, dir?, format?}``.
 
-    발견된 그룹은 ``Raw_frame``(target="frame"), ``params`` 는 stem 무관 dataset-wide 파일(target="params").
+    발견된 그룹은 ``Raw_block``(target="frame"), ``params`` 는 stem 무관 dataset-wide 파일(target="params").
     ``type`` 생략 시 패턴 확장자로 핸들러 추론(png→image), 추론 안 되는 확장자(txt 등)는 명시.
     """
 
@@ -95,14 +96,14 @@ class Raw_source(Base_Source):
     def prelude(self, store) -> dict:
         return {}
 
-    def frames(self, store) -> Iterator[Raw_frame]:
+    def blocks(self, store) -> Iterator[Raw_block]:
         for _stem, _files in self._scan().items():
             _specs = {_n: _spec_ref(self.globs[_n], None) for _n in _files}
-            yield Raw_frame(_stem, _files, _specs, target="frame")
+            yield Raw_block(_stem, _files, _specs, target="frame")
         if self.params:                                    # dataset-wide 파일 (한 그룹)
             _pfiles = {_n: Path(_pattern(_s)) for _n, _s in self.params.items()}
             _pspecs = {_n: _spec_ref(_s, "params") for _n, _s in self.params.items()}
-            yield Raw_frame("__params__", _pfiles, _pspecs, target="params")
+            yield Raw_block("__params__", _pfiles, _pspecs, target="params")
 
     def count(self, store) -> int:
         return len(self._scan())

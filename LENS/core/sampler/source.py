@@ -1,6 +1,6 @@
 """Sample source — staged 정본을 unit 단위로 순회한다.
 
-``process`` 의 Stage 입력 계약(``Base_Source``/``Frame``/``Unit``)을 구현한다. Run 의 ``Frame_source`` 가
+``process`` 의 Stage 입력 계약(``Base_Source``/``Stem_Block``/``Unit``)을 구현한다. Run 의 ``Frame_source`` 가
 modified 를 순회하듯, ``Staged_source`` 는 staged 를 순회한다. 두 모드:
 
 - **A+ (``materialize=False``, 기본)** — payload 를 resolve 하지 않고 정본 ref(``unit.frame``/``unit.obj``)
@@ -20,7 +20,7 @@ import numpy as np
 
 from ..constant import STAGED
 from ..data.handler import Data_Ref
-from ..process.source import Base_Source, Frame, Unit, resolve
+from ..process.source import Base_Source, Stem_Block, Unit, resolve
 
 
 def _inline_ctx(ref: Data_Ref) -> dict:
@@ -50,8 +50,12 @@ def _obj_mask(segment: np.ndarray | None, obj_id: str | None) -> np.ndarray | No
 
 
 @dataclass
-class Staged_frame(Frame):
-    """staged 프레임 하나 — A+ 면 inline attr+obj_id 만, 실체화면 leaf resolve + obj mask 파생."""
+class Staged_block(Stem_Block):
+    """staged 프레임 하나 — A+ 면 inline attr+obj_id 만, 실체화면 leaf resolve + obj mask 파생.
+
+    unit 분해 골격(``units``)·frame-단위(``_frame_unit`` = 프레임 자신을 sample 로)는 ``Stem_Block`` 이
+    소유하고, 여기선 unit ctx 채우기(``_unit``: inline attr + 실체화 시 obj mask)만 구현한다.
+    """
 
     stem:  str
     frame: Data_Ref
@@ -65,19 +69,13 @@ class Staged_frame(Frame):
         _ctx.update(resolve(store.Category_root(STAGED), self.stem, self.frame.info))
         return _ctx
 
-    def units(self, store, fctx: dict) -> Iterator[Unit]:
-        _objs = {_k: _v for _k, _v in self.frame.info.items() if _v.Is_stem()}
-        _segment = fctx.get("segment") if self.materialize else None
-        if self.unit == "object":
-            for _oid, _obj in _objs.items():
-                _ctx = {**fctx, "obj_id": _oid, **_inline_ctx(_obj)}
-                _mask = _obj_mask(_segment, _oid)
-                if _mask is not None:
-                    _ctx["mask"] = _mask               # Frame_crop 입력 (segment→obj mask)
-                yield Unit(stem=self.stem, ctx=_ctx, frame=self.frame, obj_id=_oid, obj=_obj)
-        else:                                          # frame 단위: 프레임 자체가 sample
-            _ctx = {**fctx, "obj_id": None, **_inline_ctx(self.frame)}
-            yield Unit(stem=self.stem, ctx=_ctx, frame=self.frame, obj_id=None, obj=self.frame)
+    def _unit(self, store, fctx: dict, obj_id: str | None, obj: Data_Ref | None) -> Unit:
+        _ctx = {**fctx, "obj_id": obj_id, **_inline_ctx(obj)}
+        if self.materialize:
+            _mask = _obj_mask(fctx.get("segment"), obj_id)   # segment→obj mask (frame-단위는 obj_id=None→없음)
+            if _mask is not None:
+                _ctx["mask"] = _mask                         # Frame_crop 입력
+        return Unit(stem=self.stem, ctx=_ctx, frame=self.frame, obj_id=obj_id, obj=obj)
 
 
 @dataclass
@@ -90,9 +88,9 @@ class Staged_source(Base_Source):
     def prelude(self, store) -> dict:
         return {}
 
-    def frames(self, store) -> Iterator[Staged_frame]:
+    def blocks(self, store) -> Iterator[Staged_block]:
         for _stem, _frame in store.Iter_category(STAGED):
-            yield Staged_frame(_stem, _frame, self.unit, self.materialize)
+            yield Staged_block(_stem, _frame, self.unit, self.materialize)
 
     def count(self, store) -> int:
         return len(store.Bucket(STAGED))

@@ -15,13 +15,13 @@ source/sink** 다(`Convert = Stage(Raw_source, [], Register_sink)`).
 
 ```text
 converter/
-├── source.py   Raw_source — glob 발견(폴더의 흩어진 파일 → stem 그룹) + Raw_frame
+├── source.py   Raw_source — glob 발견(폴더의 흩어진 파일 → stem 그룹) + Raw_block
 ├── sink.py     Register_sink — 그룹을 handler.Save 하고 stem Data_Ref 를 modified 에 등록
 ├── stage.py    Convert_stage(Stage) — Raw_source + Register_sink 조립
 └── __init__.py
 ```
 
-- **`Raw_source`** — `Base_Source` 구현. `sources`/`globs`/`params` 로 raw 를 발견해 `Raw_frame`(파일
+- **`Raw_source`** — `Base_Source` 구현. `sources`/`globs`/`params` 로 raw 를 발견해 `Raw_block`(파일
   경로 + ref 템플릿)을 낸다. 실제 저장은 안 하고 **발견·템플릿**만 정한다. 정해진 포맷 파서(coco/yolo)는
   다른 Source 로 이 패키지에 파일로 추가.
 - **`Register_sink`** — `Base_Sink` 구현. 체인이 비므로 unit 당 1회 `emit` 에서 구조를 만든다:
@@ -51,7 +51,7 @@ converter:
 ### 처리 흐름 (`Stage(Raw_source, [], Register_sink)`)
 
 1. `Raw_source._scan()` → `{stem: {name: path}}` (모든 key 매칭 = inner join, stem 은 `_extract_stem`)
-2. stem 마다 `Raw_frame`(파일 + ref 템플릿, `target="frame"`) — params 는 dataset-wide 한 그룹(`target="params"`)
+2. stem 마다 `Raw_block`(파일 + ref 템플릿, `target="frame"`) — params 는 dataset-wide 한 그룹(`target="params"`)
 3. `Register_sink.emit` 가 각 그룹을 `handler.Save`(image=복사·attr=내용 인라인·rle=인코딩) 후 stem
    `Data_Ref` 를 modified 에 (params 는 root leaf 로)
 
@@ -64,7 +64,7 @@ key별 `type` → 핸들러 디스패치라 라벨 특수처리가 없다 — �
 ```python
 # 새 발견 전략 (폴더 스캔) 또는 포맷 파서 — 새 Source 를 파일로 추가
 class Coco_source(Base_Source):        # converter/coco.py
-    def frames(self, store): ...       # COCO json 파싱 → Raw_frame
+    def blocks(self, store): ...       # COCO json 파싱 → Raw_block
 
 # raw→정본 변환이 필요하면 Convert_stage 의 processes 체인에 Base_Process 를 끼운다 (Run 과 같은 엔진).
 ```

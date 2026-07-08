@@ -199,14 +199,14 @@ class Stage(Base_Config):
             return
 
         _params_ctx = _source.prelude(store)       # 순회 전 1회 (params 등)
-        _carry: dict = {}                          # cross-frame reduce (이 호출에만 사는 transient)
-        _frames = list(_source.frames(store))
-        _total = len(_frames)
-        for _i, _frame in enumerate(_frames, start=1):
-            _fctx = _frame.context(store, _params_ctx)   # 프레임 ctx (객체 루프와 무관하게 1회)
-            _fctx.update(_carry)                          # 직전 프레임 누산 상태 되먹임
-            _last = _fctx
-            for _unit in _frame.units(store, _fctx):
+        _carry: dict = {}                          # cross-block reduce (이 호출에만 사는 transient)
+        _blocks = list(_source.blocks(store))
+        _total = len(_blocks)
+        for _i, _block in enumerate(_blocks, start=1):
+            _bctx = _block.context(store, _params_ctx)   # 배치 ctx (unit 루프와 무관하게 1회)
+            _bctx.update(_carry)                          # 직전 배치 누산 상태 되먹임
+            _last = _bctx
+            for _unit in _block.units(store, _bctx):
                 _ctx, _gated = _unit.ctx, False
                 for _idx, _inner in enumerate(self._inners):
                     _out = _inner(**_ctx)

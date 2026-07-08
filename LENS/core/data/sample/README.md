@@ -18,7 +18,7 @@ class Sample_Set(Bucket_Store):
 
 - root 규약 = `{dataset_root}/sample/{tasker}` (정본 root 아래 파생 서브트리, `SAMPLE_DIR`="sample").
   tasker(이름 붙은 파생) 목록·설정은 `{dataset_root}/sample/taskers.yaml` — 빌드·조율은 [`../../sampler`](../../sampler).
-- 한 split 버킷(`categories[split]`)의 **항목 key 가 무엇인지는 task(sampler)가 정한다** —
+- 한 split 버킷(`buckets[split]`)의 **항목 key 가 무엇인지는 task(sampler)가 정한다** —
   classification 은 class(그 안에 sample 중첩), detection 은 image(그 안에 object 중첩). `Sample_Set`
   은 그 의미를 모른다 — split 안의 트리 모양은 `Data_Ref` stem 중첩이 임의 depth 로 흡수한다.
 - 영속(`Scatter`/`Save_item`/`Load`)·전이·번들(`Gather`)은 전부 `Bucket_Store` 상속 — 정본과 **완전히

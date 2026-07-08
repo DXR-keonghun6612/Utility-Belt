@@ -39,6 +39,10 @@ class Segmap_Handler(Image_Handler):
         super()._Write(_map, path)          # cv2 저장 + 실패 체크 재사용
 
     @classmethod
+    def Claims(cls, value: Any, *, storage: bool, params: bool) -> int:
+        return 0                            # png·ndarray 는 image 와 구분 불가 → 항상 type 명시(상속 override)
+
+    @classmethod
     def Extensions(cls) -> tuple[str, ...]:
         return ()                           # png 는 image 가 점유 → 추론 안 함(type 명시 필요)
 

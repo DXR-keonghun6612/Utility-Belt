@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import cv2
+import numpy as np
 
 from . import HANDLER_REGISTRY
 from ._base import File_Handler
@@ -13,6 +14,11 @@ from ._base import File_Handler
 
 @HANDLER_REGISTRY.Register_module("image")
 class Image_Handler(File_Handler):
+
+    @classmethod
+    def Claims(cls, value: Any, *, storage: bool, params: bool) -> int:
+        """frame/object 파일 이미지 — 위치 있는 storage 요청의 ndarray 를 png 로."""
+        return 3 if (storage and not params and isinstance(value, np.ndarray)) else 0
 
     @classmethod
     def _Read(cls, path: Path) -> Any:

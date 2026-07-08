@@ -4,12 +4,61 @@
 
 ---
 
+## ▶ 진행 중 — source/sink 표준화 + schema.py 축소
+
+**동기.** `data/schema.py`(`Bucket_Store`, 295줄)가 불어났다. 주 원인은 `process/` 의 source/sink 가
+**구현 중심**으로 자라며 `converter`·`sampler` 를 붙일 때마다 "값 → `Data_Ref` 템플릿 → `handler.Save`"
+쓰기 로직을 그 자리에서 즉석 재구현했고(표준 부재), sink 들이 store 내부(`Bucket`/`params`/`categories`)를
+직접 찔러 `Bucket_Store` 가 저수준 표면을 다 열어줘야 했기 때문.
+
+**진단 — 흩어진 쓰기(write) 로직.**
+- Data_Ref 템플릿 생성 5개 지점: `process/sink.py::_data_ref`·`_params_ref`,
+  `converter/source.py::_spec_ref`, `sampler/sink/_base.py::_sample_ref`·`_attach_crop`·`_set_param`.
+- `attr` 템플릿만 3벌 중복: `_params_ref` 스칼라 분기 · `_set_param` · `schema.Set_attr`.
+- `Frame.units` 스켈레톤 중복: `Meta_frame.units` ↔ `Staged_frame.units`(stem 자식→obj 분해 +
+  object/frame 분기가 각자 구현, 차이는 ctx 채우기뿐).
+- sink 들이 `store.Bucket(X)[k]=…`·`store.params[k]=…` 직접 조작 → 표면 노출.
+
+**결정(합의).** write 프리미티브는 **`data/handler`** 에 둔다(I/O 게이트이자 type/format/dir·inline
+판정의 진실원천). **R1(source/sink 표준화) 먼저**, store 표면 압력을 없앤 뒤 **R2(schema.py 분리)** 판단.
+
+### R1 — source/sink 계약 표준화
+- [x] **R1a. write 프리미티브** — `handler.Template(spec, value, *, params) -> Data_Ref` +
+      `handler.Route(…)` (Template + `Save`) 추가 **완료**. value→type 추론을 중앙 테이블 대신 **각
+      핸들러의 `INLINE`/`Claims` 선언**으로 병합(3d pts·mesh 는 파일 하나로 확장; `_STORAGE_CONTEXT`
+      하드코딩 폐기). `Meta_sink.route`(`_data_ref`/`_params_ref` 제거)·`sampler/sink/_base`
+      (`_attach_crop`·`_set_param`) 배선. 스모크(dispatch 재현 + 파일 왕복) 검증. `converter/source.py::
+      _spec_ref` 는 패턴-확장자 추론·raise 가 고유라 유지(파일 template 공유는 R1c 에서 검토).
+- [x] **R1b. source `Frame`→`Stem_Block` 정리** **완료** — 배치 클래스를 `Stem_Block`(하나의 stem 공유)
+      으로 리네임하고(`Meta_block`/`Staged_block`/`Raw_block`), unit 분해 골격(`units`=자식 obj 추출 +
+      object/frame 루프)을 베이스가 소유. 서브클래스는 `_unit`(ctx 채우기)·`_frame_unit`(frame-단위 정책;
+      기본=프레임 자신, Meta 만 '첫 객체' override)만. Raw 는 obj 분해 없어 `units` override. `Base_Source.
+      frames()`→`blocks()`. 스모크(Meta obj/frame·Staged·Raw 순회) 검증.
+- [x] **R1c. store 쓰기 표면 정리** **완료** — sink 이 `store.params[k]=`·`Bucket(cat)[k]=` 로 내부 dict
+      를 직접 만지던 걸 **단일 게이트 `Bucket_Store.Set(key, ref, *, category=None, is_param=False)`** 로
+      통일(params 쓰기 = 버킷 stem 등록 = "dict 에 ref 삽입"이라 한 메서드). `Meta_sink`·`Register_sink`·
+      `Sample_sink._set_param` 배선. 트리 노드 배치(`_stem.info[k]=`)는 sink 고유라 유지.
+      **리네임**: 필드 `categories`→`buckets`(ClassVar `CATEGORIES` 와 대소문자만 달라 혼동 → `Bucket()`
+      과 짝 맞춤). `Frame`→`Stem_Block` 은 R1b.
+
+### R2 — schema.py 축소 (R1 이후)
+- [ ] `Bucket_Store` 의 **영속**(`Restore`/`Scatter`/`Save_item`/`Gather`) + **전이**(`Move`/`Copy`/
+      `Delete`/`Merge` + `_transit`/`_merge_ref`)를 별 모듈로 분리. schema.py 는 데이터모델(forest 파사드
+      + 범주 편의 + `Attr`/`Set_attr`)만. R1 로 sink 압력이 사라졌는지 보고 최종 경계 결정.
+- [ ] caller 배선 확인(`gui/*`·`_base.py`) — store 고급 메서드(`Move`/`Merge`/`Gather` …) 직접 호출부.
+
+### Verify (R1 이후 — 거의 공짜)
+- [ ] `Pipeline.Verify` 를 `staged` 위 Stage 로 구현(check process 체인 + 결과 params route).
+      `analysis/` 흡수와 함께(아래 "외부 계층 재배치").
+
+---
+
 ## 논의 필요 (미구현 — 재정리 대상)
 
 - [ ] **재-convert 덮어쓰기/교차상태 중복** — `Register_sink` 가 무검사로 modified 에 등록 →
       기존 modified 덮어씀 + staged/skipped 인 stem 도 modified 에 재등록(one-stem-one-state 위반).
-      합의 정책: 정해진게 없음. **이 영역 전체 재정리 후 구현**
-      (현재 무검사). 상세 [`converter/README.md`](converter/README.md) "⚠ 논의 필요".
+      **합의된 정책 없음.** 이 영역(R1c store 쓰기 표면) 재정리 후 구현. 상세
+      [`converter/README.md`](converter/README.md) "⚠ 논의 필요".
 
 ## sampler / 파생
 
@@ -23,7 +72,7 @@
 ## 정리 / 검증
 
 - [ ] **`meta/test_dataset.py`** — `test_meta_merge_*` 등이 옛 kwarg(`modified=`/`staged=`)로 `Dataset_Meta`
-      를 생성 → 지금은 필드가 `categories=` 뿐이라 **현재 깨짐**. `categories=` 로 고치고 3-state(skipped)
+      를 생성 → 지금은 필드가 `buckets=` 뿐이라 **현재 깨짐**. `buckets=` 로 고치고 3-state(skipped)
       반영. 파일 상단 `core`/`core.data` namespace stub 도 이제 불필요(제거 검토).
 - [ ] **GUI end-to-end 런타임 검증** — 코드·import·offscreen 은 검증됨. 실제 데스크톱에서 띄워
       Convert→Run→전이→Sample→뷰어 흐름 확인.
@@ -43,3 +92,5 @@
       channels/bins/circular/labels 를 length-n 으로, 누산·통계 키를 per-channel(`c0_acc…`/`mean_c0…`)
       에서 배열값 단일 키(`chroma_acc`/`mean`/`std`)로 재설계(carry/finalize outputs 가 채널 수 무관해짐).
       `chroma_to_rgb` 는 RGB면 역변환 불필요·2크로마면 명도 fill 분기. 기존 config 키 마이그레이션 필요.
+</content>
+</invoke>

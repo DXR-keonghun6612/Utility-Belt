@@ -11,36 +11,10 @@ from __future__ import annotations
 
 from abc import ABC
 from dataclasses import dataclass
-from typing import Any
-
-import numpy as np
 
 from ..constant import MODIFIED
 from ..data import handler
-from ..data.handler import Data_Ref
 from .source import Unit
-
-
-def _params_ref(spec: dict, val: Any) -> Data_Ref:
-    """블록(dataset-wide) 출력 → ``params`` 용 ``Data_Ref`` 템플릿."""
-    if spec.get("to", "meta") == "storage":
-        _fmt = spec.get("format", "npy")
-        return Data_Ref(type=spec.get("type") or handler.Infer_type(_fmt) or "array",
-                        format=_fmt, info={"dir": spec.get("dir", "params")})
-    if isinstance(val, np.ndarray) and val.ndim:           # 배열 → npy
-        return Data_Ref(type="array", format="npy", info={"dir": "params"})
-    return Data_Ref(type="attr", info={})                  # 스칼라/list/dict 인라인
-
-
-def _data_ref(spec: dict, val: Any) -> Data_Ref:
-    """frame/object 출력 → ``Data_Ref`` 템플릿 (meta 인라인=rle/attr / storage=image/array)."""
-    if spec.get("to", "meta") == "storage":
-        _fmt = spec.get("format", "png")
-        return Data_Ref(type=spec.get("type") or handler.Infer_type(_fmt) or "image",
-                        format=_fmt, info={"dir": spec.get("dir", "")})
-    if isinstance(val, np.ndarray) and val.ndim >= 2:      # 마스크 → RLE 인라인
-        return Data_Ref(type="rle", info={})
-    return Data_Ref(type="attr", format=spec.get("format", ""), info={})  # bbox 등
 
 
 class Base_Sink(ABC):
@@ -92,16 +66,16 @@ class Meta_sink(Base_Sink):
             if _val is None:
                 continue
             if _frame is None and _obj is None:            # 블록 레벨(finalize 등) — params
-                store.params[_key] = handler.Save(
-                    store.root, None, _key, _params_ref(_spec, _val), _val)
+                store.Set(_key, handler.Route(
+                    store.root, None, _key, _spec, _val, params=True), is_param=True)
                 continue
             _is_obj = _spec.get("level", "object") == "object"
             if _is_obj and _obj is None:                   # 객체 위치 없음
                 continue
             _target = _obj.info if _is_obj else _frame.info
             _oid    = _obj_id if _is_obj else None
-            _target[_key] = handler.Save(
-                _root, _stem, _key, _data_ref(_spec, _val), _val, obj_id=_oid)
+            _target[_key] = handler.Route(
+                _root, _stem, _key, _spec, _val, obj_id=_oid)
 
         _objs = out.get("object")
         if isinstance(_objs, list) and _frame is not None:  # 구조 교체 — 순번=obj_id; leaf 보존

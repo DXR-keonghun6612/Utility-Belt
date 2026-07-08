@@ -29,7 +29,7 @@ SPLITS: tuple[str, ...] = ("train", "val", "test")   # 파생(sample) 스테이�
 class Sample_Set(Bucket_Store):
     """파생 학습셋 store — 범주(``CATEGORIES``) = split. split 안의 트리 모양은 sampler 가 정한다.
 
-    한 split 버킷(``categories[split]``)의 항목(범주 직속 key)이 무엇인지는 task 마다 다르다 —
+    한 split 버킷(``buckets[split]``)의 항목(범주 직속 key)이 무엇인지는 task 마다 다르다 —
     classification 은 class(그 안에 sample 중첩), detection 은 image(그 안에 object 중첩). ``Sample_Set``
     은 그 의미를 모르고 range(split)만 고정한다. 영속·전이·병합·번들(Gather)은 ``Bucket_Store`` 상속.
     """

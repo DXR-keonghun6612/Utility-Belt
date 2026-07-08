@@ -15,6 +15,11 @@ from ._base import File_Handler
 class Array_Handler(File_Handler):
 
     @classmethod
+    def Claims(cls, value: Any, *, storage: bool, params: bool) -> int:
+        """dataset-wide(params) 배열 — 통계 등 ndarray 를 npy 파일로(위치 없는 출력의 배열)."""
+        return 3 if (params and isinstance(value, np.ndarray) and value.ndim) else 0
+
+    @classmethod
     def _Read(cls, path: Path) -> Any:
         return np.load(str(path))
 

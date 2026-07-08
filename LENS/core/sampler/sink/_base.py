@@ -80,12 +80,12 @@ class Sample_sink(Base_Sink):
         return _ref
 
     def _set_param(self, name: str, value) -> None:
-        """target params(범주 무관 root leaf)에 인라인 attr 를 설정한다 (id_map 등)."""
-        _a = self.target.params.get(name)
-        if isinstance(_a, Data_Ref):
-            _a.info["value"] = value
-        else:
-            self.target.params[name] = Data_Ref(type="attr", info={"value": value})
+        """target params(범주 무관 root leaf)에 값을 저장한다 (id_map 등; handler.Route 경유).
+
+        dataset-wide(``params=True``) meta 출력이라 스칼라·dict 는 attr 인라인으로 담긴다.
+        """
+        self.target.Set(name, handler.Route(
+            self.target.root, None, name, {"to": "meta"}, value, params=True), is_param=True)
 
     def _attach_crop(self, ref: Data_Ref, ctx: dict, split: str, dir_: str, sample_id: str) -> None:
         """``ctx["crop"]`` 가 있으면 payload 로 저장하고 ``ref.info["crop"]`` 에 leaf 를 단다 (없으면 no-op).
@@ -96,9 +96,9 @@ class Sample_sink(Base_Sink):
         _crop = ctx.get("crop")
         if _crop is None:
             return
-        ref.info["crop"] = handler.Save(
+        ref.info["crop"] = handler.Route(
             self.target.Category_root(split), sample_id, "crop",
-            Data_Ref(type="image", format="png", info={"dir": dir_}), _crop)
+            {"to": "storage", "dir": dir_}, _crop)
 
     # ── task 훅 ────────────────────────────────────────────────────────────────
     @abstractmethod

@@ -6,7 +6,7 @@
 - **컨테이너** — ``type="stem"`` , ``info: dict[str, Data_Ref]`` = 자식(leaf 든 중첩 stem 이든).
   obj_id/이름은 부모 ``info`` 의 **key**(별도 저장 없음 — 항상 부모 통해 접근), class 라벨은 ``info["class_id"]``.
 
-``Bucket_Store`` 는 트리 노드가 아니라 **forest 컨테이너**(``params`` + ``categories``)이고, 트리 재귀(순회·
+``Bucket_Store`` 는 트리 노드가 아니라 **forest 컨테이너**(``params`` + ``buckets``)이고, 트리 재귀(순회·
 전이·병합)를 ``type`` 으로 leaf/stem 을 갈라 **stateless 헬퍼**로 소유한다. 디스크는 전부 handler 계층:
 leaf → ``handler.<op>``(ref.type 디스패치), 구조 사이드카 → ``Structure``(``.meta/{stem}.json``, 항목 단위).
 ``op`` 는 언제나 handler 함수명 키워드(Move/Copy/Delete) — 센티널 없음.
@@ -49,29 +49,31 @@ def Set_attr(ref: Data_Ref, name: str, value) -> None:
 class Bucket_Store:
     """범주별 최상위 컨테이너 = **forest 파사드** (트리 노드 아님).
 
-    ``params``(범주 무관 root leaf) + ``categories``(``{범주: {key: 컨테이너 Data_Ref}}``, n개 독립
+    ``params``(범주 무관 root leaf) + ``buckets``(``{범주: {key: 컨테이너 Data_Ref}}``, n개 독립
     persistence root)를 든다. 항목(범주 직속)은 ``type="stem"`` Data_Ref. 여기 사는 건 fs root · 범주
     고정(``CATEGORIES``) · 범주 편의 · 부트(``Load``) · 흩기(``Scatter``)·번들(``Gather``)·전이·병합뿐 —
     트리 재귀는 ``type`` 으로 갈리는 **stateless 헬퍼**(``_iter_leaves``/``_transit``/``_merge_ref``)로 소유.
+    범주 **이름 목록**은 ``CATEGORIES``(ClassVar), 그 이름→항목 **데이터**는 ``buckets``(필드) — 둘을
+    가른다(구 ``categories`` 필드가 ``CATEGORIES`` 와 대소문자만 달라 혼동돼 ``buckets`` 로 개명).
 
     Attributes:
-        root:       fs 루트 (직렬화 제외 — 로드 위치 주입).
-        params:     범주 무관 root leaf (이름 → ``Data_Ref``; top 사이드카로 나감).
-        categories: 범주 → 항목 dict (``{key: 컨테이너 Data_Ref}``). CATEGORIES 로 고정.
+        root:    fs 루트 (직렬화 제외 — 로드 위치 주입).
+        params:  범주 무관 root leaf (이름 → ``Data_Ref``; top 사이드카로 나감).
+        buckets: 범주 → 항목 dict (``{key: 컨테이너 Data_Ref}``). CATEGORIES 로 고정.
     """
 
     root:       str = ""
     params:     dict[str, Data_Ref] = field(default_factory=dict)
-    categories: dict[str, dict[str, Data_Ref]] = field(default_factory=dict)
+    buckets: dict[str, dict[str, Data_Ref]] = field(default_factory=dict)
 
     CATEGORIES: ClassVar[tuple[str, ...]] = ()
     TOP_STEM:   ClassVar[str] = "store"   # root params 사이드카 stem → {root}/.meta/{TOP_STEM}.json
 
     def __post_init__(self) -> None:
         self.params = _As_refs(self.params)
-        self.categories = {_c: _As_refs(_items) for _c, _items in self.categories.items()}
+        self.buckets = {_c: _As_refs(_items) for _c, _items in self.buckets.items()}
         for _c in self.CATEGORIES:                       # 유효 범주 보장 + 결정적 순서
-            self.categories.setdefault(_c, {})
+            self.buckets.setdefault(_c, {})
 
     # ── 트리 재귀 헬퍼 (stateless — type 으로 leaf/stem 을 가름) ────────────────────
     @staticmethod
@@ -132,31 +134,45 @@ class Bucket_Store:
 
     def Bucket(self, category: str) -> dict[str, Data_Ref]:
         """그 범주의 항목 dict (``{key: 컨테이너 Data_Ref}``). live 참조."""
-        return self.categories[category]
+        return self.buckets[category]
+
+    def Set(self, key: str, ref: Data_Ref, *,
+            category: str | None = None, is_param: bool = False) -> None:
+        """forest 최상위에 ``Data_Ref`` 를 배치하는 **단일 쓰기 게이트** — sink 이 내부 dict 를 직접 안 만지게.
+
+        ``is_param`` 이면 범주 무관 root leaf(``params``)에, 아니면 ``category`` 버킷(범주 직속 항목)에
+        넣는다. params 쓰기(finalize·raw params)와 stem 등록(Convert)이 같은 "dict 에 ref 삽입"이라 한
+        메서드로 합쳤다(값→ref 는 ``handler`` 소유; 여기선 배치만). 내부 표현이 바뀌어도(R2) sink 은 이
+        계약만 본다.
+        """
+        if is_param:
+            self.params[key] = ref
+        else:
+            self.buckets[category][key] = ref
 
     def Category_of(self, key: str) -> str | None:
         """key 가 사는 범주 (없으면 None; CATEGORIES 순)."""
         for _c in self.CATEGORIES:
-            if key in self.categories[_c]:
+            if key in self.buckets[_c]:
                 return _c
         return None
 
     def Find(self, key: str) -> Data_Ref | None:
         """key 의 항목(컨테이너 ``Data_Ref``)을 범주 무관하게 찾는다 (CATEGORIES 순; 메모리에 있는 것만)."""
         for _c in self.CATEGORIES:
-            _item = self.categories[_c].get(key)
+            _item = self.buckets[_c].get(key)
             if _item is not None:
                 return _item
         return None
 
     def Iter_category(self, category: str) -> Iterator[tuple[str, Data_Ref]]:
         """한 범주 항목을 ``(key, 컨테이너 Data_Ref)`` 로 순회."""
-        yield from self.categories[category].items()
+        yield from self.buckets[category].items()
 
     def Iter_all(self) -> Iterator[tuple[str, str, Data_Ref]]:
         """전 범주 항목을 ``(category, key, 컨테이너 Data_Ref)`` 로 순회."""
         for _c in self.CATEGORIES:
-            for _k, _item in self.categories[_c].items():
+            for _k, _item in self.buckets[_c].items():
                 yield _c, _k, _item
 
     def Iter_refs(self) -> Iterator[tuple[tuple[str, ...], str, Data_Ref]]:
@@ -177,7 +193,7 @@ class Bucket_Store:
             for _stem in Structure.Stems(_croot):
                 _d = Structure.Read(_croot, _stem)
                 if _d is not None:
-                    _store.categories[_cat][_stem] = Data_Ref(**_d)
+                    _store.buckets[_cat][_stem] = Data_Ref(**_d)
         return _store
 
     def Save_top(self) -> None:
@@ -195,7 +211,7 @@ class Bucket_Store:
         """항목 하나의 구조 사이드카만 기록한다 (편집 즉시 저장 — 증분; 없으면 no-op)."""
         _cat = self.Category_of(key)
         if _cat is not None:
-            Structure.Write(self.Category_root(_cat), key, self.categories[_cat][key].Serialize())
+            Structure.Write(self.Category_root(_cat), key, self.buckets[_cat][key].Serialize())
 
     def Drop(self, category: str, key: str) -> None:
         """항목 구조 사이드카를 지운다 (전이·삭제로 버킷에서 빠질 때 — 메모리는 안 건드림)."""
@@ -208,7 +224,7 @@ class Bucket_Store:
         _cats = list(self.CATEGORIES) if categories is None else categories
         _d = {
             "params": {_k: _v.Serialize() for _k, _v in self.params.items()},
-            **{_c: {_k: _i.Serialize() for _k, _i in self.categories[_c].items()} for _c in _cats},
+            **{_c: {_k: _i.Serialize() for _k, _i in self.buckets[_c].items()} for _c in _cats},
         }
         _p = Path(self.root) / out_file
         Write_to(_p, _d)
@@ -223,9 +239,9 @@ class Bucket_Store:
         if _src == to_category:
             return
         _src_root, _dst_root = self.Category_root(_src), self.Category_root(to_category)
-        _item = self.categories[_src][key]
+        _item = self.buckets[_src][key]
         self._transit(_item, _src_root, _dst_root, op="Move", stem=key)   # payload 파일 이동
-        self.categories[to_category][key] = self.categories[_src].pop(key)
+        self.buckets[to_category][key] = self.buckets[_src].pop(key)
         Structure.Move(_src_root, _dst_root, key)                         # 구조 사이드카 이동
 
     def Copy(self, key: str, to_category: str) -> None:
@@ -241,10 +257,10 @@ class Bucket_Store:
         if _src == to_category:
             return
         _src_root, _dst_root = self.Category_root(_src), self.Category_root(to_category)
-        _item = self.categories[_src][key]
+        _item = self.buckets[_src][key]
         self._transit(_item, _src_root, _dst_root, op="Copy", stem=key)   # payload 파일 복사 (원본 보존)
         _clone = Data_Ref(**_item.Serialize())                            # 깊은 사본 (트리 aliasing 방지)
-        self.categories[to_category][key] = _clone
+        self.buckets[to_category][key] = _clone
         Structure.Write(_dst_root, key, _clone.Serialize())               # 구조 사이드카 write
 
     def Delete(self, key: str) -> None:
@@ -252,9 +268,9 @@ class Bucket_Store:
         _cat = self.Category_of(key)
         if _cat is None:
             return
-        self._transit(self.categories[_cat][key], self.Category_root(_cat), op="Delete", stem=key)
+        self._transit(self.buckets[_cat][key], self.Category_root(_cat), op="Delete", stem=key)
         self.Drop(_cat, key)
-        self.categories[_cat].pop(key, None)
+        self.buckets[_cat].pop(key, None)
 
     def Merge_conflicts(self, other: "Bucket_Store") -> list[str]:
         """병합 전 충돌(범주 무관 key 중복) 목록 (GUI 질의용)."""
@@ -268,11 +284,11 @@ class Bucket_Store:
         정한다(먼저 ``Merge_conflicts`` 질의 권장).
         """
         for _cat in self.CATEGORIES:
-            if _cat not in other.categories:
+            if _cat not in other.buckets:
                 continue
             _src, _dst_root = other.Category_root(_cat), self.Category_root(_cat)
-            _bucket = self.categories[_cat]
-            for _key, _item in other.categories[_cat].items():
+            _bucket = self.buckets[_cat]
+            for _key, _item in other.buckets[_cat].items():
                 _host_cat = self.Category_of(_key)
                 if _host_cat is not None and _host_cat != _cat:  # 다른 범주에 존재 (한 stem=한 범주)
                     if not override:

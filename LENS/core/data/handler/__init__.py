@@ -115,7 +115,57 @@ def Delete(
     ).Delete(root, stem, name, ref, obj_id=obj_id)
 
 
+def _claim_type(value: Any, *, storage: bool, params: bool) -> str | None:
+    """spec 이 type/format 을 안 줄 때, value+맥락을 담당하는 핸들러 type (최고 ``Claims``; 없으면 None).
+
+    각 핸들러가 선언한 ``Claims`` 를 registry 전체에서 모아 우선순위로 고른다 — value→type 추론을
+    중앙 테이블이 아니라 핸들러들의 선언으로 병합해 결정한다(새 type=파일 하나로 확장).
+    """
+    _best, _type = 0, None
+    for _t, _cls in HANDLER_REGISTRY._module_dict.items():
+        _p = _cls.Claims(value, storage=storage, params=params)
+        if _p > _best:
+            _best, _type = _p, _t
+    return _type
+
+
+def Template(spec: dict, value: Any, *, params: bool = False) -> Data_Ref:
+    """routing spec(+값·맥락) → ``Data_Ref`` 템플릿 — 값을 어떤 서술자로 담을지 한곳에서 정한다.
+
+    type 확정 순서: ``spec.type`` → ``spec.format`` 확장자 추론 → value+맥락 ``Claims``(핸들러 선언).
+    정해진 핸들러의 ``INLINE``(인라인 vs 파일)·``Default_format`` 으로 조립하고, ``spec`` 의 ``dir``/
+    ``format`` 이 있으면 그게 이긴다. 파일 dir 기본은 ``""``(→name), ``params`` 맥락은 ``"params"``.
+    구 ``_data_ref``/``_params_ref``/sink 별 템플릿 빌더를 이 하나로 통합한다.
+    """
+    _storage = spec.get("to", "meta") == "storage"
+    _type = (spec.get("type")
+             or Infer_type(spec.get("format", ""))
+             or _claim_type(value, storage=_storage, params=params))
+    if _type is None:
+        raise ValueError(
+            f"routing: value({type(value).__name__})·맥락(storage={_storage}, params={params})"
+            f" 으로 type 을 정할 수 없음 — spec 에 type 을 명시하세요")
+    _cls = HANDLER_REGISTRY.Get(_type, Handler)
+    _fmt = spec.get("format") or _cls.Default_format()
+    if _cls.INLINE:
+        return Data_Ref(type=_type, format=_fmt, info={})
+    _ddir = "params" if params else ""
+    return Data_Ref(type=_type, format=_fmt, info={"dir": spec.get("dir", _ddir)})
+
+
+def Route(
+    root: str, stem: str | None, name: str, spec: dict, value: Any,
+    *, obj_id: str | None = None, params: bool = False
+) -> Data_Ref:
+    """값을 spec 대로 저장한다 — ``Template`` 로 ref 를 짓고 ``Save`` 로 write (값→ref→디스크 단일 게이트).
+
+    sink(``Meta_sink``/``Sample_sink``)이 store 위치만 정하면, ref 구성·인코딩·경로 파생은 전부 여기서.
+    """
+    return Save(root, stem, name, Template(spec, value, params=params), value, obj_id=obj_id)
+
+
 __all__ = [
     "Data_Ref", "Handler", "File_Handler", "Structure", "HANDLER_REGISTRY",
     "Types", "Infer_type", "Load", "Save", "Move", "Copy", "Delete",
+    "Template", "Route",
 ]

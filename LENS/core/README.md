@@ -84,7 +84,7 @@ core/                  ← 데이터(data) + 계산(process/converter/sampler) +
     obj_id·이름은 부모 `info` 의 **key**, class 는 `info["class_id"]` attr(`schema.Attr`/`Set_attr`). 노드 클래스·
     필드가 없어 frame/object 가 균일한 stem.
 - **`Bucket_Store`** — 트리 노드가 **아니라 forest 파사드**(`Data_Ref` 상속 안 함). `params`(범주 무관 root
-  leaf) + `categories: {category → {key: stem Data_Ref}}`(n개 독립 persistence root) + **`CATEGORIES`**
+  leaf) + `buckets: {category → {key: stem Data_Ref}}`(n개 독립 persistence root) + **`CATEGORIES`**
   ClassVar. 트리 재귀(순회·전이·병합)는 `type` 으로 leaf/stem 을 갈라 **stateless 헬퍼**로 소유. 서브클래스는
   CATEGORIES 만 고정: `Dataset_Meta`=`META_STATES`, `Sample_Set`=split(보류).
 
