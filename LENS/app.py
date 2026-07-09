@@ -6,7 +6,7 @@ import sys
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication, QMainWindow
 
-from gui.page import Main_page
+from gui.app import Main_page
 
 
 def _dark_palette() -> QPalette:

@@ -51,7 +51,7 @@ dataset_root 열기 → Dataset_Meta 로드
   → [flow 빌더 + ▶ run]  flow 실행 → modified 채움     Pipeline.Run(flows)
   → [Meta 뷰어]          검수·편집 → 작업/검수/보류 전이   store_io.Move / store_io.Delete (백그라운드)
   → [meta 가져오기]      다른 결과 병합(상태 보존)        store_io.Merge
-  → [Sampler 창]         staged → 파생 tasker + crop      Pipeline.Sample(name, cfg)  (gui/sampler)
+  → [Sampler 창]         staged → 파생 tasker + crop      Pipeline.Sample(name, cfg)  (gui/meta_page/sample)
   → [annotation 생성]    staged → {root}/annotation.json   store_io.Gather(meta, ["staged"], ANNOTATION_FILE)
 ```
 
@@ -69,22 +69,28 @@ flow 한 장(카드) = `flows:` 리스트의 1 엔트리 — `object_type`·`uni
   사이드카를 복원 — 파일이 아니라 폴더). 열린 root 없으면 그 폴더를 그대로 열고, 있으면 충돌 질의 후
   현재 root 로 복사 병합. 어느 쪽이든 meta 는 in-place 로 갱신한다(객체 교체 아님 — 편집기가 같은 meta
   객체를 봐 stale 을 막는다).
-- [Sampler 창] — 파생 tasker 빌더 + tasker별 sample 뷰어([`sampler/`](sampler/README.md)).
+- [Sampler 창] — 파생 tasker 빌더 + tasker별 sample 뷰어([`meta_page/sample/`](meta_page/sample/README.md)).
 
 ---
 
 ## 폴더
 
+구성 ↔ 연결 2축으로 나뉜다 — `*_page/`(구성: widgets 기반 독립 창) vs `app/`(연결: Pipeline 소유 +
+배선·주입). 도메인은 Pipeline 객체 그래프(정본 1 + tasker N)를 미러링한다. 목적지·근거는 [`TODO.md`](TODO.md).
+
 | 폴더/파일 | 역할 |
 |---|---|
-| `page/` | 메인 조립(`_main.py`) + Converter 다이얼로그(`_converter_dialog.py`) |
-| `converter/` | Converter 패널 — raw 소스 탐색 설정 (`Pipeline.Convert`) |
-| `run/` | flow 시퀀스 빌더(`Flow_card`/`Flow_sequence`) + 실행 다이얼로그 |
-| `sampler/` | 파생 tasker 빌더 창 + tasker별 sample 뷰어(트리+crop+class write-back) (`Pipeline.Sample`) |
-| `meta_view/` | Dataset_Meta 뷰어 — stem 목록 + 임베드 편집기 + id_map/params |
-| `verify/` | `Stem_editor` — base 이미지 + mask/bbox 오버레이 편집 |
+| `app/` | **연결층 셸** — `Main_page`(보유 Pipeline 소유 + meta_page 창 배선·주입) + `Meta_ops`(백그라운드 run/전이/삭제) |
+| `meta_page/` | **정본 편집 갈래** (아래 하위 surface). core.data 접점은 갈래 내부, 밖으론 주입만 |
+| `meta_page/view/` | Dataset_Meta 뷰어 — stem 목록 + 임베드 편집기 + id_map/params |
+| `meta_page/verify/` | `Stem_editor` — base 이미지 + mask/bbox 오버레이 편집 |
+| `meta_page/convert/` | Converter 패널 + 다이얼로그 — raw 소스 탐색 설정 (`Pipeline.Convert`) |
+| `meta_page/run/` | flow 시퀀스 빌더(`Flow_card`/`Flow_sequence`) + 빌더 다이얼로그 |
+| `meta_page/sample/` | 파생 tasker 빌더 창 + tasker별 sample 뷰어(트리+crop+class write-back) (`Pipeline.Sample`) |
+| `meta_page/_adapter.py` | core.data ↔ 위젯 seam (값→트리아이템; 옛 `_meta_tree`) |
+| `steps/` | process-chain 편집 (`Process_step` + `Step_list`) — run·sample 공유 |
 | `form/` | process/모델 파라미터 폼 자동 생성 (`Annotated[UI]` 기반) |
-| `widgets/` | 슬라이더·줌 이미지뷰·경로행 등 공통 위젯 (core 의존 0) |
+| `widgets/` | 공통 저수준 위젯 (core 의존 0) — `image`/`rows`/`list_editor` 하위 |
 | `_worker.py` | `Pipeline_worker` — 보유 Pipeline 의 한 단계 백그라운드 실행 (Convert/Run/전이/삭제 공용) |
 | `_io.py` | 파일 선택 + dict 직렬화 (converter/flow 저장·불러오기) |
 

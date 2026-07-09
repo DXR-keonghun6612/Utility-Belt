@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from ._dialog import Pop_dialog
-from ._image import Image_label
-from ._layout import drop, reorder
-from ._list_editor import List_editor, List_row, Pair_list_editor
-from ._rows import Float_slider_row, Int_slider_row, Path_row
+from ._layout import drop, move_buttons, reorder
 from ._tree import make_tree, set_bold
+from .image import Image_label
+from .list_editor import List_editor, List_row, Pair_list_editor
+from .rows import Float_slider_row, Int_slider_row, Path_row
 
 __all__ = [
     "Image_label",
@@ -16,6 +16,7 @@ __all__ = [
     "Int_slider_row",
     "drop",
     "reorder",
+    "move_buttons",
     "List_row",
     "List_editor",
     "Pair_list_editor",

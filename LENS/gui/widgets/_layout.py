@@ -2,7 +2,29 @@
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QToolButton, QWidget
+
+
+def move_buttons(on_up, on_down, on_remove) -> list[QToolButton]:
+    """위/아래/삭제 툴버튼 ``[▲, ▼, ✕]`` 을 만들어 콜백에 연결해 돌려준다.
+
+    ``reorder``/``drop`` 로 순서·수명을 관리하는 리스트 항목의 헤더에 붙인다.
+
+    Args:
+        on_up: ▲ 클릭 콜백.
+        on_down: ▼ 클릭 콜백.
+        on_remove: ✕ 클릭 콜백.
+
+    Returns:
+        연결된 ``QToolButton`` 세 개 ``[▲, ▼, ✕]``.
+    """
+    _result = []
+    for _txt, _slot in (("▲", on_up), ("▼", on_down), ("✕", on_remove)):
+        _b = QToolButton()
+        _b.setText(_txt)
+        _b.clicked.connect(_slot)
+        _result.append(_b)
+    return _result
 
 
 def drop(*widgets: QWidget) -> None:
