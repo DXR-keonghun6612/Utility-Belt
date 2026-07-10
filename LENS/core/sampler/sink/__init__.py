@@ -7,7 +7,7 @@ from ._base import DEFAULT_RATIOS, Sample_sink
 from .classification import Classification_sink
 from .detection import Detection_sink
 
-# config task → sink 클래스 (Sample_stage 가 소비).
+# config task → sink 클래스 (Sample_stage 가 빌드에, Pipeline 이 내보내기에 소비).
 SAMPLE_SINKS: dict[str, type[Sample_sink]] = {
     "classification": Classification_sink,
     "detection":      Detection_sink,

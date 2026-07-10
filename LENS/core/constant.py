@@ -13,3 +13,10 @@ STAGED   = "staged"                   # 검수 완료 버킷 — annotation 대�
 SKIPPED  = "skipped"                  # 보류 버킷 — 작업 대상 외 (되돌리기 가능, 모든 파이프라인서 제외)
 # 정본(meta) 스테이지 범주. Run→modified·Sample/Export→staged 만 지목하므로 skipped 는 자연히 빠진다.
 META_STATES: tuple[str, ...] = (MODIFIED, STAGED, SKIPPED)
+
+# ── 파생(sample) 스테이지 어휘 ──────────────────────────────────────────────────
+
+WORKING = "data"                      # 파생 작업 버킷 — split 없는 단일 범주 (분석·class 재배정 대상)
+# train/val/test 는 store 범주가 아니라 내보내기 산출물(frame stem 해시로 파생) — 여기선 이름만.
+SPLITS: tuple[str, ...] = ("train", "val", "test")
+UNCLASSIFIED = "__unclassified__"     # 미분류 class 이름 — 정본 class_id 미지정 값 = classification fallback

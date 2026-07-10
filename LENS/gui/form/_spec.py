@@ -88,12 +88,30 @@ def specs_from_dataclass(cls: type) -> list[_Spec]:
 
 # ── 타입 판별 ─────────────────────────────────────────────────────────────────
 
+def _strip_optional(tp):
+    """``X | None`` 이면 ``X`` 를, 아니면 그대로 — Optional 을 벗겨 본체 타입으로 판별한다.
+
+    ``list[str] | None`` 같은 nullable 목록도 목록 위젯을 받게 한다(위젯이 안 생기면 그 필드는
+    ``Config_form.get()`` 에서 통째로 빠져 config 에 유실된다 — gate 의 ``keep`` 이 그렇게 샜다).
+    """
+    _origin = get_origin(tp)
+    _is_union = _origin is Union or (
+        hasattr(types, "UnionType") and isinstance(tp, types.UnionType))
+    if not _is_union:
+        return tp
+    _rest = [_a for _a in get_args(tp) if _a is not type(None)]
+    return _rest[0] if len(_rest) == 1 else tp
+
+
 def _list_str(tp) -> bool:
-    return get_origin(tp) is list and get_args(tp) == (str,)
+    """``list[str]``/``list[Any]`` (Optional 포함) — 쉼표 구분 한 줄 입력으로 편집."""
+    _tp = _strip_optional(tp)
+    return get_origin(_tp) is list and get_args(_tp) in ((str,), (Any,))
 
 
 def _list_pair(tp) -> bool:
-    return get_origin(tp) is list and get_args(tp) == (tuple[str, str],)
+    _tp = _strip_optional(tp)
+    return get_origin(_tp) is list and get_args(_tp) == (tuple[str, str],)
 
 
 def _optional_float(tp) -> bool:

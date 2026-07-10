@@ -4,7 +4,8 @@
 ``Meta_sink``(frame/object/params 를 handler 로 meta 에 route), Convert 는 ``Register_sink``, Sample 은
 ``Sample_sink``. route 는 여기(출력) / resolve 는 [`source.py`](source.py)(입력)로 갈린 대칭.
 
-라우팅 규칙·outputs 스키마는 [`README.md`](README.md).
+``outputs`` spec 스키마는 ``Base_Sink.route``, 값→타입 결정은 ``handler.Template``.
+왜 route 가 영속의 단일 게이트인지는 [`README.md`](README.md).
 """
 
 from __future__ import annotations
@@ -21,7 +22,29 @@ class Base_Sink(ABC):
     """Stage 출력 축 — route(단위 출력 저장) + close(순회 후) + cache/finalize 훅."""
 
     def route(self, store, unit: Unit, spec_map: dict, out: dict) -> None:
-        """step 출력 ``out`` 의 선언 키(``spec_map``)를 ``unit`` 주소에 저장한다 (per-step; 기본 no-op)."""
+        """step 출력 ``out`` 의 선언 키(``spec_map``)를 ``unit`` 주소에 저장한다 (per-step; 기본 no-op).
+
+        Args:
+            store: 출력을 받을 store (sink 종류가 해석).
+            unit: 저장 주소 (``frame``/``obj``/``stem``/``obj_id``). frame·obj 가 모두 ``None`` 이면
+                위치 없는 블록 레벨(finalize) → dataset-wide.
+            spec_map: ``{출력키: spec}``. **여기 선언된 키만** 영속된다 — 미선언 키는 ctx 로만 흐르다
+                소멸한다. spec 스키마::
+
+                    {to: "meta"|"storage", level?: "frame"|"object", dir?: str, format?: str}
+
+                ``to`` = 보관 방식(meta 인라인 / storage 파일), ``level`` = 위치(기본 ``"object"``).
+                ``dir``/``format`` 은 storage 파일 경로·포맷 override. 값 → ``Data_Ref`` 타입 결정은
+                spec 이 아니라 :func:`core.data.handler.Template` 가 값·맥락으로 정한다.
+            out: 이번 step 이 낸 ctx 값 (``None`` 인 키는 건너뛴다).
+
+        Example:
+            체인의 mask 출력을 객체 info 에 rle 인라인으로, score 를 png 파일로::
+
+                outputs:
+                  mask:  {to: meta,    level: object}
+                  score: {to: storage, level: object, dir: score, format: png}
+        """
 
     def emit(self, store, unit: Unit, ctx: dict) -> None:
         """체인 후 unit 당 1회 — 구조 생성(Convert=stem 등록 / Sample=트리 배치). 기본 no-op.

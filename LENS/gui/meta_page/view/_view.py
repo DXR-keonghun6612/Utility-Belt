@@ -12,10 +12,9 @@ from PySide6.QtWidgets import (
 )
 
 from core.data import store_io
-from gui.meta_page.view._idmap import Idmap_panel
 from gui.meta_page.view._params import Params_panel
 from gui.meta_page.view._stem_list import Stem_list
-from gui.meta_page.verify import Stem_editor, Stem_edit_dialog
+from gui.meta_page.edit import Stem_editor, Stem_edit_dialog
 
 
 class Meta_view(QWidget):
@@ -62,19 +61,13 @@ class Meta_view(QWidget):
         self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._holder_lay.addWidget(self._placeholder)
 
-        # ── 우: id_map | params ──────────────────────────────────────────────
-        self._idmap = Idmap_panel()
-        self._idmap.changed.connect(self._on_meta_edited)
+        # ── 우: params (id_map 포함 — id_map 은 params 의 일반 데이터, 별도 패널 없음) ──
         self._params = Params_panel()
-        _side = QSplitter(Qt.Orientation.Vertical)
-        _side.addWidget(self._idmap)
-        _side.addWidget(self._params)
-        _side.setSizes([200, 300])
 
         _split = QSplitter(Qt.Orientation.Horizontal)
         _split.addWidget(self._stem_list)
         _split.addWidget(self._holder)
-        _split.addWidget(_side)
+        _split.addWidget(self._params)
         _split.setStretchFactor(1, 1)
         _split.setSizes([250, 700, 280])
         _lay.addWidget(_split, stretch=1)
@@ -95,7 +88,6 @@ class Meta_view(QWidget):
         """
         self._editable = editable
         self._stem_list.set_editable(editable)
-        self._idmap.set_editable(editable)
         if self._editor is not None:
             self._editor.set_editable(editable)
         for _dlg in self._dialogs:
@@ -113,13 +105,11 @@ class Meta_view(QWidget):
             return
         if keep is None:
             keep = self._editor._stem if self._editor is not None else ""
-        self._idmap.load({})   # TODO(sample): id_map 은 sample 소유 — sample 복구 후 연결
-        self._params.load(_meta.params)
+        self._params.load(_meta.params)   # id_map 은 params 의 일반 데이터로 함께 표시
         self._stem_list.load(_meta, keep=keep)   # → selected 시그널이 본문을 맞춘다
 
     def clear(self) -> None:
         """본문을 비운다."""
-        self._idmap.clear()
         self._params.clear()
         self._stem_list.clear()
 
@@ -218,12 +208,6 @@ class Meta_view(QWidget):
             self._editor.reload()               # 그 stem 하나 (압축 obj_id/segment 동기화)
         self._reload_popouts(stem)
         self._stem_list.focus_list()            # 저장 후 목록에 포커스 → 화살표로 다음 stem
-        self.meta_changed.emit()
-
-    def _on_meta_edited(self) -> None:
-        """id_map 편집 반영 — top 메타만 즉시 영속화하고 알린다."""
-        if self._pipeline is not None:
-            store_io.Save_top(self._pipeline.meta)
         self.meta_changed.emit()
 
     def _popout(self, stem: str) -> None:

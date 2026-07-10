@@ -8,24 +8,26 @@ sink(classification/detection)를 고르고, 결과는 주입된 ``target``(``Sa
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, ClassVar
 
 from ..data.sample import Sample_Set
 from ..process import Stage
 from ..process.sink import Base_Sink
 from ..process.source import Base_Source
-from .sink import DEFAULT_RATIOS, SAMPLE_SINKS
+from .sink import SAMPLE_SINKS
 from .source import Staged_source
 
 
 @dataclass
 class Sample_stage(Stage):
-    """staged 정본 → 파생(Sample_Set) 빌드 stage. ``target`` 은 Pipeline 이 주입한다."""
+    """staged 정본 → 파생(Sample_Set) 빌드 stage. ``target`` 은 Pipeline 이 주입한다.
+
+    빌드는 split 을 모른다 — task 트리(class→sample / image→object)를 단일 작업 버킷에 짓기만 한다.
+    ``ratios``/``salt`` 는 빌드가 아니라 내보내기(``core/sampler/export``)가 소비하므로 여기 없다.
+    """
 
     task:    str              = "classification"
-    ratios:  dict[str, float] = field(default_factory=lambda: dict(DEFAULT_RATIOS))
-    salt:    str              = ""
     unit:    str              = "object"
     target:  Sample_Set | None = None      # 채울 store (주입; 직렬화 제외)
 
@@ -39,7 +41,7 @@ class Sample_stage(Stage):
         _cls = SAMPLE_SINKS.get(self.task)
         if _cls is None:
             raise ValueError(f"알 수 없는 sample task: {self.task!r}")
-        return _cls(target=self.target, ratios=self.ratios, salt=self.salt)
+        return _cls(target=self.target)
 
     def _label(self) -> str:
         return self.name or "sample"

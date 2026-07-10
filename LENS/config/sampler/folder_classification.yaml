@@ -6,8 +6,14 @@ ratios:
     test: 0.0
 salt: ''
 processes:
+-   object_type: attr_gate
+    key: obj_id
+    keep: ['0']
+    max: null
+    min: null
+    missing: skip
 -   object_type: center_distance
-    max_dist: null
+    max_dist: 0.2
 -   object_type: normalize_mask
     target_shape: 256
     scale: 255

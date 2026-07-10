@@ -26,7 +26,7 @@ from gui.app._meta_ops import Meta_ops
 from gui.meta_page.view import Meta_view
 from gui.meta_page.convert._dialog import _Converter_dialog
 from gui.meta_page.run import Run_dialog
-from gui.meta_page.sample import Sample_viewer, Sampler_dialog
+from gui.meta_page.sample import Sampler_dialog
 from gui.widgets import Path_row
 
 
@@ -45,8 +45,7 @@ class Main_page(QWidget):
         self._converter_cfg: dict = {}              # converter 레시피 (다이얼로그가 소유 UI)
         self._converter_dlg: _Converter_dialog | None = None   # 비모달 창 (열려 있으면 보유)
         self._flow_dlg: Run_dialog | None = None               # 비모달 창 (열려 있으면 보유)
-        self._sampler_dlg: Sampler_dialog | None = None        # 비모달 Sampler 창
-        self._sample_viewers: list[Sample_viewer] = []         # tasker별 뷰어 (GC 방지)
+        self._sampler_dlg: Sampler_dialog | None = None        # 비모달 Sampler 창 (tasker 탭 컨테이너)
         self._build()
 
     def _build(self) -> None:
@@ -201,16 +200,16 @@ class Main_page(QWidget):
         _names = " → ".join(_flow_label(_f) for _f in self._flows)
         self._profile_label.setText(f"현재 프로필: {len(self._flows)} flow — {_names}")
 
-    # ── sampler (파생 tasker 빌더 + tasker별 뷰어, 비모달) ──────────────────────
+    # ── sampler (파생 tasker 탭 창, 비모달) ────────────────────────────────────
 
     def _open_sampler(self) -> None:
-        """Sampler 창(tasker 목록 + 설정 + ``▶ sample``)을 비모달로 띄운다 (보유 Pipeline 위에서 빌드)."""
+        """Sampler 창(tasker 마다 탭 = 툴바 + sample 편집 뷰)을 비모달로 띄운다 (보유 Pipeline 위에서)."""
         if self._sampler_dlg is not None:                  # 이미 열려 있으면 앞으로
             self._sampler_dlg.raise_()
             self._sampler_dlg.activateWindow()
             return
         _dlg = Sampler_dialog(get_pipeline=lambda: self._pipeline, parent=self)
-        _dlg.view_requested.connect(self._open_sample_viewer)
+        _dlg.meta_changed.connect(self._meta_view.refresh)  # class write-back → meta 뷰 갱신
         _dlg.finished.connect(self._on_sampler_closed)
         self._sampler_dlg = _dlg
         _dlg.show()
@@ -219,24 +218,6 @@ class Main_page(QWidget):
         if self._sampler_dlg is not None:
             self._sampler_dlg.deleteLater()
             self._sampler_dlg = None
-
-    def _open_sample_viewer(self, name: str) -> None:
-        """tasker 하나의 sample 뷰어(트리+crop 미리보기+class 재배정)를 비모달로 띄운다."""
-        if not name:
-            return
-        if self._pipeline is None:
-            QMessageBox.information(self, "Sample 뷰어", "먼저 dataset_root 를 여세요.")
-            return
-        _v = Sample_viewer(get_pipeline=lambda: self._pipeline, name=name, parent=self)
-        _v.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
-        _v.meta_changed.connect(self._meta_view.refresh)   # class write-back → meta 뷰 갱신
-        _v.finished.connect(lambda _r, w=_v: self._forget_viewer(w))
-        self._sample_viewers.append(_v)
-        _v.show()
-
-    def _forget_viewer(self, viewer: Sample_viewer) -> None:
-        if viewer in self._sample_viewers:
-            self._sample_viewers.remove(viewer)
 
     # ── run (보유 Pipeline + 현재 프로필; 워커·전이·삭제는 Meta_ops 소유) ──────────
 

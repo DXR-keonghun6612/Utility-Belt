@@ -1,168 +1,115 @@
 # process
 
-process 유닛들과, 그걸 잇는 **Stage 엔진**(`source → Base_Process 체인 → sink`)을 담는 패키지.
-`__init__`이 레지스트리·조립(`PROCESS_REGISTRY`/`Build_process`/`Build_flow`)을, `_base.py`가 기본 구조
-(`Base_Process` + `Stage` 엔진 + `Flow`)를, `source.py`/`sink.py`가 입출력 계약(`Base_Source`/`Base_Sink`)과
-Run 구현(`Frame_source`/`Meta_sink`)을, 하위 패키지(preprocess/mask/edge/chroma/model/utils)가 유닛 구현을 갖는다.
+**연산**과, 연산을 잇는 **엔진**을 담는 패키지. 상위 구조·용어는 [`../README.md`](../README.md),
+데이터 계층은 [`../data/README.md`](../data/README.md). 남은 작업은 [`../TODO.md`](../TODO.md).
 
-**Stage** — `source`(무엇을 순회·resolve) → `Base_Process` 체인 → `sink`(출력을 어디로)의 엔진. source/sink 를
-갈아끼워 **Convert/Run/Sample 을 한 엔진**으로 표현한다 — 셋은 단위 계약(`Base_Process`)이 같고 source/sink 만
-다르기 때문이다(Convert=[`../converter`](../converter), Sample=[`../sampler`](../sampler)).
-
-| stage | source | sink |
-|---|---|---|
-| **Run** (`Flow`) | `Frame_source`(modified 프레임/객체) | `Meta_sink`(frame/object/params 라우팅) |
-| **Convert** | `Raw_source`(glob 발견) | `Register_sink`(stem 등록) |
-| **Sample** | `Staged_source`(staged 순회) | `Sample_sink[task]`(트리 배치) |
-
-**Flow** = Run 구성의 `Stage`(= `Stage(Frame_source, Meta_sink)`). config 의 step 목록으로 `Build_process` 가
-만든 process 인스턴스를 들고, 무거운 모델은 pipeline 이 빌드해 주입한다(소유는 pipeline).
-
-상위 구조·용어는 [`../README.md`](../README.md), 데이터 계층은 [`../data/README.md`](../data/README.md).
+각 심볼의 인자·반환·호출 예시는 그 심볼의 docstring에 있다. 이 문서는 **심볼 사이에 걸치는 것**만 다룬다.
 
 ---
 
-## 책임 — 조립 + 순회 + 라우팅, 그게 전부
+## 왜 엔진이 하나인가
 
-```
-resolve params        → params_ctx              (순회 전 1회)
-for frame in dataset:
-    resolve frame.info → frame_ctx = params_ctx + …   (프레임당 1회, leaf 만)
-    for unit in units(frame):                          # unit=frame은 1회 / unit=object는 객체(stem)마다
-        resolve unit.info → ctx = frame_ctx + …        (객체당 1회, leaf 만)
-        run chain(ctx) using processes
-        route(declared outputs)  → dataset_meta
-    carry ← 다음 프레임으로 이월할 ctx 키 (있으면)
-finalize(carry) → route                                (순회 후 1회)
-```
+Convert(원본 적재) · Run(연산) · Sample(파생 생성)은 겉보기에 다른 작업이지만, 셋 다 *무언가를 순회하며
+연산 체인을 태우고 결과를 어딘가에 쓴다*. 다른 건 **무엇을 순회하는가**(source)와 **어디에 쓰는가**(sink)
+뿐이고, 그 사이 체인의 계약은 같다. 그래서 세 개의 파이프라인이 아니라 `Stage(source → 체인 → sink)`
+**한 엔진**이고, 나머지는 양 끝을 갈아끼운 구성이다.
 
-flow는 순회 상태를 인스턴스에 남기지 않는다 (carry 누산도 `__call__` 지역 변수). process
-인스턴스는 `Build_process` 가 config 에서 만들고, 무거운 모델은 pipeline 이 빌드해 주입한다 —
-flow는 chain 정의(순서·step별 outputs)와 순회 구조만 안다.
+| stage | source | sink | 사는 곳 |
+|---|---|---|---|
+| **Convert** | `Raw_source` | `Register_sink` | [`../converter`](../converter) |
+| **Run** (`Flow`) | `Frame_source` | `Meta_sink` | 여기 (`_base.py`) |
+| **Sample** | `Staged_source` | `Sample_sink` | [`../sampler`](../sampler) |
+
+`Flow` = Run 구성의 `Stage` 서브클래스. flow 의 *종류*는 서브클래스도 코드 preset 도 아니라 **config 가
+직접 기술**한다 — 종류마다 클래스를 만들면 종류가 늘 때마다 코드가 는다. 복붙 템플릿은
+[`presets.example.yaml`](presets.example.yaml)(코드가 읽지 않는다).
+
+엔진은 순회 상태를 인스턴스에 남기지 않는다. 누산조차 `__call__` 지역 변수라, 같은 `Stage` 를 두 번 돌려도
+서로를 오염시키지 않는다.
 
 ---
 
-## 데이터 = 2 스코프 (단일 게이트)
+## 연산은 두 종류다
+
+| 종류 | 계약 | 받는 것 → 내는 것 | 소비자 |
+|---|---|---|---|
+| `stream/` | `Base_Process` | ctx → ctx (프레임·객체 단위 스트리밍) | `Stage` 체인 |
+| `analysis/` | `Analysis` | store·배열 통째 → report·figure | Verify, CLI/GUI |
+
+스트리밍 유닛은 순회 안에서 한 단위씩 흐르고, 분석은 순회가 끝난 데이터셋을 통째로 본다. 축이 달라서 한
+계약으로 묶으면 둘 다 왜곡된다. 도메인 수학(chroma 통계·polar 변환 등)은 `func/` 에서 공유한다.
+
+`func/` 는 **연산이 아니다.** 자유함수 primitive 이고, 두 종류가 모두 여기서 계산을 빌린다.
+(표준 `.gitignore` 의 `lib/` 와 충돌해 `func` 으로 이름지었다.)
+
+### 순수 도메인 함수 규칙
+
+프로세스는 **입력이 아니라 출력의 도메인**에 속한다. edge 를 읽어 mask 를 내는 유닛은 mask 유닛이다 —
+입력은 어느 도메인에서 와도 되기 때문이다(그게 데이터흐름이다).
+
+> `stream/<domain>` 유닛은 `func/<domain>` 과 제네릭 `func/cv` 만 import 한다. **다른 도메인의 func 금지.**
+
+이 선을 넘기 시작하면 폴더가 도메인이 아니라 "예전에 누가 여기 뒀던 것"이 된다. 실제로 `edge/` 가 mask
+연산을 품고 `chroma/` 가 mask 유틸을 당기던 게 이 재편의 이유다. 여러 도메인을 엮는 일(combine·gate·
+wiring)은 유닛이 아니라 **엔진과 config** 의 몫이다.
+
+---
+
+## ctx — 두 스코프, 하나의 게이트
 
 | 스코프 | 사는 곳 | 수명 |
 |---|---|---|
-| transient | `ctx` | `__call__` 소멸 (step↔step, 누산기 포함) |
-| persistent | `dataset_meta` | 블록·실행을 넘어 생존 |
+| transient | `ctx` | `__call__` 과 함께 소멸 (step↔step, 누산기 포함) |
+| persistent | `dataset_meta` | 실행을 넘어 생존 |
 
-- resolve(입력) — persistent → ctx, 불변인 가장 넓은 스코프에서 1회. 안쪽 루프에서
-  반복 로드 금지(프레임 이미지를 객체 수만큼 다시 안 읽음). `handler.Load` 위임 + ready-to-use
-  형태로 정돈(디코드·도메인 객체 재구성) → process는 `Data_Ref`가 아니라 값만 본다.
-- route(출력) — ctx 값 중 선언된 키만 persistent로. 미선언은 ctx에 머물다 소멸.
-  `handler.Save` 위임 (위치/타입만 flow가 정함).
+**스코프는 변수의 속성이 아니라 라우팅된 결과다.** 누산기 같은 transient 값도 라우팅하면 영속으로 남는다.
+`sink.route` 가 그 유일한 승격 게이트이고, `outputs` 에 선언되지 않은 키는 ctx 에 머물다 죽는다. 그래서
+"이 값이 저장되나?"는 값을 봐서는 알 수 없고 config 를 봐야 안다 — 의도된 성질이다.
 
-scope는 변수 속성이 아니라 라우팅 됐는가의 결과다. 누산기 같은 transient도 라우팅하면
-storage로 남는다 — `route`가 그 승격 게이트다.
-
-### route spec (출력키 → 라우팅)
-
-```
-{to: "meta"|"storage", level?: "frame"|"object", dir?, format?}
-```
-
-| 대상 | 핸들러 호출 |
-|---|---|
-| `meta` (인라인) | `handler.Save(root, stem, key, Data_Ref(type=rle/attr…), val, obj_id=…)` |
-| `storage` (파일) | `handler.Save(root, stem, key, Data_Ref(type=image/array, dir, format), val, obj_id=…)` |
-| dataset-wide (params) | `stem=None` (위치 없음) |
-
-`level=frame`→`obj_id=None`(frame.info) / `level=object`→`obj_id`(객체 stem 의 info).
-구 `_route`의 (to×level×타입) 분기가 전부 `handler.Save` 인자 구성으로 수렴한다.
-
-라우팅 규칙 (`source[key]` 값·spec 기준):
-
-```
-[frame]    to=meta,    ndarray(2d), level=object → object.info[key] = rle 인라인
-[frame]    to=meta,    ndarray(2d), level=frame  → frame.info[key]  = rle 인라인
-[frame]    to=meta,    list/scalar               → (level) info[key] = attr 인라인
-[frame]    to=storage, ndarray,     level=object → object.info[key] = image/array (파일)
-[frame]    to=storage, ndarray,     level=frame  → frame.info[key]  = image/array (파일)
-[finalize] to=meta,    ndarray                   → params[key]      = array(npy)
-[finalize] to=meta,    스칼라/list/dict           → params[key]      = attr 인라인
-[finalize] to=storage                            → params[key]      = (Infer_type) 파일
-"object" list (per-frame)                        → frame.info 객체(stem) 교체 (obj_id=순번; leaf 보존, spec 무관)
-```
-
-`source[key]` 는 `Run` 출력을 slot 재배선한 뒤의 값이라, 표의 `key` 는 재배선된 slot 이름이다.
-finalize step 은 frame/obj 위치가 없어 항상 params(dataset-wide)로 간다.
+입력 쪽 대칭은 resolve 다. persistent → ctx 로, **불변인 가장 넓은 스코프에서 1회**. 프레임 이미지를 객체
+수만큼 다시 읽지 않기 위한 규칙이고, 그래서 유닛은 `Data_Ref` 가 아니라 이미 디코드된 값만 본다.
 
 ---
 
-## process — config 가 빌드, 모델은 pipeline 이 주입
+## port ↔ slot — 같은 유닛을 두 번 쓰기
 
-- stateless: config(=`@dataclass` 필드) + 주입된 모델 핸들만. 작업 state는 ctx에 있어 process엔 없다.
-- 인스턴스는 `Build_process(name, param)` 이 레지스트리에서 만든다 (flow가 step config로 호출).
-  무거운 prediction 모델은 process 소유가 아니라 pipeline 의 dict 풀에서 빌드해 주입한다
-  (같은 스펙은 한 번만 빌드해 공유 — [`../README.md`](../README.md) 수명 모델).
-- `class X(Base_Process, outputs=…)` — 서브클래스는 `Run` 을 구현하고 OUTPUTS(=산출 port)를 선언한다.
-  `__init_subclass__` 이 OUTPUTS 주입 + INPUTS 자동추출(`Run` 시그니처), `__call__`(베이스 소유)이
-  `Run` 실행 → OUTPUTS 검증 → port→slot 재배선의 계약 프레임이다. 등록은
-  `@PROCESS_REGISTRY.Register_module()` 명시(`target_type=Base_Process` 하위 클래스만 통과).
+유닛이 선언한 출력 이름은 `port` 이고, ctx 에 실제로 얹히는 이름은 `slot` 이다. 기본은 같지만 config 의
+`slots` 가 갈라놓을 수 있다. 이게 없으면 같은 유닛을 한 체인에서 두 번 쓸 때 서로의 출력을 덮어쓴다 —
+`fill_edge` 를 두 번 돌려 하나를 `other` 로 보내고 `combine_mask` 의 두 입력에 잇는 식이 불가능해진다.
 
-### slot 재배선 — 출력 port ↔ ctx slot
-
-step 출력 키(port)는 기본적으로 그대로 ctx slot 이 돼 다음 step·다음 flow 의 입력 이름이 된다.
-step config 의 `slots: {port: slot}` 로 특정 출력을 다른 slot 으로 보낼 수 있다(미선언 port=identity).
-`_build_chain` 이 인스턴스별로 `output_slots` 에 주입하고(미선언 port 를 slots 로 쓰면 빌드 시 KeyError),
-`__call__` 이 `Run` 결과를 검증 후 재배선한다. 같은 process 를 여러 번 써도 slot 을 달리해 충돌을 피한다 —
-예: `fill_edge` 를 `slots: {mask: other}` 로 재배선해 `combine_mask` 의 `other` 입력에 잇는다. 재배선 뒤
-키가 이후 `outputs` 라우팅·`carry`·다음 step 입력의 이름이 된다(=slot 이 진실).
-
-입력쪽 대칭은 `inputs: {param: ctx_key}` — ctx 키 이름이 `Run` 파라미터명과 다를 때 별칭으로 읽는다
-(producer 없이 ctx 에 얹힌 값, 예: params `roi` 를 `combine_mask` 의 `mask` 로: `inputs: {mask: roi}`).
-`_build_chain` 이 `input_slots` 로 주입(미선언 파라미터를 쓰면 빌드 시 KeyError), `__call__` 이 `Run`
-호출 전 kwargs 를 remap 한다. `slots`(출력 rename) 없이 안 잡히는 "이름만 다른 입력"을 잇는 자리.
+재배선 뒤의 **slot 이름이 진실**이다. 이후의 `outputs` 라우팅·`carry`·다음 step 입력이 모두 slot 을 본다.
+입력 쪽 대칭은 `inputs`(ctx 키 → `Run` 파라미터 별칭) — producer 없이 ctx 에 얹힌 값(예: params 의 `roi`)을
+이름이 다른 파라미터에 잇는 자리다.
 
 ---
 
-## carry / finalize — 누산의 두 조각
+## carry / finalize — 누산이 두 조각인 이유
 
-- `carry` — 프레임 간 이월할 ctx 키. 런타임 수명 도구일 뿐 state도 영속도 아니다
-  (누산기 `c0_acc`는 ctx에 살다 `__call__`과 함께 죽는다).
-- `finalize` — 순회 후 1회 도는 체인. carry 누산기(scope-1)를 받아 통계(scope-2)로 바꾸는
-  다리. 누산기가 `__call__`과 함께 죽으니 같은 호출 안에서 변환해야 해 존재한다.
-- per-frame `processes`와 `finalize`는 같은 체인 엔진이고 차이는 *도는 시점*뿐 —
-  라우팅도 동일한 인라인 `outputs`로 통일됐다. `finalize` step은 frame/obj 위치가 없어 `_route`가
-  자동으로 params(dataset-wide)로 보낸다. 누산기 자체는 어느 step의 출력도 아니면 영속되지 않는다.
+`carry` 는 프레임 사이로 값을 이월하고, `finalize` 는 순회가 끝난 뒤 한 번 도는 체인이다. 둘로 나뉜 건
+**누산기가 순회와 함께 죽기 때문**이다. `c0_acc` 같은 누산기는 ctx 에 살다 `__call__` 과 함께 사라지므로,
+그걸 통계로 바꾸는 변환은 반드시 *같은 호출 안에서* 일어나야 한다. `finalize` 가 그 자리다.
+
+`finalize` 는 per-frame 체인과 같은 엔진·같은 라우팅 규칙을 쓰고, 차이는 **도는 시점**뿐이다. frame/object
+위치가 없으므로 출력은 자동으로 dataset-wide(`params`)로 간다. 누산기 자신은 어느 step 의 출력으로도
+선언되지 않으면 영속되지 않는다 — 위의 게이트 규칙 그대로다.
 
 ---
 
-## 패키지 구성 / flow 종류
+## 구성
 
 ```text
 process/
-├── __init__.py            PROCESS_REGISTRY · Build_process · Build_flow + 유닛 등록
-├── _base.py               Base_Process(계약: Run/__call__) + Stage 엔진 + Flow(Run 구성)
-├── source.py              Base_Source·Stem_Block·Unit·resolve(계약) + Frame_source/Meta_block(Run)
-├── sink.py                Base_Sink(계약) + Meta_sink(Run; 쓰기는 handler.Route 게이트)
-├── presets.example.yaml   flow config 작성용 템플릿 (코드가 읽지 않음 — 복붙 참고용)
-├── preprocess/            전처리 — crop(크롭) · color(색보정)
-├── mask/                  마스크 — threshold(이진화) · cleanup(정리) · separate(분리) · order(중심순 정렬)
-├── edge/                  엣지 — canny(탐색) · edge(기본: 닫기·채우기·blob)
-├── chroma/                색공간 — convert_to/distance/accumulate/robust_stats + _space/_core
-├── model/                 모델 — segment(SAM3 분할) + _sam3 런타임
-├── select/                선택/게이트 — center(중심거리 측정) · gate(범용 값 게이트, Run·Sample 공용)
-└── utils/                 공유 마스크 유틸
+├── __init__.py   PROCESS_REGISTRY · Build_process · Build_flow (+유닛 등록 트리거)
+├── _base.py      Base_Process(유닛 계약) · Stage(엔진) · Flow(Run 구성)
+├── source.py     Base_Source · Stem_Block · Unit — 무엇을 순회·resolve 하나
+├── sink.py       Base_Sink — 출력을 어디로 (outputs spec 스키마는 여기 docstring)
+├── stream/       종류1 — 배선 (저장 표현을 알고 계산을 모른다) → stream/README.md
+├── analysis/     종류2 — 집계 분석 (Analysis 계약)
+└── func/         primitive — 계산 (도메인 자료형만 안다) → func/README.md
 ```
 
-디렉토리 = CATEGORY 대분류, 파일 = 중분류. 새 process 는 해당 대분류 폴더의 중분류 파일에 더한다
-(탐색법처럼 늘어나는 축은 파일로 분리 — 예: `edge/canny.py`). 각 대분류 폴더의 `README.md` 에
-그 안 process 들의 알고리즘 배경을 둔다.
+**stream 과 func 의 경계는 "무엇을 아는가"다.** `func` 는 배열·박스·id 만 알고 `Data_Ref` 를 모른다.
+`stream` 은 정확히 그 반대로, 저장 표현을 해체·조립하고 계산은 `func` 에 넘긴다. 이 방향이 지켜지면
+모든 계산이 store 없이 단독으로 호출·검증된다. 각 층의 규칙은 그 층의 README 가 갖는다.
 
-flow 종류는 subclass도 코드 preset도 아니라 config가 직접 기술한다 — `object_type`(라벨),
-`unit`(frame/object), `processes`/`finalize_processes`, `carry`, `cacheable`, `shared` 를 config에서
-채운다. `Build_flow(cfg)`가 그 dict로 단일 `Flow`를 만든다. 복붙용 예시는
-[`presets.example.yaml`](presets.example.yaml) (chroma 배경모델 global/pixelwise). 색공간 `space`
-처럼 흐름-공유 값은 제네릭 `shared` dict 로 빼 `_build_chain`이 각 step에 주입한다(선언 키만 받음).
-
----
-
-## 현재 상태
-
-재설계 완료 — handler 위임 resolve/route, `Base_Process`(`@dataclass`+`__init_subclass__`), 단일 `Flow`
-callable, 코드 preset 제거(flow는 config 직접 기술), 라우팅 통일(인라인 `outputs`), stateless process,
-모델은 pipeline 이 빌드해 주입(process 는 `model` 핸들만). 잔여 작업은 [`../TODO.md`](../TODO.md).
+무거운 모델은 유닛이 소유하지 않는다. pipeline 이 스펙당 한 번 빌드해 주입하고, 유닛은 핸들만 든다.

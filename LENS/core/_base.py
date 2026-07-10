@@ -21,13 +21,13 @@ from typing import Any, Callable, ClassVar
 
 from python_toolbox.project.config import Base_Config
 
-from .data import store_io
+from .data import handler, store_io
 from .data.meta import Dataset_Meta
-from .data.sample import SAMPLE_DIR, Sample_Set
+from .data.sample import SAMPLE_DIR, WORKING, Sample_Set
 from .converter import Convert_stage
-from .sampler import Load_taskers, Sample_stage, Save_taskers
+from .sampler import Load_taskers, SAMPLE_SINKS, Sample_stage, Save_taskers
 from .process import Build_flow
-from .process.model._sam3 import Sam3_runner
+from .process.stream.model._sam3 import Sam3_runner
 
 
 # ── 모델 풀 ───────────────────────────────────────────────────────────────────
@@ -166,6 +166,10 @@ class Pipeline:
         """이름 붙은 tasker 의 ``Sample_Set`` 을 복원한다 (``{root}/sample/{name}``)."""
         return store_io.Restore(Sample_Set, self._sample_root / name)
 
+    def Tasker_root(self, name: str) -> Path:
+        """빌드된 tasker 의 작업 버킷 경로 ``{root}/sample/{name}/data`` (``{class}/*.png`` — mask 분석 입력)."""
+        return self._sample_root / name / WORKING
+
     def Sample(self, name: str, cfg: dict | None = None) -> int:
         """staged 정본을 소비해 이름 붙은 tasker 를 (재)빌드·영속하고 ``taskers.yaml`` 에 등록한다.
 
@@ -183,16 +187,12 @@ class Pipeline:
         """
         _cfg = cfg if cfg is not None else self.Taskers().get(name, self._sample_cfg)
         _sset = Sample_Set(root=str(self._sample_root / name))
-        _kw = dict(
+        _stage = Sample_stage(                     # 빌드는 split 을 모른다 — ratios/salt 는 내보내기 몫
             task=_cfg.get("task", _cfg.get("object_type", "classification")),
-            salt=_cfg.get("salt", ""),
             unit=_cfg.get("unit", "object"),
             target=_sset,
             processes=_cfg.get("processes", []),   # crop 실체화 체인 (Phase B)
         )
-        if _cfg.get("ratios"):                     # 없으면 Sample_stage 기본(DEFAULT_RATIOS)
-            _kw["ratios"] = _cfg["ratios"]
-        _stage = Sample_stage(**_kw)
         _stage(self.meta)
         store_io.Scatter(_sset)
         _taskers = self.Taskers()                  # 레시피 등록 (name ↔ 폴더 매칭)
@@ -201,27 +201,64 @@ class Pipeline:
         return sum(len(_sset.Bucket(_s)) for _s in _sset.CATEGORIES)
 
     def Export_tasker(self, name: str, dest: str | Path) -> Path:
-        """빌드된 tasker 산출물(``{root}/sample/{name}``)을 외부 경로로 복사한다.
+        """빌드된 tasker 를 split 별로 갈라 외부 경로에 실체화한다 (``= split 처리``).
 
-        ImageFolder 트리(+사이드카)를 그대로 ``dest/{name}`` 에 떨군다 (원본 비파괴). 데이터
-        라이프사이클(내보내기)은 binder 소유 — GUI 가 이 메서드를 직접 부른다.
+        작업 store 는 split 없는 단일 버킷이라, 내보내기가 레시피의 ``ratios``/``salt`` 로 frame stem
+        해시를 태워 ``dest/{name}/{split}/…`` 로 실체화한다 — 레이아웃·집계는 task(sink)가 소유
+        (``Sample_sink.Export``). 원본(작업 store)은 비파괴. 데이터 라이프사이클(내보내기)은 binder
+        소유 — GUI 가 이 메서드를 직접 부른다.
 
         Args:
             name: 내보낼 tasker 이름.
-            dest: 대상 상위 디렉터리 — 이 아래 ``{name}`` 폴더로 복사된다.
+            dest: 대상 상위 디렉터리 — 이 아래 ``{name}`` 폴더로 실체화된다.
 
         Returns:
-            복사된 경로 (``dest/{name}``).
+            산출물 경로 (``dest/{name}``).
 
         Raises:
             FileNotFoundError: tasker 폴더가 없으면 (아직 빌드 안 됨).
+            ValueError: 레시피의 task 에 맞는 sink 가 없으면.
         """
         _src = self._sample_root / name
         if not _src.exists():
             raise FileNotFoundError(f"빌드된 tasker 가 없습니다: {name!r} (먼저 Sample 실행)")
+        _cfg = self.Taskers().get(name, {})
+        _task = _cfg.get("task", _cfg.get("object_type", "classification"))
+        _sink_cls = SAMPLE_SINKS.get(_task)
+        if _sink_cls is None:
+            raise ValueError(f"알 수 없는 sample task: {_task!r}")
         _out = Path(dest) / name
-        shutil.copytree(_src, _out, dirs_exist_ok=True)
+        _sink_cls(target=self.Load_sample(name)).Export(
+            _out, ratios=_cfg.get("ratios"), salt=_cfg.get("salt", ""),
+            id_map=self._meta_id_map())
         return _out
+
+    def Id_map(self) -> dict:
+        """정본 ``meta.params`` 의 id_map 을 원본 dict 로 돌려준다 (없으면 ``{}``).
+
+        params leaf 는 인라인(attr)일 수도 파일(doc yaml/json)일 수도 있어 ``handler.Load`` 로 통합해
+        읽는다. 값 구조(``{class:{class_id,category_id}}`` 등)는 그대로 — 재배정 class 후보(키 = class
+        이름) 소스로 GUI 가 쓴다. index 로 평탄화한 건 ``_meta_id_map``(내보내기용).
+        """
+        _ref = self.meta.params.get("id_map") if self.meta is not None else None
+        if _ref is None:
+            return {}
+        _val = handler.Load(self.meta.root, None, "id_map", _ref)
+        return _val if isinstance(_val, dict) else {}
+
+    def _meta_id_map(self) -> dict[str, int] | None:
+        """정본 id_map 을 flat ``{class:int}`` 로 (없으면 None → sink 가 class 정렬로 자동 생성).
+
+        정본이 class→index 매핑을 이미 갖고 있으면 산출물에 그대로 써 재빌드·재분할해도 index 가 안
+        흔들린다. 값이 ``{class:{class_id:int,…}}`` 중첩이면 ``class_id``(없으면 첫 정수)를 골라 평탄화한다.
+        """
+        _flat: dict[str, int] = {}
+        for _cls, _v in self.Id_map().items():
+            if isinstance(_v, dict):
+                _v = _v.get("class_id", next(iter(_v.values()), None))
+            if isinstance(_v, (int, float)):
+                _flat[str(_cls)] = int(_v)
+        return _flat or None
 
     def Delete_tasker(self, name: str) -> None:
         """tasker 를 제거한다 — 폴더(``{root}/sample/{name}``)와 ``taskers.yaml`` 항목 (없으면 no-op)."""
