@@ -267,34 +267,44 @@ class Main_page(QWidget):
             self._set_root(_other.root)                   # Pipeline 이 그 폴더의 meta 를 로드
             self._meta_view.refresh()
             return
-        _conf = store_io.Merge_conflicts(self._pipeline.meta, _other)
-        _overwrite = False
+        _conf = self._pipeline.meta.Conflicts(_other)
+        _mode = store_io.SKIP
         if _conf:
             _ans = self._ask_import_conflict(_conf)
             if _ans is None:                              # 취소
                 return
-            _overwrite = _ans
-        store_io.Merge(self._pipeline.meta, _other, override=_overwrite)
+            _mode = _ans
+        store_io.Merge(self._pipeline.meta, _other, mode=_mode)
         self._meta_view.refresh()
+        _note = ("" if _mode == store_io.SKIP
+                 else f" (충돌 {len(_conf)}개는 {_mode} — '{Dataset_Meta.DEFAULT_CATEGORY}' 로 되돌림)")
         QMessageBox.information(
-            self, "meta 가져오기", f"{_n}개 프레임을 상태 보존해 가져왔습니다.")
+            self, "meta 가져오기", f"{_n}개 프레임을 가져왔습니다.{_note}")
 
-    def _ask_import_conflict(self, conf: list[str]) -> bool | None:
-        """충돌 stem 목록을 보여주고 덮어쓰기(True)/건너뛰기(False)/취소(None)를 묻는다."""
+    def _ask_import_conflict(self, conf: list[str]) -> str | None:
+        """충돌 stem 목록을 보여주고 병합 mode 를 묻는다 (취소면 None).
+
+        셋을 명시적으로 가른다 — 예전엔 "건너뛰기"를 눌러도 범주가 같으면 내부 병합이 일어났다.
+        """
         _line = (f"중복 stem {len(conf)}개: " + ", ".join(conf[:8])
                  + (" …" if len(conf) > 8 else ""))
         _box = QMessageBox(self)
         _box.setWindowTitle("meta 가져오기 — 충돌")
-        _box.setText(_line
-                     + "\n\n덮어쓰기 = other 값으로 교체 · 건너뛰기 = host 기존 유지.")
-        _ow = _box.addButton("덮어쓰기", QMessageBox.AcceptRole)
-        _box.addButton("건너뛰기", QMessageBox.RejectRole)
+        _box.setText(
+            _line
+            + "\n\n건너뛰기 = host 기존 유지 (상태 보존)"
+            + "\n덮어쓰기 = other 것으로 통째 교체"
+            + "\n병합 = host 에 없는 객체·값만 들임"
+            + f"\n\n덮어쓰기·병합은 내용이 바뀌므로 해당 stem 이 '{Dataset_Meta.DEFAULT_CATEGORY}' 로 되돌아갑니다.")
+        _skip  = _box.addButton("건너뛰기", QMessageBox.RejectRole)
+        _ow    = _box.addButton("덮어쓰기", QMessageBox.AcceptRole)
+        _merge = _box.addButton("병합", QMessageBox.ApplyRole)
         _cancel = _box.addButton("취소", QMessageBox.DestructiveRole)
         _box.exec()
         _clicked = _box.clickedButton()
         if _clicked is _cancel:
             return None
-        return _clicked is _ow
+        return {_skip: store_io.SKIP, _ow: store_io.OVERWRITE, _merge: store_io.MERGE}[_clicked]
 
     def _on_clear_all(self) -> None:
         """보유 세션(root·converter·flows·Pipeline·뷰·창)을 전부 비운다 — 디스크는 건드리지 않는다."""

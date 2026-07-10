@@ -203,7 +203,7 @@ class Meta_view(QWidget):
     def _on_editor_saved(self, stem: str) -> None:
         """편집 저장 반영 — 그 stem 사이드카만 기록 + 그 stem 만 재동기화 (목록 전체 재로드 안 함)."""
         if self._pipeline is not None:
-            store_io.Save_item(self._pipeline.meta, stem)  # 그 stem 사이드카 하나만 (즉시)
+            store_io.Save(self._pipeline.meta, stem)  # 그 stem 사이드카 하나만 (즉시)
         if self._editor is not None and self._editor._stem == stem:
             self._editor.reload()               # 그 stem 하나 (압축 obj_id/segment 동기화)
         self._reload_popouts(stem)

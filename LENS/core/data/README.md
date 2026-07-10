@@ -20,19 +20,14 @@ data/
 > [`../sampler`](../sampler)(Sample). data 는 **표현·영속(store)만**. (구 `data/converter`·`data/sample` 의
 > 빌더는 이 두 top-level 로 승격.)
 
-- **`schema.py`** — 트리는 **단일 재귀 타입 `Data_Ref`**. `type="stem"` 이면 컨테이너(`info` = 자식
-  `Data_Ref` 들), 아니면 leaf(payload). obj_id·이름은 부모 `info` 의 **key**, class 는 `info["class_id"]`
-  attr(`Attr`/`Set_attr`). `Bucket_Store` 는 트리 노드가 아니라 **forest 파사드**(`params` + `buckets`)로,
-  트리 재귀(순회·전이·병합)를 `type` 으로 leaf/stem 을 갈라 **stateless 헬퍼**로 소유한다.
-- **`handler/` (I/O 게이트)** — `Data_Ref.type` 이 지목하는 핸들러가 payload(이미지·배열·마스크)를 실제
-  파일로 load/save/copy/move/delete 한다. 구조 사이드카(stem 서브트리 JSON)는 `Structure` 핸들러가 소유.
-  스키마·스테이지·`handler` 소비자(process/converter/sampler)가 공유하는 유일한 I/O 게이트. (RLE 코덱 등
-  payload 인코딩도 해당 핸들러 소유.)
-- **`meta/`·`sample/` (두 store)** — `Bucket_Store` 를 상속해 `CATEGORIES` 만 고정. `Dataset_Meta` = 정본
-  (`META_STATES` = modified/staged/skipped), `Sample_Set` = 파생(split = train/val/test). 영속(`Scatter`/`Save_item`/
-  `Gather`/`Restore`)·전이(`Move`/`Delete`/`Merge`)는 **[`store_io`](store_io.py) 자유함수**(store 인자) — 두
-  store 가 같은 메커니즘을 쓴다. thin 서브클래스는 `CATEGORIES`(+meta 는 staging 편의)만 둔다. 이 store 를 채우는 빌드는
-  계산 계층([`../converter`](../converter)·[`../sampler`](../sampler)) 소유.
+- **`schema.py`** — 공유 데이터모델. 트리는 단일 재귀 타입 `Data_Ref`(leaf/컨테이너), forest 파사드는
+  `Bucket_Store`. **디스크 I/O 를 모른다** — 그래서 영속·전이가 `store_io` 로 갈라진다.
+- **`handler/`** — `data` 계층의 **유일한 I/O 게이트**. `Data_Ref.type` 이 핸들러를 골라 payload 를 실제
+  파일로 오간다. 스키마·스테이지·소비자(process/converter/sampler)가 이 하나를 공유해 경로·인코딩 규칙이
+  한곳에만 산다.
+- **`meta/`·`sample/`** — 두 구체 store. `Bucket_Store` 를 상속해 `CATEGORIES` 만 고정하는 **thin 서브
+  클래스**다(정본 = staging 상태, 파생 = 단일 작업 버킷). 영속·전이는 자기가 아니라 `store_io` 가, 빌드는
+  자기가 아니라 계산 계층([`../converter`](../converter)·[`../sampler`](../sampler))이 한다.
 
 ---
 
@@ -56,22 +51,4 @@ data/
 
 - [`../process`](../process) — 계산 계층. 이 데이터 위를 순회하며 값을 읽고(resolve) 쓴다(route).
 - [`../_base.py`](../_base.py) — 바인더 `Pipeline`. 스테이지를 조율하되 handler 는 안 만진다.
-- 상위 설계·용어는 [`../README.md`](../README.md).
-
----
-
-## 구현 상태
-
-- `schema.py` — 완료. flat `Data_Ref`(재귀 노드, leaf/stem) + `Attr`/`Set_attr` + forest `Bucket_Store`
-  (데이터모델: `params`+`buckets`+범주 편의+순회 `Iter_*`/`_iter_leaves`; I/O 는 안 듦).
-- `store_io.py` — 완료. `Bucket_Store` 디스크 I/O 자유함수(store 인자) — 영속(`Restore`/`Scatter`/`Save_item`/
-  `Save_top`/`Drop`/`Gather`) + 전이(`Move`/`Copy`/`Delete`/`Merge`/`Merge_conflicts`) + payload 트리 헬퍼.
-- `handler/` — 완료. `Data_Ref` 재귀 + payload I/O + RLE 코덱 + `Structure`(구조 사이드카 read/write/move/delete).
-- `meta/` — 완료. thin `Dataset_Meta(Bucket_Store)` — `CATEGORIES` + staging 편의(`State_of`/`modified`/
-  `staged`/`Get`/`Has`). 영속·전이는 `store_io`.
-- `sample/` — 완료(store). thin `Sample_Set(Bucket_Store)` — 범주 = split. 빌드는 [`../sampler`](../sampler).
-- 소비자 배선(`core/_base`·`process`·`converter`·`sampler`·`gui`) — 완료. slim `Pipeline`(Convert→Run→
-  Sample→Verify), 전 스테이지가 `Stage` 엔진(source→sink) + flat `Data_Ref` 기준. 전이·병합·내보내기는
-  `store_io` 자유함수(GUI 직접 호출).
-
-잔여 체크리스트는 [`../TODO.md`](../TODO.md).
+- 상위 설계·용어는 [`../README.md`](../README.md), 잔여 작업은 [`../TODO.md`](../TODO.md).

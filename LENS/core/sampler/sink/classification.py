@@ -7,14 +7,14 @@ class 가 split 아래 한 계층 더 생기는 layout(torchvision ``ImageFolder
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import ClassVar
 from pathlib import Path
 
 from python_toolbox.file import Write_to
 
-from ...data.handler import Data_Ref
 from ...constant import UNCLASSIFIED
-from ...data.sample import WORKING
-from ...data.schema import Attr
+from ...data.sample import WORKING, Classification_Set, Sample_Set
+from ...data.schema import Attr, Data_Ref
 from ...process.source import Unit
 from ._base import DEFAULT_RATIOS, Sample_sink
 
@@ -29,11 +29,12 @@ class Classification_sink(Sample_sink):
     작업 버킷 아래 한 계층 — meta(image→object) 보다 depth 가 하나 더 깊다. split 은 안 붙인다.
     """
 
+    STORE: ClassVar[type[Sample_Set]] = Classification_Set
+
     def Place(self, unit: Unit, ctx: dict):
         _class = Attr(unit.obj, "class_id") or UNLABELED
         _sample_id = f"{unit.stem}_{unit.obj_id}" if unit.obj_id is not None else unit.stem
-        _bucket = self.target.Bucket(WORKING)
-        _cls_stem = _bucket.setdefault(_class, Data_Ref(type="stem", info={}))
+        _cls_stem = self.target.Get_or_add(_class, Data_Ref(type="stem", info={}))
         _ref = self._sample_ref(unit.stem, unit.obj_id, _class)
         self._attach_crop(_ref, ctx, _class, _sample_id)   # crop 실체화 (있으면)
         _cls_stem.info[_sample_id] = _ref

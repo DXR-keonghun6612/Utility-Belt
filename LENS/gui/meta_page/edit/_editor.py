@@ -172,8 +172,8 @@ class Stem_editor(QWidget):
         작업 사본이라 저장 전까지 원본 ``meta`` 는 건드리지 않는다.
         """
         self._stem = stem
-        self._state = self._meta.State_of(stem)
-        self._work = deepcopy(self._meta.Get(stem))
+        self._state = self._meta.Category_of(stem)
+        self._work = deepcopy(self._meta.Find(stem))
         # object 별 bbox 원본 스냅샷 — 저장 시 바뀐 bbox 만 골라 mask 를 잘라낸다.
         self._bbox_orig = {id(_o): _bbox_of(_o)
                            for _o in self._work.info.values() if _o.Is_stem()}
@@ -592,7 +592,7 @@ class Stem_editor(QWidget):
         if not self._editable:                # 잠금 중(백그라운드 작업)엔 저장 금지
             return
         _segment.write_segment(
-            self._meta.State_root(self._state), self._stem, self._work,
+            self._meta.Category_root(self._state), self._stem, self._work,
             self._anns.all_masks(), self._bbox_orig, self._canvas_size())
-        self._meta.Bucket(self._state)[self._stem] = self._work
+        self._meta.Set(self._stem, self._work, category=self._state)   # 같은 범주 — 내용 갱신
         self.saved.emit(self._stem)

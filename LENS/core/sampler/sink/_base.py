@@ -18,6 +18,7 @@ import hashlib
 from abc import abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
+from typing import ClassVar
 
 from ...data import handler
 from ...data.handler import Data_Ref
@@ -36,7 +37,12 @@ class Sample_sink(Base_Sink):
     빌드는 split 을 모른다 — unit 을 **단일 작업 버킷**(``WORKING``)에 task 트리로 꽂을 뿐이다(``Place``).
     split(train/val/test)은 파생이라 **내보내기(``Export``)가** frame stem 해시로 가른다 — task 별 레이아웃·
     집계가 다르므로 ``Place``·``Export`` 를 서브클래스가 구현한다(``Finalize``·crop 복사 등 공통은 베이스).
+
+    ``STORE`` 는 이 sink 이 짓는 트리 모양에 대응하는 store 타입이다 — 모양을 아는 건 sink 이므로
+    store 타입도 여기서 선언한다(``Pipeline.Load_sample`` 이 레시피의 task 로 이걸 찾아 복원한다).
     """
+
+    STORE: ClassVar[type[Sample_Set]] = Sample_Set   # 서브클래스가 자기 store 타입을 고정
 
     target: Sample_Set
 

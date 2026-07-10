@@ -65,20 +65,13 @@ class Dataset_Meta(Bucket_Store):
 {root}/annotation.json             Gather — staged 를 뭉친 자기완결 번들
 ```
 
-### API
+`store_io` 는 두 축으로 나뉜다 — **구조 write**(`Scatter`/`Save_item`/`Save_top`/`Gather`, 전량 vs 증분
+vs 번들)와 **전이**(`Move`/`Copy`/`Delete`/`Merge`, 버킷을 바꾸며 payload·사이드카를 함께 옮김). `Restore`
+는 역방향(디스크 → 메모리). 각 함수의 인자·동작은 [`../store_io.py`](../store_io.py) docstring 이 소유한다.
 
-| 함수 (`store_io.`) | 축 | 역할 |
-|---|---|---|
-| `Restore(Dataset_Meta, root)` | 구조(read) | top + 상태별 사이드카를 읽어 복원 (root 는 위치에서 주입) |
-| `Scatter(m)` | 구조(write) | 전체 흩기 — top + 전 사이드카 |
-| `Save_item(m, stem)` | 구조(write) | 그 항목 사이드카 하나만 (증분) |
-| `Save_top(m)` | 구조(write) | params(top)만 |
-| `Gather(m, categories=["staged"]) → path` | 구조(write) | 선택 범주를 한 파일로 뭉친 자기완결 번들 |
-| `Move(m, stem, to_state)` | 전이 | payload 이동(handler) + 버킷 이동 + 사이드카 재배치 |
-| `Copy(m, stem, to_state)` | 전이 | **비파괴** — 원본 유지 + payload 복사(handler.Copy) + 깊은 사본 사이드카 |
-| `Delete(m, stem)` | 전이 | payload·사이드카·버킷 제거 |
-| `Merge(m, other, *, override=False)` | 전이 | 다른 meta 를 상태 보존해 병합 (payload 복사 + params 병합) |
-| `Merge_conflicts(m, other) → list[str]` | 조회 | 병합 전 stem 중복 목록 (GUI 질의용) |
+핵심은 이 함수들이 **store 를 인자로 받는 자유함수**라는 것 — 데이터모델이 I/O 를 모르고, 호출 측(GUI·
+학습 코드)이 `store_io.Move(meta, …)` 를 직접 부른다. 증분 저장(`Save_item`)이 first-class 라 20k+
+프레임에서 한 stem 편집이 한 파일 write 로 끝난다("하나 바뀌었다고 전체 내보내기" 없음).
 
 ---
 

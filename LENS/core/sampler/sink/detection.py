@@ -8,11 +8,12 @@ COCO manifest 는 파생이라 내보내기(``core/sampler/export``)가 소유�
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import ClassVar
 from pathlib import Path
 
 from python_toolbox.file import Write_to
 
-from ...data.sample import SPLITS, WORKING
+from ...data.sample import SPLITS, WORKING, Detection_Set, Sample_Set
 from ...data.schema import Attr
 from ...process.source import Unit
 from ._base import DEFAULT_RATIOS, Sample_sink
@@ -26,9 +27,10 @@ class Detection_sink(Sample_sink):
     달리 계층이 안 늘어난다(meta 와 같은 image→object). split 은 안 붙인다.
     """
 
+    STORE: ClassVar[type[Sample_Set]] = Detection_Set
+
     def Place(self, unit: Unit, ctx: dict):
-        _bucket = self.target.Bucket(WORKING)
-        _img = _bucket.setdefault(unit.stem, self._sample_ref(unit.stem, None, ""))
+        _img = self.target.Get_or_add(unit.stem, self._sample_ref(unit.stem, None, ""))
         if unit.obj_id is not None:
             _obj = self._sample_ref(unit.stem, unit.obj_id, Attr(unit.obj, "class_id"))
             self._attach_crop(_obj, ctx, unit.stem, unit.obj_id)   # crop 실체화 (있으면)

@@ -10,57 +10,21 @@
 
 핸들러가 dataset 에서 실제로 필요한 건 **``root``(경로 파생)뿐**이라 ``meta`` 전체가 아니라
 ``root: str`` 을 받는다 (attr/rle 는 root 도 쓰지 않는다).
+
+핸들러가 다루는 서술자 ``Data_Ref`` 는 [`../schema.py`](../schema.py) 소유다 — 데이터모델이 I/O 계층을
+모르도록 단방향(handler → schema). 여기서는 편의로 재노출한다.
 """
 
 from __future__ import annotations
 
 import shutil
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar
 
-from python_toolbox.data_schema import Data_Schema
+from ..schema import Data_Ref
 
-
-@dataclass
-class Data_Ref(Data_Schema):
-    """트리의 **유일** 노드 — leaf payload 서술자 겸 재귀 컨테이너. ``type`` 이 둘을 가른다.
-
-    - **leaf** (``type`` = image/array/attr/rle/segmap …): ``info`` = parameter + payload(인라인 값 or 파일 위치).
-    - **컨테이너** (``type`` = ``"stem"``): ``info`` = ``dict[str, Data_Ref]`` (자식들; leaf 든 중첩 stem 이든).
-      obj_id/이름은 부모 ``info`` 의 **key**, class 라벨은 ``info["class_id"]``(attr) 로 산다.
-
-    handler 가 소비/생산하는 최하위 primitive 라 handler 패키지가 소유한다. 트리 재귀(순회·전이·병합)는
-    ``schema.Bucket_Store`` 가 ``type`` 으로 leaf/stem 을 갈라 소유한다. 값 덤프는 ``Extract``, 구조 직렬화는
-    ``Serialize`` (``Data_Schema`` 가 중첩 ``Data_Ref`` 를 재귀 직렬화; 역은 ``__post_init__`` 이 재구성).
-
-    Attributes:
-        type:   핸들러 키 (leaf) 또는 ``"stem"``(컨테이너). 로드/저장·재귀 동작을 결정.
-        format: 그 핸들러 안의 방향/직렬화 (ext·dtype·encoding). 컨테이너는 무의미(``""``).
-        info:   leaf = parameter + payload(``value``/``dir``) / 컨테이너 = 자식 ``dict[str, Data_Ref]``.
-    """
-
-    type:   str
-    format: str            = ""
-    info:   dict[str, Any] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        if self.type == "stem":                        # 컨테이너 → 자식(info 값)을 Data_Ref 로 재구성(재귀)
-            self.info = {_k: _v if isinstance(_v, Data_Ref) else Data_Ref(**_v)
-                         for _k, _v in self.info.items()}
-
-    def Is_stem(self) -> bool:
-        """컨테이너(``type=="stem"``)인지 — ``info`` 로 자식을 재귀로 든 노드."""
-        return self.type == "stem"
-
-    def Is_inline(self) -> bool:
-        """leaf payload 를 ``info`` 에 인라인 보관(attr/rle/bbox 등)이면 True, 파일 참조면 False.
-
-        내보낼 때 leaf 처리를 가른다(inline → 값 그대로 / file → handler). 판별은 파일 위치(``dir``)
-        유무 — 인라인 서술자는 위치 키를 갖지 않는다. (컨테이너엔 호출하지 않음.)
-        """
-        return "dir" not in self.info
+__all__ = ["Data_Ref", "Handler", "File_Handler"]
 
 
 class Handler(ABC):

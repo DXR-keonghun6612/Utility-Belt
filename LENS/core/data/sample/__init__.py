@@ -5,6 +5,8 @@
 는 store 규약 상수(split 은 store 범주가 아니라 내보내기 산출물).
 """
 
-from ._base import SAMPLE_DIR, SPLITS, WORKING, Sample_Set
+from ._base import (SAMPLE_DIR, SPLITS, WORKING,
+                    Classification_Set, Detection_Set, Sample_Set)
 
-__all__ = ["Sample_Set", "SAMPLE_DIR", "SPLITS", "WORKING"]
+__all__ = ["Sample_Set", "Classification_Set", "Detection_Set",
+           "SAMPLE_DIR", "SPLITS", "WORKING"]

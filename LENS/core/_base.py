@@ -1,7 +1,7 @@
 """core 기본 구조 — Pipeline(계산 오케스트레이션 binder) + 모델 풀.
 
 ``Pipeline`` 은 정본(``Dataset_Meta``)을 중심으로 **계산 단계**(Convert → Run)를 조율하고 결과를
-``store_io.Scatter(meta)`` 로 영속한다. flow 시퀀스를 조립·실행하며, 무거운 prediction 모델을 **클래스
+``store_io.Save(meta)`` 로 영속한다. flow 시퀀스를 조립·실행하며, 무거운 prediction 모델을 **클래스
 dict 풀**(``Pipeline._RESOURCE_POOL``)로 공유한다(프로세스 수명, 인스턴스 간 공유 — GUI 가 실행마다 새
 바인더를 만들어도 재사용).
 
@@ -128,7 +128,7 @@ class Pipeline:
         )
         _stage(self.meta)
         # class→id 매핑(id_map)은 파생(sample) 소유 — 정본은 class 이름만 든다.
-        store_io.Scatter(self.meta)
+        store_io.Save(self.meta)
         return len(self.meta.Bucket("modified"))
 
     def Run(self, progress: Callable[[str, int, int], None] | None = None,
@@ -143,7 +143,7 @@ class Pipeline:
         _flows = [Build_flow(self._resolve_models(_cfg)) for _cfg in _cfgs]
         for _flow in _flows:
             _flow(self.meta, progress=progress)
-        store_io.Scatter(self.meta)
+        store_io.Save(self.meta)
 
     # ── 파생(Sample) — 이름 붙은 tasker ({root}/sample/{name} + taskers.yaml) ────
     def Taskers(self) -> dict[str, dict]:
@@ -162,9 +162,19 @@ class Pipeline:
                        if _p.is_dir() and not _p.name.startswith(".")}
         return sorted(_names)
 
+    def _sample_store(self, name: str, cfg: dict | None = None) -> type[Sample_Set]:
+        """그 tasker 의 store 타입 — 레시피의 ``task`` 가 고른 sink 이 선언한 ``STORE``.
+
+        트리 모양을 아는 건 sink 이므로 store 타입도 sink 이 든다. 타입이 곧 모양 보장이라, 모양이 다른
+        두 학습셋(classification 대 detection)은 ``store_io.Merge`` 가 거부한다.
+        """
+        _cfg  = cfg if cfg is not None else self.Taskers().get(name, self._sample_cfg)
+        _task = _cfg.get("task", _cfg.get("object_type", "classification"))
+        return SAMPLE_SINKS[_task].STORE
+
     def Load_sample(self, name: str) -> Sample_Set:
-        """이름 붙은 tasker 의 ``Sample_Set`` 을 복원한다 (``{root}/sample/{name}``)."""
-        return store_io.Restore(Sample_Set, self._sample_root / name)
+        """이름 붙은 tasker 의 학습셋 store 를 복원한다 (``{root}/sample/{name}``; 타입은 레시피의 task)."""
+        return store_io.Restore(self._sample_store(name), self._sample_root / name)
 
     def Tasker_root(self, name: str) -> Path:
         """빌드된 tasker 의 작업 버킷 경로 ``{root}/sample/{name}/data`` (``{class}/*.png`` — mask 분석 입력)."""
@@ -186,7 +196,7 @@ class Pipeline:
             파생된 sample(=범주 직속 항목) 수 합계.
         """
         _cfg = cfg if cfg is not None else self.Taskers().get(name, self._sample_cfg)
-        _sset = Sample_Set(root=str(self._sample_root / name))
+        _sset = self._sample_store(name, _cfg)(root=str(self._sample_root / name))
         _stage = Sample_stage(                     # 빌드는 split 을 모른다 — ratios/salt 는 내보내기 몫
             task=_cfg.get("task", _cfg.get("object_type", "classification")),
             unit=_cfg.get("unit", "object"),
@@ -194,7 +204,7 @@ class Pipeline:
             processes=_cfg.get("processes", []),   # crop 실체화 체인 (Phase B)
         )
         _stage(self.meta)
-        store_io.Scatter(_sset)
+        store_io.Save(_sset)
         _taskers = self.Taskers()                  # 레시피 등록 (name ↔ 폴더 매칭)
         _taskers[name] = _cfg
         Save_taskers(self._sample_root, _taskers)

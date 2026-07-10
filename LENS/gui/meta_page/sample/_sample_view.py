@@ -235,7 +235,7 @@ class Sample_view(QWidget):
         """정본 obj(source 역참조)의 ``class_id`` 를 고치고 그 stem 사이드카만 저장한다 (인라인 attr only)."""
         _src = Attr(ref, "source_stem")
         _obj = Attr(ref, "source_obj")
-        _frame = pipe.meta.Get(_src) if _src else None
+        _frame = pipe.meta.Find(_src) if _src else None
         if _frame is None:
             QMessageBox.warning(self, "재배정", f"정본에서 source stem '{_src}' 를 찾지 못했습니다.")
             return False
@@ -244,7 +244,7 @@ class Sample_view(QWidget):
             QMessageBox.warning(self, "재배정", f"source obj '{_obj}' 를 찾지 못했습니다.")
             return False
         Set_attr(_target, "class_id", new_class)      # 정본 write-back (인라인 attr)
-        store_io.Save_item(pipe.meta, _src)
+        store_io.Save(pipe.meta, _src)
         return True
 
     def _move_sample(self, old_class: str, sid: str, new_class: str, ref: Data_Ref) -> None:
@@ -264,14 +264,13 @@ class Sample_view(QWidget):
                 _sroot, sid, "crop",
                 Data_Ref(type="image", format="png", info={"dir": new_class}), _arr)
         Set_attr(ref, "class_id", new_class)
-        _new_stem = self._sset.Bucket(WORKING).setdefault(new_class, Data_Ref(type="stem", info={}))
+        _new_stem = self._sset.Get_or_add(new_class, Data_Ref(type="stem", info={}))
         _new_stem.info[sid] = ref
-        store_io.Save_item(self._sset, new_class)      # 두 class 사이드카만 (증분)
+        store_io.Save(self._sset, new_class)      # 두 class 사이드카만 (증분)
         if _old_stem.info:
-            store_io.Save_item(self._sset, old_class)
-        else:                                          # 빈 class 는 사이드카·버킷에서 제거
-            store_io.Drop(self._sset, WORKING, old_class)
-            self._sset.Bucket(WORKING).pop(old_class, None)
+            store_io.Save(self._sset, old_class)
+        else:                                          # 빈 class 는 통째 제거 (payload·사이드카·버킷)
+            store_io.Delete(self._sset, old_class)
 
     def _log_reassign(self, pipe, entries: list[tuple[str, str, str]]) -> None:
         """재배정 로그를 tasker 폴더 yaml 에 남긴다 — ``{sid: [처음class, 마지막class]}``.

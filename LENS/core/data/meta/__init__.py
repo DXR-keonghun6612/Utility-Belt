@@ -1,4 +1,4 @@
-from ..handler import Data_Ref
+from ..schema import Data_Ref
 from .store import ANNOTATION_FILE, Dataset_Meta
 
 __all__ = [

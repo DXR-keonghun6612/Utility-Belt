@@ -35,10 +35,10 @@ def load_base_images(meta: Dataset_Meta, stem: str) -> dict[str, np.ndarray]:
         ``{key: BGR ndarray}`` — 이미지가 아닌 키는 제외.
     """
     _out: dict[str, np.ndarray] = {}
-    _frame = meta.Get(stem)
+    _frame = meta.Find(stem)
     if _frame is None:
         return _out
-    _root = meta.State_root(meta.State_of(stem))   # 프레임 파일은 그 stem 의 상태 버킷에
+    _root = meta.Category_root(meta.Category_of(stem))   # 프레임 파일은 그 stem 의 상태 버킷에
     for _key, _ref in _frame.info.items():
         if _ref.Is_stem() or _ref.type == "segmap":   # 객체(컨테이너)·인스턴스 라벨맵은 base 아님
             continue
@@ -54,13 +54,13 @@ def load_segment(meta: Dataset_Meta, stem: str) -> np.ndarray | None:
     객체별 mask 는 더 이상 따로 저장하지 않고 이 한 장(픽셀값 = obj_id + 1, 0 = 배경)에서
     파생한다. segment 가 없으면 ``None``.
     """
-    _frame = meta.Get(stem)
+    _frame = meta.Find(stem)
     if _frame is None:
         return None
     _ref = _frame.info.get("segment")
     if _ref is None:
         return None
-    _root = meta.State_root(meta.State_of(stem))   # 프레임 파일은 그 stem 의 상태 버킷에
+    _root = meta.Category_root(meta.Category_of(stem))   # 프레임 파일은 그 stem 의 상태 버킷에
     _val = handler.Load(_root, stem, "segment", _ref)
     return _val if isinstance(_val, np.ndarray) and _val.ndim == 2 else None
 

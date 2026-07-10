@@ -14,7 +14,7 @@ payload(이미지·배열·마스크·값)를 실제 파일로 load/save/copy/mo
 ```text
 handler/
 ├── __init__.py    HANDLER_REGISTRY + 디스패치(Load/Save/Move/Copy/Delete/Types/Infer_type) + 자동 등록
-├── _base.py       Data_Ref(재귀 노드) · Handler(추상) · File_Handler(디스크 파일 공통)
+├── _base.py       Handler(추상) · File_Handler(디스크 파일 공통) — Data_Ref 는 ../schema.py 소유
 ├── _structure.py  Structure — 구조 사이드카({root}/.meta/{stem}.json) read/write/move/delete/stems
 ├── image.py       image  — png/jpg 등 (cv2)
 ├── segmap.py      segmap — 단일채널 ID 라벨맵 (Image_Handler 특화)
@@ -23,7 +23,9 @@ handler/
 └── rle.py         rle    — coco RLE mask (인코딩 코덱 소유)
 ```
 
-`Data_Ref` 서술자 자체가 `_base.py` 에 산다(트리 스키마가 handler 한 방향으로만 의존 → 순환 없음).
+`Data_Ref` 서술자는 [`../schema.py`](../schema.py) 소유다 — **데이터모델이 I/O 계층을 모르도록** 의존은
+`handler → schema` 한 방향뿐이다(여기선 편의로 재노출). 그래서 데이터모델만 필요한 소비자는 cv2·핸들러
+registry 없이 `schema.py` 만 들일 수 있다.
 `Structure` 는 registry 에 안 올린다 — `type` 으로 고르는 대상이 아니라 stem 이면 항상 이거다.
 
 핸들러 모듈을 떨구기만 하면 `__init__` 이 패키지를 순회해 `@HANDLER_REGISTRY.Register_module` 을
@@ -34,37 +36,19 @@ combobox(`Types()`)와 같은 진실원천이다.
 
 ## Handler 계약
 
-핸들러는 **상태가 없다**(설정은 `Data_Ref.info` 에). 그래서 메서드가 `classmethod` 고, registry 가
-저장한 클래스에서 바로 호출한다(인스턴스화 없음).
+핸들러는 **상태가 없다**(설정은 `Data_Ref.info` 에) — 그래서 `classmethod` 로, registry 가 든 클래스에서
+인스턴스화 없이 바로 부른다. 계약(`Load`/`Save`/`Claims`/`INLINE` 등)의 시그니처·인자 의미는
+[`_base.py`](_base.py) 의 `Handler` docstring 이 소유한다. 여기선 그 계약이 **왜 이 모양인지**만.
 
-```python
-class Handler(ABC):
-    Load(cls, root, stem, name, ref, *, obj_id=None) -> Any          # dataset → payload
-    Save(cls, root, stem, name, ref, src, *, obj_id=None) -> Data_Ref # src → dataset (갱신 ref 반환)
-    Default_format(cls) -> str
-    Extensions(cls) -> tuple[str, ...]   # ext→type 추론용. 인라인은 ()
-    Can_visualize(cls) -> bool
-    # ── 쓰기 기본 구성 선언 (Template 이 참조) ──
-    INLINE: ClassVar[bool]               # 값을 info 인라인(attr/rle) vs 파일(image/array/segmap)
-    Claims(cls, value, *, storage, params) -> int  # spec 이 type 미지정 시 value+맥락 담당 우선순위(0=미매칭)
-```
+**값→서술자 규칙을 각 핸들러가 소유한다.** 값을 어떤 `Data_Ref` 로 담을지(type·inline·format)를 중앙
+테이블이 정하지 않는다 — 각 핸들러가 `INLINE`·`Default_format`·`Claims` 를 선언하고, `Template` 이
+registry 전체에서 모아 결정한다. 그래서 새 type(mesh·points3d …)은 파일 하나로 자기 규칙을 들고 붙고
+중앙을 안 건드린다. `Claims` 가 `storage`·`params` 맥락을 함께 봐 **같은 ndarray 를 rle/array/image 로
+가르는** 것이 이 설계의 요점 — 우선순위 값은 각 핸들러 코드가 든다.
 
-### 쓰기 기본 구성 — 각 핸들러가 선언, `Template` 이 병합
-
-값을 어떤 `Data_Ref` 서술자로 담을지(type·inline·format)는 **각 핸들러가 자기 규칙을 소유**한다 —
-중앙 테이블이 아니라 `INLINE`·`Default_format`·`Claims` 선언을, `__init__` 의 `Template` 이 registry
-전체에서 모아 결정한다. 새 type(mesh·points3d …)은 파일 하나로 자기 규칙을 들고 붙는다(중앙 수정 0).
-
-- **`Claims`** — spec 이 `type`/`format` 을 안 줄 때 value→type 을 정하는 우선순위. `storage`(=spec.to
-  =="storage")·`params`(위치 없는 dataset-wide) 맥락을 함께 봐 **같은 ndarray 를 rle/array/image 로
-  가른다**. 현재 선언: `attr`=1(meta fallback) · `rle`=3(frame meta 2D+) · `array`=3(params ndarray) ·
-  `image`=3(frame storage ndarray) · `segmap`=0(png 추론 불가 → 항상 `type: segmap` 명시).
-
-- `Save` 의 `src` 는 핸들러가 이해하는 입력 — converter 의 raw 파일 `Path` **또는** process 의
-  in-memory payload(ndarray·값). 한 `Save` 가 두 생산자를 다 받는다.
-- 파일 핸들러(`image`/`array`)는 `File_Handler` 를 상속해 경로 파생·복사/이동/삭제 공통을 받고
-  `_Read`/`_Write` + `Extensions` 만 구현한다. `segmap` 은 `Image_Handler` 를 상속해 png I/O 를
-  재사용하고 단일채널·uint8 로 변주한다.
+**한 `Save` 가 두 생산자를 받는다** — converter 의 raw 파일 `Path` 든 process 의 in-memory payload 든,
+핸들러가 자기가 이해하는 입력으로 해석한다. 파일 핸들러는 `File_Handler`(경로·복사/이동/삭제 공통)를
+상속해 `_Read`/`_Write` 만 구현하고, `segmap` 은 `image` 를 상속해 단일채널·uint8 로 변주한다.
 
 ---
 
@@ -93,29 +77,18 @@ leaf 처리(inline → 값 그대로 / file → 핸들러)를 결정한다.
 
 ---
 
-## API (디스패치 — 모듈 함수)
+## 쓰기 게이트 — `Route`
 
-```python
-from core.data import handler
+읽기(`Load`)·전이(`Move`/`Copy`/`Delete`)는 `ref.type` 으로 핸들러를 골라 디스패치할 뿐이라 설명이
+필요 없다(시그니처는 [`__init__.py`](__init__.py) docstring). **개념이 있는 건 쓰기 경로다.**
 
-handler.Load(root, stem, name, ref, *, obj_id=None) -> Any          # ref.type 핸들러로 로드
-handler.Save(root, stem, name, ref, src, *, obj_id=None) -> Data_Ref
-handler.Move(src_root, dst_root, stem, name, ref, *, obj_id=None)   # 상태 전이 (인라인 no-op)
-handler.Copy(src_root, dst_root, stem, name, ref, *, obj_id=None)   # 병합 (원본 보존)
-handler.Delete(root, stem, name, ref, *, obj_id=None)               # 인라인 no-op
-handler.Types() -> list[str]                                        # 등록 목록
-handler.Infer_type(ext) -> str | None                              # 확장자 → type (없으면 None=명시)
-# ── 쓰기 게이트 (spec → 템플릿 → 저장; sink 가 위치만 정하면 나머지는 여기서) ──
-handler.Template(spec, value, *, params=False) -> Data_Ref          # 값+맥락 → Data_Ref 서술자
-handler.Route(root, stem, name, spec, value, *, obj_id=None, params=False) -> Data_Ref  # Template + Save
-```
+sink 이 값을 저장하려면 세 가지를 정해야 한다 — 어떤 type 으로 담을지, 어디에 쓸지, 어떻게 인코딩할지.
+`Route` 가 이 셋을 한 게이트로 모은다: `Template`(값+맥락 → `Data_Ref` 서술자) + `Save`(디스크 write).
+그래서 sink(`Meta_sink`/`Sample_sink`)은 **store 위치만** 정하면 되고, ref 구성·경로 파생·인코딩은
+전부 여기로 수렴한다(구 `_data_ref`/`_params_ref`/`_attach_crop`/`_set_param` 이 이 하나로).
 
-`Route` 는 sink(`Meta_sink`/`Sample_sink`)이 store 위치만 정하면 ref 구성·인코딩·경로 파생을 전부
-받는 단일 쓰기 게이트다 — 구 `_data_ref`/`_params_ref`/`_attach_crop`/`_set_param` 이 여기로 수렴.
-`spec` = `{to: meta|storage, level?, dir?, format?, type?}`.
-
-`stem` 은 Optional — params 는 stem 없이 `None`(파일명 = name). `Infer_type` 은 조용한 기본값을 두지
-않는다(추론 안 되면 호출 측이 type 명시).
+`spec` = `{to: meta|storage, level?, dir?, format?, type?}`. `type`/`format` 을 생략하면 `Claims` 가
+값·맥락으로 정하고, 그래도 못 정하면 조용한 기본값 없이 실패한다(호출 측이 명시).
 
 ---
 
