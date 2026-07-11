@@ -1,7 +1,7 @@
 """dataset 핸들러 패키지 — I/O 디스패치 단일 진실원천.
 
-pipeline 의 ``PROCESS_REGISTRY`` 와 동일한 ``python_toolbox.Registry`` 패턴. ``meta.py`` 는
-이 패키지를 import 하지 않는다 (순환 회피) — 로드/저장 디스패치는 여기가 소유한다.
+pipeline 의 ``PROCESS_REGISTRY`` 와 동일한 ``python_toolbox.Registry`` 패턴. 순수 트리 코어
+(``data_ref``)는 이 패키지를 import 하지 않는다 (단방향) — 로드/저장 디스패치는 여기가 소유한다.
 """
 
 from __future__ import annotations
@@ -59,60 +59,31 @@ def Infer_type(ext: str) -> str | None:
     return _EXT_TO_TYPE.get(ext.lstrip(".").lower())
 
 
-def Load(
-    root: str, stem: str | None, name: str, ref: Data_Ref,
-    *, obj_id: str | None = None
-) -> Any:
-    """ref.type 핸들러로 payload 로드. 호출 측이 ref 를 넘긴다 (meta 모양에 비의존)."""
-    return HANDLER_REGISTRY.Get(
-        ref.type, Handler
-    ).Load(root, stem, name, ref, obj_id=obj_id)
+def Load(root: str, path: tuple[str, ...], name: str, ref: Data_Ref) -> Any:
+    """ref.format[0](handler key) 로 payload 로드 (``path`` = leaf 조상 key 시퀀스)."""
+    return HANDLER_REGISTRY.Get(ref.format[0], Handler).Load(root, path, name, ref)
 
 
-def Save(
-    root: str, stem: str | None, name: str, ref: Data_Ref, src: Any,
-    *, obj_id: str | None = None
-) -> Data_Ref:
-    """ref.type 핸들러로 저장. 갱신된 ``Data_Ref`` 반환 (호출 측이 meta 에 보관)."""
-    return HANDLER_REGISTRY.Get(
-        ref.type, Handler
-    ).Save(root, stem, name, ref, src, obj_id=obj_id)
+def Save(root: str, path: tuple[str, ...], name: str, ref: Data_Ref, src: Any) -> Data_Ref:
+    """ref.format[0](handler key) 로 저장. 갱신된 ``Data_Ref`` 반환."""
+    return HANDLER_REGISTRY.Get(ref.format[0], Handler).Save(root, path, name, ref, src)
 
 
-def Move(
-    src_root: str, dst_root: str, stem: str | None, name: str, ref: Data_Ref,
-    *, obj_id: str | None = None
-) -> None:
-    """ref.type 핸들러로 파일을 ``src_root`` → ``dst_root`` 로 옮긴다 (상태 전이; 인라인=no-op).
-
-    경로 파생 단일 진실원천이 핸들러라, 전이(Pipeline)는 위치 계산 없이 이 디스패치만 부른다.
-    """
-    HANDLER_REGISTRY.Get(
-        ref.type, Handler
-    ).Move(src_root, dst_root, stem, name, ref, obj_id=obj_id)
+def Move(src_root: str, src_path: tuple[str, ...],
+         dst_root: str, dst_path: tuple[str, ...], name: str, ref: Data_Ref) -> None:
+    """파일을 ``src`` 경로 → ``dst`` 경로로 옮긴다 (인라인=no-op)."""
+    HANDLER_REGISTRY.Get(ref.format[0], Handler).Move(src_root, src_path, dst_root, dst_path, name, ref)
 
 
-def Copy(
-    src_root: str, dst_root: str, stem: str | None, name: str, ref: Data_Ref,
-    *, obj_id: str | None = None
-) -> None:
-    """ref.type 핸들러로 파일을 ``src_root`` → ``dst_root`` 로 복사한다 (meta 병합; 인라인=no-op).
-
-    ``Move`` 와 달리 원본을 남긴다 — 외부 meta 를 들일 때 그 데이터셋을 깨지 않으려 복사한다.
-    """
-    HANDLER_REGISTRY.Get(
-        ref.type, Handler
-    ).Copy(src_root, dst_root, stem, name, ref, obj_id=obj_id)
+def Copy(src_root: str, src_path: tuple[str, ...],
+         dst_root: str, dst_path: tuple[str, ...], name: str, ref: Data_Ref) -> None:
+    """파일을 ``src`` → ``dst`` 로 복사한다 (src 보존; 인라인=no-op)."""
+    HANDLER_REGISTRY.Get(ref.format[0], Handler).Copy(src_root, src_path, dst_root, dst_path, name, ref)
 
 
-def Delete(
-    root: str, stem: str | None, name: str, ref: Data_Ref,
-    *, obj_id: str | None = None
-) -> None:
-    """ref.type 핸들러로 이 ref 의 파일을 지운다 (인라인=no-op). stem 삭제 전이에 쓴다."""
-    HANDLER_REGISTRY.Get(
-        ref.type, Handler
-    ).Delete(root, stem, name, ref, obj_id=obj_id)
+def Delete(root: str, path: tuple[str, ...], name: str, ref: Data_Ref) -> None:
+    """이 ref 의 파일을 지운다 (인라인=no-op)."""
+    HANDLER_REGISTRY.Get(ref.format[0], Handler).Delete(root, path, name, ref)
 
 
 def _claim_type(value: Any, *, storage: bool, params: bool) -> str | None:
@@ -132,10 +103,9 @@ def _claim_type(value: Any, *, storage: bool, params: bool) -> str | None:
 def Template(spec: dict, value: Any, *, params: bool = False) -> Data_Ref:
     """routing spec(+값·맥락) → ``Data_Ref`` 템플릿 — 값을 어떤 서술자로 담을지 한곳에서 정한다.
 
-    type 확정 순서: ``spec.type`` → ``spec.format`` 확장자 추론 → value+맥락 ``Claims``(핸들러 선언).
+    handler 확정 순서: ``spec.type`` → ``spec.format`` 확장자 추론 → value+맥락 ``Claims``(핸들러 선언).
     정해진 핸들러의 ``INLINE``(인라인 vs 파일)·``Default_format`` 으로 조립하고, ``spec`` 의 ``dir``/
     ``format`` 이 있으면 그게 이긴다. 파일 dir 기본은 ``""``(→name), ``params`` 맥락은 ``"params"``.
-    구 ``_data_ref``/``_params_ref``/sink 별 템플릿 빌더를 이 하나로 통합한다.
     """
     _storage = spec.get("to", "meta") == "storage"
     _type = (spec.get("type")
@@ -148,24 +118,20 @@ def Template(spec: dict, value: Any, *, params: bool = False) -> Data_Ref:
     _cls = HANDLER_REGISTRY.Get(_type, Handler)
     _fmt = spec.get("format") or _cls.Default_format()
     if _cls.INLINE:
-        return Data_Ref(type=_type, format=_fmt, info={})
+        return Data_Ref(format=(_type, _fmt), info={})
     _ddir = "params" if params else ""
-    return Data_Ref(type=_type, format=_fmt, info={"dir": spec.get("dir", _ddir)})
+    return Data_Ref(format=(_type, _fmt), info={"dir": spec.get("dir", _ddir)})
 
 
-def Route(
-    root: str, stem: str | None, name: str, spec: dict, value: Any,
-    *, obj_id: str | None = None, params: bool = False
-) -> Data_Ref:
-    """값을 spec 대로 저장한다 — ``Template`` 로 ref 를 짓고 ``Save`` 로 write (값→ref→디스크 단일 게이트).
-
-    sink(``Meta_sink``/``Sample_sink``)이 store 위치만 정하면, ref 구성·인코딩·경로 파생은 전부 여기서.
-    """
-    return Save(root, stem, name, Template(spec, value, params=params), value, obj_id=obj_id)
+def Route(root: str, path: tuple[str, ...], name: str, spec: dict, value: Any,
+          *, params: bool = False) -> Data_Ref:
+    """값을 spec 대로 저장한다 — ``Template`` 로 ref 를 짓고 ``Save`` 로 write."""
+    return Save(root, path, name, Template(spec, value, params=params), value)
 
 
 __all__ = [
-    "Data_Ref", "Handler", "File_Handler", "Structure", "HANDLER_REGISTRY",
+    "Data_Ref",
+    "Handler", "File_Handler", "Structure", "HANDLER_REGISTRY",
     "Types", "Infer_type", "Load", "Save", "Move", "Copy", "Delete",
     "Template", "Route",
 ]

@@ -1,61 +1,49 @@
 """정본 스테이지 — thin ``Dataset_Meta``(``Bucket_Store`` 서브클래스, 범주 = staging 상태).
 
-영속(Scatter/Gather/Restore)·전이(Move/Delete/Merge)는 ``Bucket_Store`` 가 아니라 [`../store_io.py`](
-../store_io.py) **자유함수**(store 인자)가 수행하므로, 여기는 ``CATEGORIES`` + top 파일명 + staging 용어
-편의만 둔다. 공유 데이터모델은 [`../schema.py`](../schema.py), leaf 서술자 ``Data_Ref`` 는
-[`../handler`](../handler).
+조회·쓰기 게이트도 영속·전이도 [`../bucket_store.py`](../bucket_store.py)의 ``Bucket_Store`` 메서드가
+소유한다(순수 트리 코어는 [`../data_ref.py`](../data_ref.py)). 여기 남는 건 **설정**(범주 목록·진입 범주)
++ 그 범주를 이름으로 노출하는 **named accessor**뿐 — 타입이 곧 트리 모양 보장이라 병합이 같은 타입끼리만.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import ClassVar
+from typing import ClassVar, Mapping
 
-from ...constant import META_STATES
-from ..handler import Data_Ref
-from ..schema import Bucket_Store
+from ...constant import META_STATES, MODIFIED, SKIPPED, STAGED
+from ..bucket_store import Bucket_Store
+from ..data_ref import Data_Ref
 
 ANNOTATION_FILE = "annotation.json"   # 내보내기 — staged 를 뭉친 자기완결 본
 
 
 @dataclass
 class Dataset_Meta(Bucket_Store):
-    """정본 — 범주(``CATEGORIES``) = ``META_STATES``(modified/staged), 항목 = stem → 컨테이너 ``Data_Ref``.
+    """정본 store — 범주 = staging 상태 (modified/staged/skipped).
 
-    ``modified`` = flow 출력·가져오기, ``staged`` = 검수 완료(annotation 대상). 한 stem 은 한 범주에만
-    (멤버십이 곧 상태). class→id 매핑(id_map)은 meta 소유가 아니라 파생(sample)이 받아 쓴다 — meta 는
-    class **이름**만 ``frame.info["class_id"]`` 로 든다. 범주 조회는 ``Bucket_Store`` 상속, 영속·전이는 ``store_io``.
-    여기 더하는 건 staging 용어 편의(``STATES``/``State_of``/``modified``/``staged``/``Get``/``Has``)뿐 —
-    범주(category) = 상태(state) 라 ``Bucket_Store`` 의 범주 API 를 상태 이름으로 감싼다.
+    ``modified`` = 작업(flow 출력·가져오기), ``staged`` = 검수 완료(annotation 대상), ``skipped`` = 보류.
+    새 항목과 **내용이 바뀐 항목**은 ``modified`` 로 진입한다(``DEFAULT_CATEGORY``) — 검수는 내용에 대한
+    것이라 내용이 달라지면 다시 받아야 한다. class→id 매핑은 파생(sample) 소유고, meta 는 class **이름**만
+    ``class_id`` LEAF 로 든다.
+
+    설정 + named accessor 뿐 — 조회·쓰기·영속·전이는 ``Bucket_Store`` 메서드.
     """
 
-    CATEGORIES: ClassVar[tuple[str, ...]] = META_STATES
-    STATES:     ClassVar[tuple[str, ...]] = META_STATES   # CATEGORIES 의 staging 별칭 (GUI 용어)
-    TOP_STEM:   ClassVar[str] = "dataset_meta"
+    CATEGORIES:       ClassVar[tuple[str, ...]] = META_STATES
+    DEFAULT_CATEGORY: ClassVar[str] = MODIFIED
 
-    # ── staging 편의 (범주 = 상태; Bucket_Store 범주 API 의 상태 이름 래퍼) ──────
+    # ── named accessor — ``Bucket(상태)`` 읽기 뷰에 이름을 얹은 sugar ─────────────────
     @property
-    def modified(self) -> dict[str, Data_Ref]:
-        """``modified`` 상태 버킷 (flow 출력·가져오기). live 참조."""
-        return self.Bucket("modified")
+    def modified(self) -> Mapping[str, Data_Ref]:
+        """작업 대상(flow 출력·가져오기) 항목 — 읽기 전용 뷰."""
+        return self.Bucket(MODIFIED)
 
     @property
-    def staged(self) -> dict[str, Data_Ref]:
-        """``staged`` 상태 버킷 (검수 완료). live 참조."""
-        return self.Bucket("staged")
+    def staged(self) -> Mapping[str, Data_Ref]:
+        """검수 완료(annotation 대상) 항목 — 읽기 전용 뷰."""
+        return self.Bucket(STAGED)
 
-    def State_of(self, stem: str) -> str | None:
-        """stem 이 사는 상태 (없으면 None) — ``Category_of`` 별칭."""
-        return self.Category_of(stem)
-
-    def State_root(self, state: str) -> str:
-        """그 상태의 파일 루트 ``{root}/{state}`` — ``Category_root`` 별칭."""
-        return self.Category_root(state)
-
-    def Get(self, stem: str) -> Data_Ref | None:
-        """stem 항목을 상태 무관하게 찾는다 — ``Find`` 별칭."""
-        return self.Find(stem)
-
-    def Has(self, stem: str) -> bool:
-        """stem 이 어느 상태에든 있는지."""
-        return self.Category_of(stem) is not None
+    @property
+    def skipped(self) -> Mapping[str, Data_Ref]:
+        """보류(파이프라인 제외) 항목 — 읽기 전용 뷰."""
+        return self.Bucket(SKIPPED)

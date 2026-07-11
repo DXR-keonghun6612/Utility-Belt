@@ -45,19 +45,16 @@ class Rle_Handler(Handler):
                      and isinstance(value, np.ndarray) and value.ndim >= 2) else 0
 
     @classmethod
-    def Load(cls, root: str, stem: str | None, name: str, ref: Data_Ref,
-             *, obj_id: str | None = None) -> Any:
+    def Load(cls, root: str, path: tuple[str, ...], name: str, ref: Data_Ref) -> Any:
         _v = ref.info.get("value")
         return _decode(_v) if _v is not None else None
 
     @classmethod
-    def Save(cls, root: str, stem: str | None, name: str, ref: Data_Ref, src: Any,
-             *, obj_id: str | None = None) -> Data_Ref:
+    def Save(cls, root: str, path: tuple[str, ...], name: str, ref: Data_Ref, src: Any) -> Data_Ref:
         _mask = cls._Read_mask(src) if isinstance(src, (str, Path)) else src
         _rle = _encode(np.asarray(_mask).astype(np.uint8))
         return Data_Ref(
-            type=ref.type,
-            format=ref.format or cls.Default_format(),
+            format=ref.format or ("rle", cls.Default_format()),
             info={**ref.info, "value": _rle},
         )
 

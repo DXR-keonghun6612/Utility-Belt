@@ -24,22 +24,15 @@ class Attr_Handler(Handler):
         return 1 if not storage else 0
 
     @classmethod
-    def Load(
-        cls, root: str, stem: str | None, name: str, ref: Data_Ref,
-        *, obj_id: str | None = None
-    ) -> Any:
+    def Load(cls, root: str, path: tuple[str, ...], name: str, ref: Data_Ref) -> Any:
         return ref.info.get("value")
 
     @classmethod
-    def Save(
-        cls, root: str, stem: str | None, name: str, ref: Data_Ref, src: Any,
-        *, obj_id: str | None = None
-    ) -> Data_Ref:
+    def Save(cls, root: str, path: tuple[str, ...], name: str, ref: Data_Ref, src: Any) -> Data_Ref:
         _value = (src.read_text(encoding="utf-8").strip()
                   if isinstance(src, Path) else src)
         return Data_Ref(
-            type=ref.type,
-            format=ref.format or cls.Default_format(),
+            format=ref.format or ("attr", cls.Default_format()),
             info={**ref.info, "value": _value},
         )
 
