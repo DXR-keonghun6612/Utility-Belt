@@ -62,6 +62,85 @@ class Bucket_Store(Data_Schema):
         """범주 무관 root leaf 를 ``params`` 에 넣는다."""
         self.tree.Get(self.PARAMS).Push(name, ref)
 
+    # ── 트리 임의 위치의 노드 더하기/지우기 (라이프사이클) ─────────────────────────
+    def Add_leaf(self, path: tuple[str, ...], name: str, spec: dict, value: Any) -> Data_Ref:
+        """``path`` 컨테이너에 LEAF 를 새로 만든다 — payload 저장 + 노드 등록 (새 ref 반환).
+
+        빈 mask 를 만들어 그리기 시작하는 자리다 — 없던 종류를 **새로 낳는다**. 경로는 트리 위치에서
+        파생되므로 호출 측은 파일이 어디 앉는지 몰라도 된다.
+
+        Raises:
+            KeyError: ``path`` 에 컨테이너가 없을 때.
+        """
+        _parent = self.tree.At(path)
+        if _parent is None or not _parent.Is_branch():
+            raise KeyError(f"컨테이너가 없음: {'/'.join(path)}")
+        _ref = self.Route(path, name, spec, value)
+        _parent.Push(name, _ref)
+        return _ref
+
+    def Add_branch(self, path: tuple[str, ...], name: str | None = None) -> str:
+        """``path`` 컨테이너에 빈 BRANCH(객체)를 더한다 — 이름을 안 주면 **다음 순번** (반환).
+
+        객체 id 는 부모 ``info`` 의 key 다(별도 필드가 아니다). 빈 자리를 찾아 채운다.
+        """
+        _parent = self.tree.At(path)
+        if _parent is None or not _parent.Is_branch():
+            raise KeyError(f"컨테이너가 없음: {'/'.join(path)}")
+        if name is None:
+            _i = 0
+            while str(_i) in _parent.info:
+                _i += 1
+            name = str(_i)
+        _parent.Push(name, Data_Ref(info={}))
+        return name
+
+    def Delete_node(self, path: tuple[str, ...], name: str) -> None:
+        """``path`` 아래 노드 하나를 지운다 — LEAF 든 BRANCH 든 **payload 파일까지** (없으면 no-op).
+
+        사이드카는 여기서 안 지운다 — item 단위라 ``Save(key)`` 가 통째로 다시 쓴다(그게 저장 입도다).
+        item 자체를 지우는 건 ``Delete``, params 는 ``Delete_param``.
+        """
+        _parent = self.tree.At(path)
+        if _parent is None:
+            return
+        _ref = _parent.Pop(name)
+        if _ref is None:
+            return
+        if _ref.Is_branch():                                   # 객체 — 그 안의 payload 를 전부
+            for _lp, _n, _leaf in _ref.Iter_leaves():
+                port.Delete(self.root, path + (name,) + _lp, _n, _leaf)
+        else:
+            port.Delete(self.root, path, name, _ref)           # 인라인이면 no-op
+
+    def Import_param(self, name: str, src: str | Path, *, type: str) -> Data_Ref:
+        """dataset-wide **파일 하나**를 params 로 들인다 — payload 복사 + leaf 등록 (갱신된 ref 반환).
+
+        ``Import`` 의 단건 판이다 — 그쪽은 stem 축이 있는 raw 를 훑고, 이건 축이 없는 파일 하나다.
+        호출 측은 파일이 어디로 복사되는지 몰라도 된다(경로는 트리 위치에서 파생).
+
+        Args:
+            name: params key (= 종류. 저장 폴더도 이 이름이다).
+            src: 들일 파일 경로.
+            type: 핸들러 (image/segmap/array/docs …) — **추론하지 않는다**.
+        """
+        _ref = port.Save(self.root, (self.PARAMS,), name,
+                         port.Template_for_file({"pattern": str(src), "type": type}), Path(src))
+        self.Set_param(name, _ref)
+        return _ref
+
+    def Delete_param(self, name: str) -> None:
+        """params leaf 하나를 제거한다 — payload · **사이드카** · 트리 (없으면 no-op).
+
+        사이드카를 같이 지우는 게 핵심이다 — 안 지우면 다음 ``Restore`` 가 그 파일을 읽어 **지운 항목을
+        되살린다**(트리에선 사라졌는데 디스크엔 남아 있으니). 삭제의 입도는 저장의 입도와 같아야 한다.
+        """
+        _ref = self.tree.Get(self.PARAMS).Pop(name)
+        if _ref is None:
+            return
+        port.Delete(self.root, (self.PARAMS,), name, _ref)       # payload (인라인이면 no-op)
+        Structure.Delete(self.root, (self.PARAMS, name))         # 사이드카
+
     # ── 조회 — item(범주 직속 자식)만 ────────────────────────────────────────────
     def _item_path(self, key: str) -> tuple[str, str] | None:
         """item 의 트리 경로 ``(범주, key)`` — 범주 직속에서만 찾는다 (없으면 None).

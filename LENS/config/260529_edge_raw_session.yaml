@@ -10,7 +10,11 @@ converter:
             pattern: '*_pose.txt'
             type: attr
     params:
-        roi: /home/dxr/project/100. Utility/120. Belt/LENS/resource/segment_ROI.png
+        # dataset-wide 파일 — glob 이 아니라 단일 경로. type 은 여기서도 필수다
+        # (png 하나가 image 일 수도 segmap 일 수도 있다).
+        roi:
+            pattern: /home/dxr/project/100. Utility/120. Belt/LENS/resource/segment_ROI.png
+            type: image
     id_map: /home/dxr/project/100. Utility/120. Belt/LENS/resource/id_map.yaml
 flows:
 -   object_type: flow

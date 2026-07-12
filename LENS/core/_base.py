@@ -23,6 +23,7 @@ from python_toolbox.project.config import Base_Config
 
 from .constant import MODIFIED
 from .process import Build_flow, Sample_stage
+from .process.stream.mask.order import Order_objects
 from .store import SAMPLE_DIR, Dataset_Meta, Sample_Set
 from .tasker import Load_taskers, Save_taskers
 from .process.stream.model._sam3 import Sam3_runner
@@ -139,6 +140,49 @@ class Pipeline:
         for _flow in _flows:
             _flow(self.meta, progress=progress)
         self.meta.Save()
+
+    def Order(self, stems: list[str] | None = None,
+              progress: Callable[[str, int, int], None] | None = None) -> None:
+        """지정 stem 들의 객체를 중심-거리 순으로 재정렬 — obj_id 재부여 + segment 재라벨 + 저장.
+
+        편집(객체 삭제 등)이 남긴 obj_id **구멍을 압축**하는 자리다. 삭제(``meta.Remove_object``)는
+        정합만 지키고 순번을 안 매기므로(store 는 process 를 모른다), 압축은 여기(binder)가
+        ``Order_objects``(process)를 돌려 한다 — 저장·병합 직후 호출한다. ``stems=None`` 이면 전 범주.
+
+        Args:
+            stems: 재정렬할 item key 들 (None 이면 모든 범주의 전 stem).
+            progress: 진행 콜백 ``(label, i, total)``.
+        """
+        _keys = (list(stems) if stems is not None
+                 else [_k for _c in self.meta.CATEGORIES for _k in self.meta.Bucket(_c)])
+        for _i, _stem in enumerate(_keys, start=1):
+            self._order_stem(_stem)
+            if progress is not None:
+                progress("order", _i, len(_keys))
+
+    def _order_stem(self, stem: str) -> None:
+        """한 stem 의 segment + 객체를 ``Order_objects`` 로 재정렬해 되꽂고 저장한다 (대상 없으면 no-op)."""
+        _item = self.meta.Find(stem)
+        if _item is None:
+            return
+        _name, _ref = next(((_n, _r) for _n, _r in _item.Leaves().items()
+                            if _r.format[:1] == ("segmap",)), (None, None))
+        _objs = list(_item.Branches().values())
+        if _ref is None or not _objs:
+            return
+        _seg = self.meta.Load(stem, _name)
+        if _seg is None:
+            return
+        _out = Order_objects().Run(segment=_seg, object=_objs)
+        if not _out:
+            return
+        _path = self.meta.Item_path(stem)
+        _spec = {"to": "storage", "type": _ref.format[0]}
+        if len(_ref.format) > 1 and _ref.format[1]:
+            _spec["format"] = _ref.format[1]
+        _item.Push(_name, self.meta.Route(_path, _name, _spec, _out["segment"]))
+        _item.Replace_branches(_out["object"])
+        self.meta.Save(stem)
 
     # ── 파생(Sample) — 이름 붙은 tasker ({root}/sample/{name} + taskers.yaml) ────
     def Taskers(self) -> dict[str, dict]:

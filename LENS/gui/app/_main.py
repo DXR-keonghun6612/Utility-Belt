@@ -260,6 +260,9 @@ class Main_page(QWidget):
                 return
             _mode = _ans
         self._pipeline.meta.Merge(_other, mode=_mode)
+        _merged = [_k for _c in _other.CATEGORIES for _k in _other.Bucket(_c)
+                   if self._pipeline.meta.Has(_k)]
+        self._pipeline.Order(stems=_merged)           # 병합된 stem 의 obj_id 압축·정렬
         self._meta_view.refresh()
         _note = ("" if _mode == SKIP
                  else f" (충돌 {len(_conf)}개는 {_mode} — '{Dataset_Meta.DEFAULT_CATEGORY}' 로 되돌림)")

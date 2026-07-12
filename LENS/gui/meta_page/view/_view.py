@@ -1,26 +1,41 @@
-"""메인 본문 — stem 목록 + 임베드 편집기 + id_map/params (``Pipeline`` 구동). 설계는 README."""
+"""메인 본문 — stem 목록 + (params · 데이터 · 객체) 트리 + 데이터 뷰어 (``Pipeline`` 구동). 설계는 README.
+
+```text
+[stem 목록]   ┌ params  (dataset-wide) ┐   [데이터 뷰어]
+ 범주 뱃지     ├────────────────────────┤    체크된 raster 합성 + 선택 노드 편집
+              │ 데이터  (선택 stem)     │ ← raster leaf(frame·segment·roi) — 체크=합성
+              ├────────────────────────┤
+              │ 객체    (선택 stem)     │ ← 객체(BRANCH)+attr — 선택=조준/편집
+              └────────────────────────┘   각 섹션은 접힌다(Collapsible)
+```
+
+**같은 재귀 렌더러(`Node_tree`)를 scope 로 세 번 쓴다** — params / 데이터(leaf) / 객체(objects). 데이터모델은
+하나(재귀 ``Data_Ref``)지만 **표현 축이 다르다**: raster 는 체크해서 합성하고, 객체는 골라서 조준·편집한다.
+예전엔 그 셋을 한 트리에 합쳐 놓고 top-level 을 훑어 객체를 추론했는데(축이 섞여 있었다), 여기서 축대로
+가른다. core 데이터모델은 그대로다 — 정돈은 표현 계층의 일이지 저장 구조의 일이 아니다.
+
+**params 는 stem 목록에 안 넣는다** — dataset-wide 라 stem 의 형제가 아니다. 화면에서도 축이 다르다:
+stem 을 바꿔도 params 는 그대로 있고, 그 raster(예: `roi`)는 어느 stem 위에든 겹쳐 볼 수 있다.
+"""
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, Qt, Signal
-from PySide6.QtWidgets import (
-    QApplication,
-    QLabel,
-    QSplitter,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import QHBoxLayout, QPushButton, QSplitter, QVBoxLayout, QWidget
 
-from gui.meta_page.view._params import Params_panel
+from gui.meta_page.view._data_view import Data_view
+from gui.meta_page.view._node_panel import Node_panel
+from gui.meta_page.view._node_tree import Node
+from gui.meta_page.view._params_panel import Params_panel
 from gui.meta_page.view._stem_list import Stem_list
-from gui.meta_page.edit import Stem_editor, Stem_edit_dialog
+from gui.widgets import Collapsible
 
 
 class Meta_view(QWidget):
-    """staging 본문 — stem 목록 + 임베드 편집기 + id_map/params (``Pipeline`` 구동).
+    """staging 본문 — stem 목록 + (데이터·객체) 트리 + 데이터 뷰어.
 
     Attributes:
-        meta_changed: id_map 등 meta 내용이 편집돼 영속됐을 때 emit (상위 알림용).
+        meta_changed: 내용이 편집돼 영속됐을 때 emit (상위 알림용).
         transition_requested: 대량 stem 전이 요청 ``(to_state, [stem…])`` — 상위가 백그라운드로 실행.
         remove_requested: 대량 stem 삭제 요청 ``[stem…]`` — 상위가 백그라운드로 실행.
     """
@@ -32,202 +47,229 @@ class Meta_view(QWidget):
     def __init__(self, pipeline=None, parent=None) -> None:
         super().__init__(parent)
         self._pipeline = pipeline
-        self._editable = True                          # 편집 잠금 (백그라운드 작업 중엔 보기만)
-        self._editor: Stem_editor | None = None
-        # 비모달 팝아웃 다이얼로그 참조 — GC 로 사라지지 않게 보관한다.
-        self._dialogs: list[Stem_edit_dialog] = []
+        self._editable = True                # 편집 잠금 (백그라운드 작업 중엔 보기만)
+        self._key: str = ""                  # 지금 트리에 열린 item (stem 또는 params)
+        self._dirty = False                  # 저장 안 된 편집(값·라스터)이 있나 — 명시적 저장 대기
+        self._dirty_params = False           # 그중 params 노드가 있나 (전체 저장 필요)
+        self._pending_rasters: list[Node] = []  # 저장 시 Route 할 라스터 노드 (payload 는 저장 때 flush)
         self._build()
-        # Tab 을 가로채 stem 목록 ↔ object 트리 사이로만 포커스를 토글한다 (그 둘 중
-        # 하나에 포커스가 있을 때만 — 그 외 위젯은 기본 Tab 순회를 그대로 둔다).
-        QApplication.instance().installEventFilter(self)
 
     def _build(self) -> None:
         _lay = QVBoxLayout(self)
         _lay.setContentsMargins(0, 0, 0, 0)
 
-        # ── 좌: stem 목록 ────────────────────────────────────────────────────
+        _top = QHBoxLayout()
+        self._save_btn = QPushButton("저장")
+        self._save_btn.setToolTip("이 stem 의 편집을 저장하고 객체를 재정렬한다 (obj_id 구멍 압축)")
+        self._save_btn.setEnabled(False)
+        self._save_btn.clicked.connect(self._on_save)
+        _top.addWidget(self._save_btn)
+        _top.addStretch(1)
+        _lay.addLayout(_top)
+
         self._stem_list = Stem_list()
-        self._stem_list.selected.connect(self._on_select)
-        self._stem_list.to_state_requested.connect(self._move_many)
-        self._stem_list.delete_requested.connect(self._delete_many)
-        self._stem_list.popout_requested.connect(self._popout)
+        self._stem_list.selected.connect(self._on_stem)
+        self._stem_list.to_state_requested.connect(self.transition_requested)
+        self._stem_list.delete_requested.connect(self.remove_requested)
 
-        # ── 가운데: 편집기 자리 (선택 stem 으로 채움) ─────────────────────────
-        self._holder = QWidget()
-        self._holder_lay = QVBoxLayout(self._holder)
-        self._holder_lay.setContentsMargins(0, 0, 0, 0)
-        self._placeholder = QLabel("stem 을 선택하세요")
-        self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._holder_lay.addWidget(self._placeholder)
+        # 가운데 = params(dataset-wide) · 데이터(leaf) · 객체(objects). 같은 렌더러, 다른 scope.
+        self._params = Params_panel(self._meta)          # 추가/삭제는 store 메서드가 한다
+        self._params.tree.selected.connect(self._on_node)
+        self._params.tree.layers_changed.connect(self._redraw)
+        self._params.changed.connect(self._on_params_changed)
 
-        # ── 우: params (id_map 포함 — id_map 은 params 의 일반 데이터, 별도 패널 없음) ──
-        self._params = Params_panel()
+        self._leaf_panel = Node_panel("leaves", self._meta, lambda: self._key)
+        self._leaf_tree = self._leaf_panel.tree
+        self._leaf_tree.selected.connect(self._on_node)
+        self._leaf_tree.layers_changed.connect(self._redraw)
+        self._leaf_panel.changed.connect(self._on_nodes_changed)
+
+        self._obj_panel = Node_panel("objects", self._meta, lambda: self._key)
+        self._obj_tree = self._obj_panel.tree
+        self._obj_tree.selected.connect(self._on_node)
+        self._obj_tree.layers_changed.connect(self._redraw)
+        self._obj_panel.changed.connect(self._on_nodes_changed)
+
+        _mid = QSplitter(Qt.Orientation.Vertical)
+        _mid.addWidget(Collapsible("params  (dataset-wide)", self._params, expanded=False))
+        _mid.addWidget(Collapsible("데이터  (선택 stem)", self._leaf_panel))
+        _mid.addWidget(Collapsible("객체  (선택 stem)", self._obj_panel))
+        _mid.setStretchFactor(1, 1)
+        _mid.setStretchFactor(2, 1)
+        _mid.setSizes([28, 300, 300])
+
+        self._data = Data_view()
+        self._data.edited.connect(self._on_edited)
+        self._data.raster_edited.connect(self._on_raster_edited)
 
         _split = QSplitter(Qt.Orientation.Horizontal)
         _split.addWidget(self._stem_list)
-        _split.addWidget(self._holder)
-        _split.addWidget(self._params)
-        _split.setStretchFactor(1, 1)
-        _split.setSizes([250, 700, 280])
+        _split.addWidget(_mid)
+        _split.addWidget(self._data)
+        _split.setStretchFactor(2, 1)
+        _split.setSizes([240, 320, 700])
         _lay.addWidget(_split, stretch=1)
 
     # ── Public API ────────────────────────────────────────────────────────────
     def set_pipeline(self, pipeline) -> None:
-        """구동 ``Pipeline`` 을 갈아끼우고 본문을 갱신한다 (meta 정체성이 바뀌므로 편집기 폐기)."""
+        """구동 ``Pipeline`` 을 갈아끼우고 본문을 갱신한다."""
         self._pipeline = pipeline
-        self._drop_editor()
+        self._key = ""
         self.refresh()
 
     def set_editable(self, editable: bool) -> None:
-        """편집 잠금을 토글한다 — 잠그면 보기(목록 클릭·줌·팝아웃)는 유지하고 수정만 막는다.
+        """편집 잠금 — 잠그면 보기(목록 클릭·체크·줌)는 유지하고 값 수정만 막는다.
 
         상위(``Main_page``)가 백그라운드 워커(전이·Convert·Run) 실행 중 호출한다. 데이터가 워커에서
-        변형되는 동안 편집(값 수정·저장·전이/삭제·id_map)이 끼어들지 못하게 막되, stem 을 계속
-        보고 검토할 수 있게 한다 (과거처럼 뷰 전체를 얼리지 않는다).
+        변형되는 동안 편집이 끼어들지 못하게 막되, 계속 보고 검토할 수 있게 한다.
         """
         self._editable = editable
         self._stem_list.set_editable(editable)
-        if self._editor is not None:
-            self._editor.set_editable(editable)
-        for _dlg in self._dialogs:
-            _dlg.set_editable(editable)
+        self._params.set_editable(editable)
+        self._leaf_panel.set_editable(editable)
+        self._obj_panel.set_editable(editable)
+        self._data.set_editable(editable)
+        self._save_btn.setEnabled(editable and self._dirty)
 
     def refresh(self, keep: str | None = None) -> None:
-        """현재 ``pipeline.meta`` 로 목록·id_map·params 를 다시 채운다.
-
-        Args:
-            keep: 갱신 후 선택을 유지할 stem (None 이면 편집 중이던 stem 유지 시도).
-        """
+        """현재 ``pipeline.meta`` 로 목록을 다시 채운다 (선택은 트리·뷰어를 따라 갱신된다)."""
         _meta = self._meta()
         if _meta is None:
             self.clear()
             return
-        if keep is None:
-            keep = self._editor._stem if self._editor is not None else ""
-        self._params.load(_meta.Bucket(_meta.PARAMS))   # id_map 도 params 의 일반 leaf 로 함께 표시
-        self._stem_list.load(_meta, keep=keep)   # → selected 시그널이 본문을 맞춘다
+        self._reset_dirty()                             # 디스크 상태로 다시 그리므로 대기 편집은 없다
+        self._params.load(_meta)                        # dataset-wide — stem 과 무관하게 유지
+        self._stem_list.load(_meta, keep=keep if keep is not None else self._key)
 
     def clear(self) -> None:
         """본문을 비운다."""
-        self._params.clear()
+        self._reset_dirty()
         self._stem_list.clear()
+        self._params.clear()
+        self._leaf_panel.clear()
+        self._obj_panel.clear()
+        self._data.show_layers([])
+        self._data.show_node(None)
 
-    # ── Tab: stem 목록 ↔ object 트리 토글 ──────────────────────────────────────
-    def eventFilter(self, obj, event) -> bool:  # noqa: N802
-        """Tab/Shift+Tab 을 가로채 목록↔트리 사이로만 포커스를 토글한다 (둘 중 하나가 포커스일 때만)."""
-        if (event.type() == QEvent.Type.KeyPress
-                and event.key() in (Qt.Key.Key_Tab, Qt.Key.Key_Backtab)
-                and self._toggle_pair_focus()):
-            return True
-        return super().eventFilter(obj, event)
-
-    def _toggle_pair_focus(self) -> bool:
-        """포커스가 stem 목록/object 트리 중 하나에 있으면 반대쪽으로 옮긴다 (옮겼으면 True)."""
-        if self._editor is None or not self._editor.isVisible():
-            return False
-        if self._stem_list.list_has_focus():
-            self._editor.focus_objects()
-            return True
-        if self._editor.objects_have_focus():
-            self._stem_list.focus_list()
-            return True
-        return False
-
-    # ── 내부 ────────────────────────────────────────────────────────────────
+    # ── 내부 ──────────────────────────────────────────────────────────────────
     def _meta(self):
         return self._pipeline.meta if self._pipeline is not None else None
 
-    def _on_select(self, stem: str) -> None:
-        """목록 선택이 바뀌면 그 stem 을 편집기에 띄운다 (없으면 placeholder)."""
+    def _classes(self) -> list[str]:
+        """class 후보 (정본 id_map) — **어느 노드에 줄지는 여기가 정한다**(뷰어는 도메인을 모른다)."""
+        return sorted(self._pipeline.Id_map()) if self._pipeline is not None else []
+
+    def _on_stem(self, key: str) -> None:
+        """목록 선택 → 그 stem 의 서브트리를 데이터·객체 트리에 펼치고 캔버스를 다시 그린다.
+
+        이전 stem 에 저장 안 된 편집이 있으면 **넘어가기 전에 저장(+정렬)** 한다 — 대기 라스터는
+        node.value 에만 있어 트리를 다시 로드하면 사라지기 때문이다.
+        """
+        if self._dirty and self._key and self._key != key:
+            _old = self._key
+            self._flush()
+            if self._pipeline is not None:
+                self._pipeline.Order(stems=[_old])
         _meta = self._meta()
-        if not stem or _meta is None or not _meta.Has(stem):
-            self._show_placeholder()
+        self._key = key
+        if not key or _meta is None:
+            self._leaf_panel.clear()
+            self._obj_panel.clear()
+            self._data.show_layers([])
+            self._data.show_node(None)
             return
-        if self._editor is None:
-            self._editor = Stem_editor(_meta, stem)
-            self._editor.saved.connect(self._on_editor_saved)
-            self._editor.set_editable(self._editable)   # 현재 잠금 상태 반영 (작업 중 새로 뜬 편집기)
-            self._holder_lay.addWidget(self._editor, stretch=1)
-        else:
-            self._editor.load_stem(stem)
-        self._placeholder.setVisible(False)
-        self._editor.setVisible(True)
+        self._leaf_panel.load(_meta, key)
+        self._obj_panel.load(_meta, key)
+        self._redraw()
+        self._data.show_node(None)              # 새 stem — 아직 고른 노드 없음(조준도 해제)
 
-    def _show_placeholder(self) -> None:
-        if self._editor is not None:
-            self._editor.setVisible(False)
-        self._placeholder.setVisible(True)
+    def _on_node(self, node: Node | None) -> None:
+        """노드 선택 → 그 값의 편집 패널. ``class_id`` 에만 id_map 후보를 넘긴다."""
+        _cands = self._classes() if (node is not None and node.name == "class_id") else None
+        self._data.show_node(node, candidates=_cands)
 
-    def _drop_editor(self) -> None:
-        """임베드 편집기를 폐기한다 (pipeline/meta 정체성이 바뀔 때)."""
-        if self._editor is not None:
-            self._holder_lay.removeWidget(self._editor)
-            self._editor.deleteLater()
-            self._editor = None
+    def _redraw(self) -> None:
+        """체크가 바뀌면 캔버스를 다시 합성한다 — **params 의 raster 도 함께 겹친다**.
 
-    def _move_many(self, to_state: str, stems: list) -> None:
-        """대량 전이 요청을 상위로 올린다 — 실제 이동은 백그라운드(UI 멈춤·상태 꼬임 방지).
-
-        대량 이동은 payload 파일 이동이라 느려 UI 가 "응답 없음"으로 보였다. 상위(`Main_page`)가 워커로
-        돌리며 진행바에 표시하고 그동안 편집을 차단한다. 완료 후 `apply_transition` 으로 목록을 동기화.
+        `roi` 같은 dataset-wide 이미지는 어느 stem 위에든 겹쳐 보는 게 자연스럽다. params 를 먼저
+        쌓아 stem 의 것이 그 위에 오게 한다. 객체(bbox)는 raster 가 아니라 attr 이라 객체 트리가 준다.
         """
-        if self._pipeline is None or not stems:
-            return
-        self.transition_requested.emit(to_state, stems)
+        self._data.set_objects(self._obj_tree.top_nodes())
+        self._data.show_layers(self._params.tree.checked_layers()
+                               + self._leaf_tree.checked_layers())
 
-    def _delete_many(self, stems: list) -> None:
-        """대량 삭제 요청을 상위로 올린다 — 관련 팝아웃만 먼저 닫고(빠름) 실제 삭제는 백그라운드."""
-        if self._pipeline is None or not stems:
-            return
-        for _dlg in list(self._dialogs):                 # 그 stem 팝아웃 창 닫기 (즉시)
-            if _dlg._stem in stems:
-                _dlg.close()
-        self.remove_requested.emit(stems)
-
-    def apply_transition(self, to_state: str, stems: list) -> None:
-        """백그라운드 전이 완료 후 목록·편집기·팝아웃을 **한 번의 refresh** 로 재동기화한다.
-
-        stem 마다 증분 갱신(``update_state``)은 리스트 전체 재스캔 + `_renumber`(전 항목 재기록)라 O(n²)
-        → 2만 건이면 폭발한다(파일 이동보다 이게 병목이었음). 통째로 다시 그리면 O(n)(19k도 <1s). 편집기는
-        refresh 가 선택 유지로 재로드하고, 팝아웃(소수)만 따로 갱신한다.
-        """
-        self.refresh()
-        for _dlg in list(self._dialogs):
-            _dlg.reload()
-
-    def apply_removal(self, stems: list) -> None:
-        """백그라운드 삭제 완료 후 목록을 **한 번의 refresh** 로 재동기화한다 (팝아웃은 요청 시 이미 닫음)."""
-        self.refresh()
-
-    def _on_editor_saved(self, stem: str) -> None:
-        """편집 저장 반영 — 그 stem 사이드카만 기록 + 그 stem 만 재동기화 (목록 전체 재로드 안 함)."""
-        if self._pipeline is not None:
-            self._pipeline.meta.Save(stem)  # 그 stem 사이드카 하나만 (즉시)
-        if self._editor is not None and self._editor._stem == stem:
-            self._editor.reload()               # 그 stem 하나 (압축 obj_id/segment 동기화)
-        self._reload_popouts(stem)
-        self._stem_list.focus_list()            # 저장 후 목록에 포커스 → 화살표로 다음 stem
+    def _on_nodes_changed(self) -> None:
+        """노드가 추가/삭제됨 — 캔버스를 다시 합성하고 상위에 알린다."""
+        self._redraw()
         self.meta_changed.emit()
 
-    def _popout(self, stem: str) -> None:
-        """선택 stem 을 별도 창으로 띄운다 (비모달, 비교/병행 검수)."""
-        _meta = self._meta()
-        if _meta is None or not _meta.Has(stem):
+    def _on_params_changed(self) -> None:
+        """params 가 추가/삭제됨 — 캔버스를 다시 합성하고 상위에 알린다."""
+        self._redraw()
+        self.meta_changed.emit()
+
+    def _on_raster_edited(self, node: Node, raster) -> None:
+        """캔버스 편집 확정 — **디스크엔 안 쓰고 대기**시킨다(명시적 저장 때 flush).
+
+        편집된 픽셀은 ``node.value`` 에 있고 캔버스는 그걸로 그려진다 — 파일 write(``Route``)는 저장
+        때 한 번에 한다(``_flush``). 라스터 노드를 대기 목록에 담고 dirty 표시만 한다.
+        """
+        if not self._editable:
             return
-        _dlg = Stem_edit_dialog(_meta, stem, self)
-        _dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
-        _dlg.set_editable(self._editable)               # 작업 중 팝아웃도 보기 전용으로
-        _dlg.saved.connect(self._on_editor_saved)
-        _dlg.finished.connect(lambda _result, d=_dlg: self._forget_dialog(d))
-        self._dialogs.append(_dlg)
-        _dlg.show()
+        if not any(_n is node for _n in self._pending_rasters):
+            self._pending_rasters.append(node)
+        self._mark_dirty(node)
 
-    def _reload_popouts(self, stem: str) -> None:
-        """같은 stem 을 보는 팝아웃 창을 meta 기준으로 다시 읽힌다."""
-        for _dlg in list(self._dialogs):
-            if _dlg._stem == stem:
-                _dlg.reload()
+    def _on_edited(self, node: Node) -> None:
+        """인라인 값이 편집됨 — in-memory 서술자는 이미 갱신됨. **저장은 명시적 저장까지 미룬다**."""
+        if not self._editable:
+            return
+        self._mark_dirty(node)
 
-    def _forget_dialog(self, dlg: Stem_edit_dialog) -> None:
-        if dlg in self._dialogs:
-            self._dialogs.remove(dlg)
+    # ── 명시적 저장 (auto-save 대신) — 저장 = flush + obj_id 압축(Order) ───────────
+    def _on_save(self) -> None:
+        """이 stem 의 편집을 디스크에 flush 하고 객체를 재정렬한다 (obj_id 구멍 압축)."""
+        if self._pipeline is None or not self._editable or not self._dirty:
+            return
+        _key = self._key
+        self._flush()                                   # 대기 라스터 Route + 사이드카 Save
+        if _key:
+            self._pipeline.Order(stems=[_key])          # obj_id·segment 라벨 압축 (한 stem)
+        self.refresh(keep=_key)                         # 재정렬 결과를 다시 그린다
+        self.meta_changed.emit()
+
+    def _flush(self) -> None:
+        """대기 라스터를 store 에 Route 하고 사이드카를 저장한다 (경로는 트리 위치가 정한다)."""
+        _meta = self._meta()
+        if _meta is None:
+            return
+        for _node in self._pending_rasters:
+            _spec = {"to": "storage", "type": _node.ref.format[0]}
+            if len(_node.ref.format) > 1 and _node.ref.format[1]:
+                _spec["format"] = _node.ref.format[1]
+            _new = _meta.Route(_node.path, _node.name, _spec, _node.value)
+            _parent = _meta.tree.At(_node.path)
+            if _parent is not None:
+                _parent.Push(_node.name, _new)
+            _node.ref = _new
+        if self._dirty_params:
+            _meta.Save()                                # params 포함 전체
+        elif self._key:
+            _meta.Save(self._key)                       # 그 stem 사이드카만 (증분)
+        else:
+            _meta.Save()
+        self._reset_dirty()
+
+    def _mark_dirty(self, node: Node | None) -> None:
+        """저장 대기 표시 — params 노드면 전체 저장이 필요하다고 함께 기록한다."""
+        self._dirty = True
+        _meta = self._meta()
+        if _meta is not None and node is not None and node.path and node.path[0] == _meta.PARAMS:
+            self._dirty_params = True
+        self._save_btn.setEnabled(self._editable)
+
+    def _reset_dirty(self) -> None:
+        self._dirty = False
+        self._dirty_params = False
+        self._pending_rasters = []
+        self._save_btn.setEnabled(False)

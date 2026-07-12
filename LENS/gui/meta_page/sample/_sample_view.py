@@ -11,7 +11,7 @@ class 가 폴더라 재배정이 crop 재저장 + 옛 파일 삭제 + 노드 이
 sample 의 ``class_id`` attr 를 고치고(파생) 정본 obj 의 ``class_id`` 도 고친다(write-back). **재배정
 로그**(``{sid: [처음class, 마지막class]}``)는 tasker 폴더 yaml 에 남긴다.
 
-geometry(mask)는 여기서 안 건드린다(Stem_editor 소유). ``Tasker_tab`` 이 이 위젯을 호스트한다.
+geometry(mask)는 여기서 안 건드린다(정본 뷰의 ``Data_view`` 소유). ``Tasker_tab`` 이 이 위젯을 호스트한다.
 """
 
 from __future__ import annotations
@@ -35,14 +35,42 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+import cv2
+import numpy as np
+
 from core.constant import UNCLASSIFIED
 from core.schema import Data_Ref
 from gui.meta_page.sample._class_picker import Class_picker
-from gui.meta_page.edit._overlay import load_base_images, merge_bases
 from gui.widgets import Image_label
 
 _ROLE = Qt.ItemDataRole.UserRole   # sample 항목 식별 (sample_id — split 무관 유일 key)
 _LOG_FILE = "reassign_log.yaml"    # tasker 폴더 재배정 로그 ({sid: [처음, 마지막]})
+
+
+def _merged_base(meta, stem: str) -> np.ndarray | None:
+    """정본 stem 의 이미지 leaf(segmap 제외)들을 평균 블렌딩한 base BGR — crop 없을 때 미리보기용.
+
+    payload 는 ``meta.Load(stem, key)`` 에 요청한다(경로는 store 가 안다). 없으면 None.
+    """
+    _frame = meta.Find(stem)
+    if _frame is None:
+        return None
+    _imgs: list[np.ndarray] = []
+    for _key, _ref in _frame.Leaves().items():
+        if _ref.format[:1] == ("segmap",):              # 인스턴스 라벨맵은 base 아님
+            continue
+        _val = meta.Load(stem, _key)
+        if isinstance(_val, np.ndarray) and _val.ndim >= 2:
+            _imgs.append(_val if _val.ndim == 3 else cv2.cvtColor(_val, cv2.COLOR_GRAY2BGR))
+    if not _imgs:
+        return None
+    if len(_imgs) == 1:
+        return _imgs[0]
+    _h, _w = _imgs[0].shape[:2]
+    _acc = np.zeros((_h, _w, 3), np.float32)
+    for _im in _imgs:
+        _acc += (cv2.resize(_im, (_w, _h)) if _im.shape[:2] != (_h, _w) else _im).astype(np.float32)
+    return (_acc / len(_imgs)).astype(np.uint8)
 
 
 class Sample_view(QWidget):
@@ -181,7 +209,7 @@ class Sample_view(QWidget):
         _src = ref.Attr("source_stem")
         _meta = _pipe.meta if _pipe is not None else None
         if _meta is not None and _src and _meta.Has(_src):
-            _img = merge_bases(list(load_base_images(_meta, _src).values()))
+            _img = _merged_base(_meta, _src)
             if _img is not None:
                 self._img.set_image(_img)
                 return

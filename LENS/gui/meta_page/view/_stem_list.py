@@ -219,6 +219,7 @@ class Stem_list(QWidget):
         self._list.blockSignals(True)
         self._list.clear()
         _target: QListWidgetItem | None = None
+
         for _state in meta.CATEGORIES:                     # 카테고리 순서 유지 + 카테고리 안 오름차순
             for _stem in sorted(meta.Bucket(_state)):
                 _it = self._make_item(_stem, _state)

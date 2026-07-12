@@ -141,23 +141,22 @@ def Template(spec: dict, value: Any, *, params: bool = False) -> Data_Ref:
 
 
 def Template_for_file(spec: dict | str) -> Data_Ref:
-    """ingest 스펙(``{pattern, ext, type, format?}``) → ``Data_Ref`` 템플릿.
+    """ingest 스펙(``{pattern, ext, type}``) → ``Data_Ref`` 템플릿.
 
     ``Template`` 의 자매 — 담을 그릇을 정하는 일은 같지만, ingest 는 파일이 아직 디스크에만 있어
     **볼 값이 없다**(``Template`` 은 값+맥락으로 고를 수 있다).
 
-    **그래서 ``type`` 은 필수다 — 확장자로 추론하지 않는다.** `png` 하나가 `image` 일 수도
-    `segmap`(라벨맵)일 수도 있어, 추론은 **둘 중 하나를 말없이 고르는 것**이다. (그래서 ``segmap`` 은
-    ``Extensions`` 를 비워 충돌을 피해뒀고, 그 대가로 ``Infer_type('png')`` 은 늘 `image` 라고 단정한다.)
-    조용히 틀리느니 한 줄 더 쓰게 한다.
+    **필드는 둘뿐이고 각각 하나의 일만 한다:**
 
-    **세 필드가 각각 다른 일을 한다:**
-
-    - ``pattern`` + ``ext`` → **파일을 찾는다**(glob). ``ext`` 는 *소스* 파일의 확장자.
+    - ``pattern`` + ``ext`` → **파일을 찾는다**(glob). ``ext`` 는 소스 파일의 확장자.
     - ``type`` → **핸들러** (image/segmap/attr/array/docs …).
-    - ``format`` → **서술자 detail** (파일 핸들러=저장 확장자 / ``attr``=값 타입 `str`·`xyxy`).
-      비우면 ``Save`` 가 채운다(파일=소스 확장자 그대로) — **파일 ingest 에선 비워두는 게 옳다**:
-      값을 주면 변환 없이 이름만 바뀌어 **깨진 파일**이 된다(복사이지 변환이 아니다).
+
+    **``type`` 은 필수다 — 확장자로 추론하지 않는다.** `png` 하나가 `image` 일 수도 `segmap`(라벨맵)일
+    수도 있어, 추론은 **둘 중 하나를 말없이 고르는 것**이다. (그래서 ``segmap`` 은 ``Extensions`` 를 비워
+    충돌을 피해뒀고, 그 대가로 ``Infer_type('png')`` 은 늘 `image` 라고 단정한다.)
+
+    **저장 확장자는 따로 안 받는다** — 서술자의 detail 은 ``Save`` 가 채운다(파일=소스 확장자 그대로,
+    인라인=핸들러 기본값). ingest 는 **복사이지 변환이 아니라서** 소스와 다른 확장자를 정할 이유가 없다.
 
     Raises:
         ValueError: ``type`` 이 없거나 등록되지 않은 handler 일 때.
@@ -172,7 +171,7 @@ def Template_for_file(spec: dict | str) -> Data_Ref:
     if _type not in HANDLER_REGISTRY._module_dict:
         raise ValueError(
             f"glob '{spec['pattern']}': 알 수 없는 type '{_type}' (가능: {', '.join(Types())}).")
-    return Data_Ref(format=(_type, spec.get("format", "")))
+    return Data_Ref(format=(_type, ""))                 # detail 은 Save 가 소스에서 채운다
 
 
 def Route(root: str, path: tuple[str, ...], name: str, spec: dict, value: Any,

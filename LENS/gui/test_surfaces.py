@@ -94,15 +94,71 @@ def test_meta_view_refresh() -> None:
     _v.refresh()
 
 
-def test_stem_editor_load_and_save() -> None:
-    """base 이미지 로드 · 객체/데이터 트리 · segment 저장(store 에 write 요청)."""
-    from gui.meta_page.edit._editor import Stem_editor
+def _object_items(tree):
+    """트리 최상위 중 객체(BRANCH) 아이템들 — 라벨링 대상."""
+    from PySide6.QtCore import Qt
+    _out = []
+    for _i in range(tree.topLevelItemCount()):
+        _it = tree.topLevelItem(_i)
+        _n = _it.data(0, Qt.ItemDataRole.UserRole)
+        if _n is not None and not _n.is_leaf:
+            _out.append((_it, _n))
+    return _out
+
+
+def test_mask_editor_singleton() -> None:
+    """**앱에 하나뿐인 편집기**가 객체를 조준해 그 라벨로 칠한다 — 워크플로를 실행으로 지킨다.
+
+    객체를 고르면 그 라벨(obj_id+1)로만 칠해지고(남의 라벨은 안 건드린다), undo 로 돌아오고, stem 을
+    넘어가면 조준이 풀린다(옛 라스터를 계속 칠하지 않는다).
+    """
+    from gui.meta_page.view._view import Meta_view
     _p = _pipe()
+    _v = Meta_view(lambda: _p)
+    _v.set_pipeline(_p)
+
     _stem = sorted(_p.meta.Bucket(STAGED))[0]
-    _ed = Stem_editor(_p.meta, _stem)
-    assert _ed._state == STAGED                      # 범주는 store 가 답한다(Category_of)
-    _ed.save()
-    assert _p.meta.Find(_stem).Get("segment") is not None
+    _v._on_stem(_stem)
+    _objs = _object_items(_v._obj_tree)          # 객체는 이제 별도 obj 트리에 산다(데이터 vs 객체 축 분리)
+    assert _objs, "split_objects 가 객체를 안 냈다 — 조준할 대상이 없다"
+
+    _data = _v._data
+    _canvas = _data._canvas
+    _seg = _data._segment_node()
+    assert _seg is not None, "segment 가 체크돼 있어야 조준한다"
+
+    # 첫 객체를 조준 → 그 라벨로만 칠한다.
+    _item0, _node0 = _objs[0]
+    _v._obj_tree.setCurrentItem(_item0)
+    _t = _data._editor.target()
+    assert _t is not None and _t.paint == int(_node0.name) + 1, "조준 라벨 = obj_id+1"
+
+    _label = _t.paint
+    _other = _label + 1 if _label == 1 else _label - 1
+    _before_other = int((_seg.value == _other).sum())
+    _data._editor._set_mode("paint")
+    _canvas.mouse_pressed.emit(20, 20)
+    _canvas.mouse_moved.emit(60, 60)
+    _canvas.mouse_released.emit(60, 60)
+    assert int((_seg.value == _label).sum()) > 0, "조준한 라벨로 칠해지지 않았다"
+    assert int((_seg.value == _other).sum()) == _before_other, "다른 객체의 라벨을 건드렸다"
+
+    # undo 로 되돌아온다.
+    _painted = int((_seg.value == _label).sum())
+    _data._editor.undo()
+    assert int((_seg.value == _label).sum()) < _painted, "undo 가 안 먹었다"
+
+    # bbox 드래그 → 그 객체의 attr 이 된다.
+    _data._editor._set_mode("bbox")
+    _canvas.mouse_pressed.emit(10, 10)
+    _canvas.mouse_moved.emit(70, 60)
+    _canvas.mouse_released.emit(70, 60)
+    assert _node0.ref.Get("bbox") is not None, "bbox 드래그가 attr 을 안 만들었다"
+
+    # stem 을 넘어가면 조준이 풀린다.
+    _stem2 = sorted(_p.meta.Bucket(STAGED))[1]
+    _v._on_stem(_stem2)
+    assert _data._editor.target() is None, "stem 이 바뀌었는데 옛 라스터를 계속 겨눈다"
 
 
 def test_converter_panel_recipe_roundtrip() -> None:
@@ -146,6 +202,94 @@ def test_reassign_moves_no_file() -> None:
 
     assert _p.Load_sample("cls").Find(_sid).Attr("class_id") == "widget"
     assert sorted(_f.name for _f in _root.rglob("*.png")) == _before, "재배정이 파일을 움직였다"
+
+
+def test_remove_object_clears_label() -> None:
+    """객체 삭제 = 컨테이너 pop + **그 obj 의 segment 라벨 0** — 유령 mask 를 안 남긴다(obj_id↔라벨 정합).
+
+    공유 pipeline 을 건드리므로 다른 테스트가 쓰지 않는 staged 마지막 stem 에서 태운다.
+    """
+    _p = _pipe()
+    _stem = sorted(_p.meta.Bucket(STAGED))[-1]
+    _item = _p.meta.Find(_stem)
+    _objs = sorted(_item.Branches())
+    assert len(_objs) >= 2, "split_objects 가 객체 2개(라벨 1·2)를 안 냈다"
+    _oid, _keep = _objs[0], _objs[1]
+    _label, _other = int(_oid) + 1, int(_keep) + 1
+
+    _seg = _p.meta.Load(_stem, "segment")
+    assert _seg is not None and int((_seg == _label).sum()) > 0, "지우기 전 라벨이 있어야 한다"
+
+    _p.meta.Remove_object(_stem, _oid)
+
+    assert not _p.meta.Find(_stem).Has(_oid), "객체 컨테이너가 안 지워졌다"
+    _seg2 = _p.meta.Load(_stem, "segment")
+    assert int((_seg2 == _label).sum()) == 0, "지운 객체의 라벨이 segment 에 유령으로 남았다"
+    assert int((_seg2 == _other).sum()) > 0, "남의 라벨(구멍 아님)을 건드렸다"
+
+
+def test_explicit_save_cycle() -> None:
+    """편집은 대기(dirty)만 하고, **명시적 저장**이 flush + 정렬 + dirty 해제를 한다 (auto-save 아님).
+
+    modified[0] 을 쓴다(다른 테스트가 이 객체를 안 건드림).
+    """
+    from gui.meta_page.view._view import Meta_view
+    _p = _pipe()
+    _v = Meta_view(lambda: _p)
+    _v.set_pipeline(_p)
+    _stem = sorted(_p.meta.Bucket(MODIFIED))[0]
+    _v._on_stem(_stem)
+    assert not _v._dirty and not _v._save_btn.isEnabled(), "선택만으로 저장 대기면 안 된다"
+
+    _objs = _object_items(_v._obj_tree)
+    assert _objs, "modified stem 에 객체가 없다 — 편집을 태울 대상이 없다"
+    _v._obj_tree.setCurrentItem(_objs[0][0])          # 객체 조준
+    _d = _v._data
+    _d._editor._set_mode("bbox")
+    _d._canvas.mouse_pressed.emit(8, 8)
+    _d._canvas.mouse_moved.emit(60, 50)
+    _d._canvas.mouse_released.emit(60, 50)            # bbox 편집 → 대기
+    assert _v._dirty and _v._save_btn.isEnabled(), "편집했는데 저장 대기가 아니다 (auto-save 흔적?)"
+
+    _v._on_save()
+    assert not _v._dirty and not _v._save_btn.isEnabled(), "저장 후 대기가 안 풀렸다"
+    _ids = sorted(_p.meta.Find(_stem).Branches(), key=int)
+    assert _ids == [str(_i) for _i in range(len(_ids))], f"저장이 obj_id 를 압축 안 했다: {_ids}"
+
+
+def test_new_object_has_class_id() -> None:
+    """``+객체`` 로 만든 객체도 ``class_id`` 를 달고 나온다 — 바로 인스펙터에서 class 를 고를 수 있게."""
+    from gui.meta_page.view._view import Meta_view
+    _p = _pipe()
+    _v = Meta_view(lambda: _p)
+    _v.set_pipeline(_p)
+    _stem = sorted(_p.meta.Bucket(MODIFIED))[0]
+    _v._on_stem(_stem)
+    _before = set(_p.meta.Find(_stem).Branches())
+    _v._obj_panel._add_branch()
+    _new = set(_p.meta.Find(_stem).Branches()) - _before
+    assert len(_new) == 1, "객체가 안 생겼다"
+    assert _p.meta.Find(_stem).Get(_new.pop()).Has("class_id"), "새 객체에 class_id 가 없다"
+
+
+def test_order_compacts_holes() -> None:
+    """``Pipeline.Order`` 가 삭제로 생긴 obj_id 구멍을 0부터 연속 재부여하고 segment 라벨을 맞춘다.
+
+    staged[0] 을 쓴다(이 stem 을 뒤에 읽는 테스트 없음). Remove_object 로 구멍을 낸 뒤 Order 로 압축.
+    """
+    _p = _pipe()
+    _stem = sorted(_p.meta.Bucket(STAGED))[0]
+    _n0 = len(_p.meta.Find(_stem).Branches())
+    if _n0 < 2:
+        return
+    _p.meta.Remove_object(_stem, sorted(_p.meta.Find(_stem).Branches(), key=int)[0])  # 구멍
+    _p.Order(stems=[_stem])
+
+    _objs = sorted(_p.meta.Find(_stem).Branches(), key=int)
+    assert _objs == [str(_i) for _i in range(_n0 - 1)], f"obj_id 가 0부터 연속이 아니다: {_objs}"
+    _seg = _p.meta.Load(_stem, "segment")
+    _labels = sorted({int(_l) for _l in _seg.flatten().tolist()} - {0})
+    assert _labels == list(range(1, _n0)), f"segment 라벨이 obj_id 와 안 맞다: {_labels}"
 
 
 if __name__ == "__main__":

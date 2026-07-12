@@ -30,12 +30,15 @@ class Attr_Handler(Handler):
 
     @classmethod
     def Save(cls, root: str, path: tuple[str, ...], name: str, ref: Data_Ref, src: Any) -> Data_Ref:
+        """raw ``Path`` 면 텍스트로 읽어 값으로, 그 외엔 값 그대로 인라인 보관한다.
+
+        detail(``format[1]``)이 비어 있으면 기본값으로 채운다 — ingest 는 detail 을 안 받으므로
+        (``Template_for_file``) 여기서 정해진다.
+        """
         _value = (src.read_text(encoding="utf-8").strip()
                   if isinstance(src, Path) else src)
-        return Data_Ref(
-            format=ref.format or ("attr", cls.Default_format()),
-            info={**ref.info, "value": _value},
-        )
+        _detail = ref.format[1] if len(ref.format) > 1 and ref.format[1] else cls.Default_format()
+        return Data_Ref(format=("attr", _detail), info={**ref.info, "value": _value})
 
     @classmethod
     def Default_format(cls) -> str:

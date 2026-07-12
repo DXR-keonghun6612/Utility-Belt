@@ -31,6 +31,42 @@ class Dataset_Meta(Bucket_Store):
     CATEGORIES:       ClassVar[tuple[str, ...]] = META_STATES
     DEFAULT_CATEGORY: ClassVar[str] = MODIFIED
 
+    # ── 객체 삭제 — 컨테이너 + segment 라벨을 함께 (obj_id↔라벨 정합) ─────────────────
+    def Remove_object(self, key: str, obj_id: str) -> None:
+        """객체를 지운다 — 컨테이너 pop + **그 객체의 segment 라벨을 0 으로** (원자적).
+
+        정본은 per-obj mask 를 안 들고 frame-level ``segment`` 한 장(픽셀 = obj_id+1)에 담는다. 그래서
+        객체만 지우면 그 라벨이 **유령 mask** 로 남는다 — 여기서 segment 를 함께 비워 obj_id↔라벨 정합을
+        지킨다. 빈 자리는 **구멍으로 둔다**(재부여·압축은 ``Order_objects`` 의 몫) — 편집은 정합만 지키고
+        순번을 다시 매기지 않는다. ``Delete_node`` 와 달리 segment 를 아는 정본 전용 연산이다.
+        """
+        _p = self.Item_path(key)
+        _item = self.Find(key)
+        if _p is None or _item is None or not _item.Has(obj_id):
+            return
+        self._clear_label(key, _p, _item, obj_id)      # segment 라벨 0 (segmap·정수 obj_id 일 때만)
+        self.Delete_node(_p, obj_id)                    # 컨테이너 pop (객체는 payload 없어 파일 no-op)
+        self.Save(key)
+
+    def _clear_label(self, key: str, path: tuple[str, ...], item: Data_Ref, obj_id: str) -> None:
+        """이 객체의 라벨(obj_id+1)을 segmap leaf 에서 0 으로 칠하고 다시 저장한다 (없으면 no-op)."""
+        _name, _ref = next(((_n, _r) for _n, _r in item.Leaves().items()
+                            if _r.format and _r.format[0] == "segmap"), (None, None))
+        if _ref is None:
+            return
+        try:
+            _label = int(obj_id) + 1                    # 규약: 라벨 = obj_id + 1 (없으면 라벨 자리 없음)
+        except (TypeError, ValueError):
+            return
+        _seg = self.Load(key, _name)
+        if _seg is None:
+            return
+        _seg[_seg == _label] = 0
+        _spec = {"to": "storage", "type": _ref.format[0]}
+        if len(_ref.format) > 1 and _ref.format[1]:
+            _spec["format"] = _ref.format[1]
+        item.Push(_name, self.Route(path, _name, _spec, _seg))
+
     # ── named accessor — ``Bucket(상태)`` 읽기 뷰에 이름을 얹은 sugar ─────────────────
     @property
     def modified(self) -> Mapping[str, Data_Ref]:

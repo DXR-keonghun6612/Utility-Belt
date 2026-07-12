@@ -2,9 +2,9 @@ converter:
     object_type: glob
     sources: ['C:/Users/junei/Documents/temp/Utility-Belt/LENS/temp/sl_confused']
     globs:
-        # pattern + ext → 파일을 찾는다 (*_rgb + png → glob '*_rgb.png'). ext 는 **소스** 확장자.
+        # 칸은 셋: pattern + ext 로 파일을 찾고(*_rgb + png → '*_rgb.png'), type 이 핸들러다.
+        # 확장자는 하나뿐이다 — 찾을 때도, 저장할 때도 같은 값을 쓴다(ingest 는 복사이지 변환이 아니다).
         # type 은 필수 — 확장자로 추론하지 않는다 (png 는 image 일 수도 segmap 일 수도 있다).
-        # format(서술자 detail)은 파일 ingest 에선 비워둔다: 값을 주면 변환 없이 이름만 바뀌어 깨진다.
         frame:
             pattern: '*_rgb'
             ext: png

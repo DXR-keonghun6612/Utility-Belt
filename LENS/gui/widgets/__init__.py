@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ._collapsible import Collapsible
 from ._dialog import Pop_dialog
 from ._layout import drop, move_buttons, reorder
 from ._tree import make_tree, set_bold
@@ -10,6 +11,7 @@ from .list_editor import List_editor, List_row, Pair_list_editor
 from .rows import Float_slider_row, Int_slider_row, Path_row
 
 __all__ = [
+    "Collapsible",
     "Image_label",
     "Path_row",
     "Float_slider_row",
