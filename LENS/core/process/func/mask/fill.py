@@ -1,6 +1,6 @@
 """LoG edge + color floodFill primitive — 몸통색과 크게 다른 관통부(구멍/슬릿)를 찾는다.
 
-``gui/meta_page/edit/_fill.py`` 의 magic-wand 와 **같은 메커니즘**(``cv2.floodFill`` FIXED_RANGE + LoG edge
+``gui/viewer/_fill.py`` 의 magic-wand 와 **같은 메커니즘**(``cv2.floodFill`` FIXED_RANGE + LoG edge
 벽)을 core 로 올린 것(core 는 gui 의존 못 함 — gui 쪽 fill 은 여기 ``log_edges`` 를 재사용). 편집기에서
 "몸통과 색이 확 다른 구멍을 눈으로 보고 클릭" 하는 걸 자동화한다.
 

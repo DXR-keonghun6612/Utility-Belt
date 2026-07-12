@@ -4,9 +4,9 @@ dataset_meta 중심 GUI. dataset_root 를 열어 `Dataset_Meta` 를 로드하고
 flow 실행(run)으로 가공한 뒤 학습 annotation 을 내보낸다. core 의 `Pipeline`(= core 자체)을
 구동한다 — 설계는 [`../core/README.md`](../core/README.md).
 
-메인은 영속 `Pipeline` 을 하나 보유한다(`meta = pipeline.meta` 단일 소스). Convert·Run 은 Pipeline 을
-거치고, staging(`Move`)·편집 저장(`Save`)·meta 가져오기(`Merge`)는 그 `meta` 의 **라이프사이클 메서드**를
-직접 부른다 — core 원칙 그대로(라이프사이클은 store 소유, 바인더는 계산 조율만).
+메인은 영속 `Pipeline` 을 하나 보유한다(`meta = pipeline.meta` 단일 소스). Convert·Run·정렬(`Order`)은
+Pipeline 을 거치고, staging(`Move`)·편집 저장(`Save`)·meta 가져오기(`Merge`)는 그 `meta` 의
+**라이프사이클 메서드**를 직접 부른다 — core 원칙 그대로(라이프사이클은 store 소유, 바인더는 계산 조율만).
 
 ---
 
@@ -17,7 +17,7 @@ Main_page
   ├── dataset_root [뷰어 ▸ Converter 창에서 설정] [↺]        [Converter…]
   ├── [flow_profile 가져오기] [▶ run]   현재 프로필: 3 flow — …
   ├── ── 진행바 ──
-  ├── 본문 = Meta_view   (stem 목록 상태 뱃지[작업/검수/보류] + 임베드 Stem_editor + id_map/params)
+  ├── 본문 = Meta_view   (stem 목록 상태 뱃지[작업/검수/보류] + params·데이터·객체 트리 + Data_view · [저장])
   └── [meta 가져오기] [전부 비우기] [Sampler…]
 ```
 
@@ -32,7 +32,7 @@ Main_page
 
 | 대상 | 정체 | 다루는 곳 |
 |---|---|---|
-| dataset_meta | 산출물(데이터) | dataset_root 열기로 자동 로드 · 편집/run/이동 시 자동 저장 |
+| dataset_meta | 산출물(데이터) | dataset_root 열기로 자동 로드 · 편집은 명시적 `[저장]`(→ obj_id 정렬) · run/이동/추가·삭제는 즉시 |
 | converter 설정 | 레시피(raw→meta) | Converter 창 저장/불러오기 · 실행 시 `set_converter` 주입 |
 | flow 프로필 | 레시피(meta 가공, `flows:`) | flow 빌더 창 저장/불러오기 · 실행 시 `Run(flows=…)` 주입 |
 
@@ -81,16 +81,15 @@ flow 한 장(카드) = `flows:` 리스트의 1 엔트리 — `object_type`·`uni
 | 폴더/파일 | 역할 |
 |---|---|
 | `app/` | **연결층 셸** — `Main_page`(보유 Pipeline 소유 + meta_page 창 배선·주입) + `Meta_ops`(백그라운드 run/전이/삭제) |
-| `meta_page/` | **정본 편집 갈래** (아래 하위 surface). `Pipeline` 은 주입받고, 도메인 타입(`Data_Ref`·`Dataset_Meta`)은 위젯이 직접 쓴다 ([`TODO.md`](TODO.md) "seam 이 없다") |
-| `meta_page/view/` | Dataset_Meta 뷰어 — stem 목록 + 임베드 편집기 + id_map/params |
-| `meta_page/edit/` | `Stem_editor` — base 이미지 + mask/bbox 오버레이 편집 (view 와 `_adapter`/`_overlay` 공유) |
+| `meta_page/` | **정본 편집 갈래** (아래 하위 surface). `Pipeline` 은 주입받고, 도메인 타입(`Data_Ref`·`Dataset_Meta`)은 위젯이 직접 쓴다 (seam = 타입별 표현 레지스트리 `viewer/`) |
+| `meta_page/view/` | Dataset_Meta 뷰어 — stem 목록 + params·데이터·객체 트리 + `Data_view`(합성 캔버스+인스펙터+단일 편집기) |
 | `meta_page/convert/` | Converter 패널 + 다이얼로그 — raw 소스 탐색 설정 (`Pipeline.Convert`) |
 | `meta_page/run/` | flow 시퀀스 빌더(`Flow_card`/`Flow_sequence`) + 빌더 다이얼로그 |
 | `meta_page/sample/` | 파생 tasker 빌더 창 + tasker별 sample 뷰어(트리+crop+class write-back) (`Pipeline.Sample`) |
-| `meta_page/_adapter.py` | `core.schema` ↔ 위젯 seam (값→트리아이템) — 트리 모양을 아는 유일한 자리 |
+| `viewer/` | **LEAF type 별 표현·편집 레지스트리** — core `HANDLER_REGISTRY` 와 짝. 새 handler → 뷰어 하나 더하면 UI 가 따라온다. 단일 `Mask_editor` 소유 |
 | `steps/` | process-chain 편집 (`Process_step` + `Step_list`) — run·sample 공유 |
 | `form/` | process/모델 파라미터 폼 자동 생성 (`Annotated[UI]` 기반) |
-| `widgets/` | 공통 저수준 위젯 (core 의존 0) — `image`/`rows`/`list_editor` 하위 |
+| `widgets/` | 공통 저수준 위젯 (core 의존 0) — `image`/`rows`/`list_editor` 하위 + `Collapsible` |
 | `_worker.py` | `Pipeline_worker` — 보유 Pipeline 의 한 단계 백그라운드 실행 (Convert/Run/전이/삭제 공용) |
 | `_io.py` | 파일 선택 + dict 직렬화 (converter/flow 저장·불러오기) |
 

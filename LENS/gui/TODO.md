@@ -31,15 +31,16 @@ gui/
   widgets/  form/  steps/        # 표현 프리미티브 (core 무의존 / registry 반영)
   _worker.py  _io.py             # 중립 인프라 (async · recipe I/O)
   app/                           # 연결: Pipeline 소유 + page 창·다이얼로그 배선·주입
+  viewer/                        # LEAF type 별 표현·편집 레지스트리 (core HANDLER_REGISTRY 와 짝)
   meta_page/                     # 구성: 정본 편집 창 하나 (주입 수신, 싱글턴)
-    view/ (今 meta_view) · edit/ (今 verify) · convert/ (今 converter) · run/
-    _adapter.py                  # core.schema ↔ 위젯 seam (갈래 소유)
-    sample/ (今 sampler)         # 파생 갈래 (meta 입력 → 1:N tasker)
+    view/ · convert/ · run/      # view 안에 데이터/객체 트리 + Data_view(단일 편집기)
+    sample/                      # 파생 갈래 (meta 입력 → 1:N tasker)
 ```
 
 - **converter·run 은 "빌더 3형제"가 아니라 정본 생성·enrich 연산** → `meta_page` 소속. sampler 는
   파생 → `meta_page/sample/`. 셋의 recipe-dialog 유사성은 표현 축 착시(W2 베이스는 위젯 레벨만).
-- **edit 는 Pipeline peer 아님** — `meta_page` 의 깊은 주석-편집 surface(view 와 `_adapter` 공유).
+- **깊은 편집은 별도 surface 가 아니다** — 옛 `edit/`(Stem_editor)는 은퇴하고, 편집은 `view/` 의
+  `Data_view` 가 든 **단일 `Mask_editor`**(`viewer/`)가 구조적으로 조준한다(타입별 편집기 없음).
 - **1:1(meta, 싱글턴) vs 1:N(sample, 컬렉션 매니저) 비대칭**은 구조로 드러낸다.
 
 ### steps 미래 — card(1D) → block/node-graph (Simulink 형)
@@ -49,6 +50,15 @@ gui/
 run/sample 소비처는 무변경. steps/ 를 지금 중립 패키지로 떼는 게 그 준비(W1).
 
 ---
+
+## ✅ 합의됨 — obj_id ↔ segment 라벨 규약(obj_id+1)이 흩어져 있다
+
+`label = obj_id + 1` 과 "item 의 segmap leaf 찾기"가 여러 곳에 복제됐다 — `viewer/obj.label_of` ·
+`process/sample._obj_mask` · `store/meta.Remove_object._clear_label` · `core/_base.Pipeline._order_stem`.
+schema 가 경고하는 *"같은 필터 흩어짐"* 이다(계층① "최소 추상화").
+
+- [ ] 규약을 한 곳으로 승격 — core 에 "item 의 segmap leaf" + "obj_id→라벨" 헬퍼 하나. 다음에 라벨
+      규칙이 바뀌면 한 곳만 고치게 (core 파급이라 core 와 함께).
 
 ## ✅ 합의됨 — flow 카드가 `Stage` 필드를 손으로 복제한다 (드리프트)
 
@@ -64,27 +74,20 @@ run/sample 소비처는 무변경. steps/ 를 지금 중립 패키지로 떼는 
 
 ---
 
-## ❓ 논의 대상 — **seam 이 없다** (이념과 실제의 괴리)
+## ❓ 논의 대상 — seam (두 축을 가른다)
 
-[`README.md`](README.md) 는 *"core 접점은 갈래 내부, `_adapter.py` 가 seam"* 이라고 말한다. **실제는
-아니다** — `Data_Ref` 가 7개 파일, `Dataset_Meta` 가 7개 파일에 흩어져 있다(`edit/`·`view/`·`sample/`).
-`_adapter` 는 seam 이 아니라 그중 하나일 뿐이다.
+접점은 **두 축**이다: (1) LEAF 값 → 표현·편집, (2) `Dataset_Meta` store-API(Load/Save/Move/…) 사용.
 
-**이게 실해로 나타났다.** core 4분할 후 gui sweep 을 grep 패턴으로 돌렸는데, **패턴에 없던 `meta.params`**
-가 살아남아 root 를 여는 순간 죽었다. 접점이 한 곳에 모였다면 거기만 보면 됐다 — 흩어져 있으니 "무엇을
-빠뜨렸는지" 알 방법이 없었다.
+- **(1) 값→표현 — seam 이 생겼다.** [`viewer/`](viewer/README.md) 레지스트리가 그 자리다(core `HANDLER_REGISTRY`
+  와 짝). 예전엔 frame leaf·객체·params 를 각 패널이 하드코딩해 그렸는데, 이제 type 하나당 뷰어 하나로
+  모였다 — 새 handler 를 떨구면 UI 가 따라온다. `_adapter`(옛 seam 주장)는 이 레지스트리로 대체돼 **삭제**됨.
+- **(2) store-API — 여전히 흩어져 있다**(`view/`·`sample/`가 `Data_Ref`/`Dataset_Meta` 직접 사용). core 4분할
+  때 grep sweep 이 **패턴에 없던 `meta.params`** 를 놓쳐 root 열기가 죽은 게 이 축이다. 방어는 검사 —
+  [`test_surfaces.py`](test_surfaces.py) 가 offscreen 으로 **모든 surface 를 실제로 띄운다**(죽은 API 는
+  실행돼야 터져 compile·import 로 못 잡는다).
 
-**당장의 방어는 검사다** — [`test_surfaces.py`](test_surfaces.py) 가 offscreen 으로 **모든 surface 를 실제로
-띄운다**. 죽은 API 는 그 줄이 *실행될 때* 터지므로 compile·import 로는 못 잡고, 이 검사만이 잡는다.
-
-**구조적 답은 아직 없다.** 두 갈래:
-- **(a) 진짜 seam 을 만든다** — 위젯이 `Data_Ref`/`Dataset_Meta` 를 아예 못 보게 view-model 을 세운다.
-  파급이 한 곳에 모이지만, 도구 규모에 비해 무겁고 seam 이 core 타입을 그대로 베낀 껍데기가 되기 쉽다.
-- **(b) 도메인 타입을 gui 의 어휘로 인정한다** — `Data_Ref` 는 도메인 언어이지 core 의 사물이 아니라고
-  보고, README 의 거짓 주장을 지운다. 대신 검사(위)로 지킨다.
-
-지금은 **(b) + 검사**로 서 있다. (a) 가 필요해지는 신호는 "core API 가 바뀔 때마다 위젯 N개를 고친다"가
-**반복될 때**다. 한 번으로는 근거가 약하다.
+**축 (2) 는 (b)+검사로 서 있다** — 도메인 타입을 gui 어휘로 인정하고, view-model 껍데기는 안 세운다.
+진짜 seam(a)이 필요해지는 신호는 "core API 가 바뀔 때마다 위젯 N개를 고친다"가 **반복될 때**다.
 
 ---
 
@@ -100,7 +103,8 @@ run/sample 소비처는 무변경. steps/ 를 지금 중립 패키지로 떼는 
 - [x] store_io 표기 정정 + 이동 반영 문서(README 헤더·상대링크·gui 구조표) — 완료.
 - [ ] `app/_main.py`: meta 가져오기·비우기(`_on_import_meta`·`_on_clear_all`)는 아직 셸에 남음 —
       필요 시 `_session` helper 로 추가 분리(당장은 응집 OK).
-- [ ] `edit/_editor.py`(598): undo/redo/snapshot 를 `_history` 로 더 축소. 응집 높아 **낮은 우선순위**.
+- [x] 옛 `edit/`(Stem_editor·주석 패널·draw/overlay) 은퇴 — 편집은 `view/Data_view` + 단일 `Mask_editor`
+      (`viewer/`)로 대체. 공용 헬퍼(`magic_wand`→`viewer/_fill`, base 로드→`sample` 인라인)만 이관하고 삭제.
 
 > **W4 보류 근거.** 진짜 공유분(`Pop_dialog`·`save_dict`/`load_dict`)은 이미 `widgets`·`_io` 로 팩터됨.
 > 남는 공통은 save/load 버튼 배선(~4줄)뿐인데 본문·수명이 이질적(Run=edit-only · Converter=임베드 패널

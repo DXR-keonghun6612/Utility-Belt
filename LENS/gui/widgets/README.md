@@ -8,8 +8,10 @@
 ---
 
 평평하게 쌓이던 파일을 기능별 서브패키지로 접었다 — 다중객체 파일은 하위 기능으로 쪼갠다. 단일 관심사
-파일(`_dialog`/`_tree`/`_layout`)만 최상위에 flat 으로 남긴다. 공개 API 는 파사드(`__init__`)로만 노출 —
-소비처는 `from gui.widgets import X` 하나만 안다(서브패키지 경로 비의존).
+파일(`_dialog`/`_tree`/`_layout`/`_collapsible`)만 최상위에 flat 으로 남긴다. 공개 API 는 파사드(`__init__`)
+로만 노출 — 소비처는 `from gui.widgets import X` 하나만 안다(서브패키지 경로 비의존).
+
+- `_collapsible` · `Collapsible` — 제목 헤더로 접히는 섹션 (splitter 안에서 접으면 형제가 공간을 가져간다).
 
 ## `list_editor/` — 동적 list editor
 

@@ -21,10 +21,11 @@ tree
 ├─ modified          # ← 범주 = 최상위 key
 ├─ staged
 │   └─ frame0        # item = staged/frame0
-│       ├─ frame     : LEAF (image,png)               # 프레임 payload
-│       ├─ "0"       : BRANCH                         # 객체 0
-│       │   ├─ seg      : LEAF (rle, …)
-│       │   └─ class_id : LEAF (attr,str) value=dog   # 인라인 라벨도 그냥 데이터
+│       ├─ frame     : LEAF (image,png)               # 프레임 payload (base)
+│       ├─ segment   : LEAF (segmap,png)              # 모든 객체 mask 한 장 (픽셀 = obj_id+1)
+│       ├─ "0"       : BRANCH                         # 객체 0 — attr 만 (payload 없음)
+│       │   ├─ class_id : LEAF (attr,str) value=dog   # 인라인 라벨도 그냥 데이터
+│       │   └─ bbox     : LEAF (attr,xyxy)
 │       └─ "1"       : BRANCH …
 └─ skipped
 ```
@@ -32,6 +33,10 @@ tree
 - **전이(`Move`) = 범주 key 사이 pop→push** — 데이터를 안 건드리고 트리 위치만 바꾼다.
 - **한 item 은 한 범주에만** — 트리 key 유일성으로 자연히 성립(중복이 **구조적으로** 불가능하다).
 - **범주별 조회에 group-by 가 없다** — 라이브 트리가 이미 범주로 나뉘어 있다.
+- **객체는 payload-free** — geometry 는 frame-level `segment` 한 장(픽셀 = obj_id+1)이 소유하고, 객체
+  BRANCH 는 인라인 attr(class_id·bbox)만 든다. per-obj mask 는 segment 에서 파생한다(`process.sample._obj_mask`).
+  obj_id ↔ segment 라벨 정합은 삭제 때 `Dataset_Meta.Remove_object`(라벨 0, 구멍)가, 압축(재부여)은
+  `Pipeline.Order`(process)가 지킨다.
 
 범주를 label(item 필드)이 아니라 구조로 둔 이유: 영속 경로가 **재귀 key 뭉치기**라 범주 key 가 그 경로에
 자연히 실린다(→ 3절). 즉 구조 하나가 조회·전이·경로를 동시에 만족시킨다.
