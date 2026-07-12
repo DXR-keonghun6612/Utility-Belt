@@ -141,27 +141,37 @@ def Template(spec: dict, value: Any, *, params: bool = False) -> Data_Ref:
 
 
 def Template_for_file(spec: dict | str) -> Data_Ref:
-    """파일 스펙(``{pattern, type?, format?}`` 또는 패턴 문자열) → ``Data_Ref`` 템플릿.
+    """ingest 스펙(``{pattern, ext, type, format?}``) → ``Data_Ref`` 템플릿.
 
-    ``Template`` 의 자매 — 담을 그릇을 정하는 일은 같고 **무엇으로 고르느냐**만 다르다: ``Template`` 은
-    **값**(in-memory payload)으로, 이건 **확장자**(아직 디스크에만 있는 파일)로 고른다. ingest 처럼 값을
-    읽기 **전에** 서술자가 필요한 자리를 위한 것.
+    ``Template`` 의 자매 — 담을 그릇을 정하는 일은 같지만, ingest 는 파일이 아직 디스크에만 있어
+    **볼 값이 없다**(``Template`` 은 값+맥락으로 고를 수 있다).
 
-    ``type`` 미지정이면 패턴 확장자로 추론하고, 실패하면 **조용한 기본값 없이 실패**한다(호출 측이 명시).
-    ``format``(=ext) 미지정이면 ``Save`` 가 소스 파일 확장자로 채운다.
+    **그래서 ``type`` 은 필수다 — 확장자로 추론하지 않는다.** `png` 하나가 `image` 일 수도
+    `segmap`(라벨맵)일 수도 있어, 추론은 **둘 중 하나를 말없이 고르는 것**이다. (그래서 ``segmap`` 은
+    ``Extensions`` 를 비워 충돌을 피해뒀고, 그 대가로 ``Infer_type('png')`` 은 늘 `image` 라고 단정한다.)
+    조용히 틀리느니 한 줄 더 쓰게 한다.
+
+    **세 필드가 각각 다른 일을 한다:**
+
+    - ``pattern`` + ``ext`` → **파일을 찾는다**(glob). ``ext`` 는 *소스* 파일의 확장자.
+    - ``type`` → **핸들러** (image/segmap/attr/array/docs …).
+    - ``format`` → **서술자 detail** (파일 핸들러=저장 확장자 / ``attr``=값 타입 `str`·`xyxy`).
+      비우면 ``Save`` 가 채운다(파일=소스 확장자 그대로) — **파일 ingest 에선 비워두는 게 옳다**:
+      값을 주면 변환 없이 이름만 바뀌어 **깨진 파일**이 된다(복사이지 변환이 아니다).
 
     Raises:
-        ValueError: 확장자로 handler 를 추론할 수 없고 ``type`` 도 없을 때.
+        ValueError: ``type`` 이 없거나 등록되지 않은 handler 일 때.
     """
     if isinstance(spec, str):
         spec = {"pattern": spec}
     _type = spec.get("type")
-    if _type is None:
-        _ext = Path(spec["pattern"]).suffix
-        _type = Infer_type(_ext)
-        if _type is None:
-            raise ValueError(f"glob 패턴 '{spec['pattern']}': 확장자 '{_ext}' 로 type 추론 불가 "
-                             f"— type 을 명시하세요")
+    if not _type:
+        raise ValueError(
+            f"glob '{spec['pattern']}': type 을 명시하세요 (가능: {', '.join(Types())}). "
+            f"확장자로 추론하지 않습니다 — png 는 image 일 수도 segmap 일 수도 있습니다.")
+    if _type not in HANDLER_REGISTRY._module_dict:
+        raise ValueError(
+            f"glob '{spec['pattern']}': 알 수 없는 type '{_type}' (가능: {', '.join(Types())}).")
     return Data_Ref(format=(_type, spec.get("format", "")))
 
 
@@ -171,11 +181,11 @@ def Route(root: str, path: tuple[str, ...], name: str, spec: dict, value: Any,
     return Save(root, path, name, Template(spec, value, params=params), value)
 
 
-from .scan import Pattern_of, Scan  # noqa: E402  (자동등록 순회 뒤 — scan 은 handler 가 아니다)
+from .scan import Glob_of, Pattern_of, Scan  # noqa: E402  (자동등록 순회 뒤 — scan 은 handler 가 아니다)
 
 __all__ = [
     "Handler", "File_Handler", "Structure", "HANDLER_REGISTRY",
     "Types", "Infer_type", "Load", "Save", "Move", "Copy", "Delete", "Path_of",
     "Template", "Template_for_file", "Route",
-    "Scan", "Pattern_of",
+    "Scan", "Glob_of", "Pattern_of",
 ]

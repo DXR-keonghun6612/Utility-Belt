@@ -50,6 +50,20 @@ run/sample 소비처는 무변경. steps/ 를 지금 중립 패키지로 떼는 
 
 ---
 
+## ✅ 합의됨 — flow 카드가 `Stage` 필드를 손으로 복제한다 (드리프트)
+
+`run/_flow_card` 는 `object_type`·`name`·`unit`·`cacheable`·`shared`·`carry` 를 **손으로** 짓는다
+(`gui/form` 의 introspection 을 안 쓴다 — 그룹 박스 배치가 의도적이라 그 자체는 타당하다). 문제는
+**`Stage` 에 필드가 늘면 카드가 조용히 뒤처진다**는 것이다.
+
+- [ ] `Stage.category`(`str | list[str]`)가 **UI 에 없다** — 학습셋 전 split 을 도는 분석 flow 를 GUI 로
+      만들 수 없다. `analysis` 를 flow 로 옮기면(→ [`../core/process/TODO.md`](../core/process/TODO.md))
+      필요해진다.
+- [ ] 드리프트를 검사로 잡을지 판단 — "`Stage` 의 폼 대상 필드 ⊆ 카드가 짓는 위젯" 검사 한 줄이면 다음
+      필드 추가 때 조용히 안 뒤처진다.
+
+---
+
 ## ❓ 논의 대상 — **seam 이 없다** (이념과 실제의 괴리)
 
 [`README.md`](README.md) 는 *"core 접점은 갈래 내부, `_adapter.py` 가 seam"* 이라고 말한다. **실제는

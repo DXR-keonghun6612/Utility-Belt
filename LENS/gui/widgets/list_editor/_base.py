@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
     QPushButton,
     QToolButton,
     QVBoxLayout,
@@ -11,6 +13,29 @@ from PySide6.QtWidgets import (
 )
 
 from .._layout import drop
+
+_REMOVE_W = 26   # ✕ 버튼 폭 — 헤더 끝을 그만큼 비워 컬럼을 맞춘다
+
+
+class _Header_row(QWidget):
+    """컬럼 머리글 한 줄 — 행의 폭 규격과 **같은 값**으로 지어야 정렬이 맞는다."""
+
+    def __init__(self, headers: list[tuple[str, int, str]], parent=None) -> None:
+        super().__init__(parent)
+        _lay = QHBoxLayout(self)
+        _lay.setContentsMargins(0, 0, 0, 0)
+        _lay.setSpacing(4)
+        for _text, _width, _tip in headers:
+            _lbl = QLabel(_text)
+            _lbl.setStyleSheet("color: #888; font-size: 11px;")
+            if _tip:
+                _lbl.setToolTip(_tip)
+            if _width:
+                _lbl.setFixedWidth(_width)
+                _lay.addWidget(_lbl)
+            else:
+                _lay.addWidget(_lbl, stretch=1)
+        _lay.addSpacing(_REMOVE_W)          # ✕ 자리
 
 
 class List_row(QWidget):
@@ -52,18 +77,24 @@ class List_editor(QWidget):
 
     changed = Signal()
 
-    def __init__(self, add_label: str = "+ 추가", parent: QWidget | None = None) -> None:
+    def __init__(self, add_label: str = "+ 추가", parent: QWidget | None = None,
+                 headers: list[tuple[str, int, str]] | None = None) -> None:
         """편집기를 구성한다.
 
         Args:
             add_label: 하단 추가 버튼 라벨.
             parent: 부모 위젯.
+            headers: 컬럼 머리글 ``[(라벨, 고정폭(0=stretch), 툴팁), …]``. 행이 라벨 없는 한 줄
+                입력들로 이뤄지면 placeholder 만으로는 무엇을 넣는 칸인지 안 보인다 — 컬럼이 **고정된**
+                행에만 준다(칸이 상황에 따라 숨는 행은 헤더가 어긋나므로 툴팁으로 대신한다).
         """
         super().__init__(parent)
         self._rows: list[List_row] = []
         self._root_lay = QVBoxLayout(self)
         self._root_lay.setContentsMargins(0, 0, 0, 0)
         self._root_lay.setSpacing(2)
+        if headers:
+            self._root_lay.addWidget(_Header_row(headers))
         self._list_lay = QVBoxLayout()
         self._list_lay.setContentsMargins(0, 0, 0, 0)
         self._list_lay.setSpacing(2)

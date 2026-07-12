@@ -1,8 +1,7 @@
-"""파라미터 spec 추출 + 타입 판별 — 두 소스를 ``_Spec`` 으로 정규화 (설계는 README)."""
+"""파라미터 spec 추출 + 타입 판별 — process/모델의 ``__init__`` 을 ``_Spec`` 으로 정규화 (설계는 README)."""
 
 from __future__ import annotations
 
-import dataclasses
 import inspect
 import types
 from dataclasses import dataclass
@@ -62,28 +61,6 @@ def specs_from_callable(cls: type) -> list[_Spec]:
         _specs.append(_Spec(_name, _type, _default, _ui))
     return _specs
 
-
-def specs_from_dataclass(cls: type) -> list[_Spec]:
-    """dataclass 필드에서 ``_Spec`` 목록을 뽑는다 (``field(metadata={"ui"})`` 반영, 식별 필드 제외)."""
-    try:
-        _hints = get_type_hints(cls)
-    except Exception:
-        _hints = {}
-    _specs: list[_Spec] = []
-    for _f in dataclasses.fields(cls):
-        if _f.name in _SKIP:
-            continue
-        _type = _hints.get(_f.name)
-        if _type is None:
-            continue
-        if _f.default is not dataclasses.MISSING:
-            _default = _f.default
-        elif _f.default_factory is not dataclasses.MISSING:  # type: ignore[misc]
-            _default = _f.default_factory()
-        else:
-            _default = None
-        _specs.append(_Spec(_f.name, _type, _default, dict(_f.metadata.get("ui", {}))))
-    return _specs
 
 
 # ── 타입 판별 ─────────────────────────────────────────────────────────────────

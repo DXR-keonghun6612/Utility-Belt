@@ -94,6 +94,19 @@ class Float_slider_row(QWidget):
         """현재 값을 반환한다."""
         return self._spin.value()
 
+    def set_value(self, v: float) -> None:
+        """값을 설정한다 — **시그널 없이**(복원용). 슬라이더·스핀을 함께 맞춘다.
+
+        폼 복원처럼 "값을 되돌리는" 자리에서 쓴다. 사용자의 편집과 구별되어야 하므로
+        ``value_changed`` 를 emit 하지 않는다.
+        """
+        self._spin.blockSignals(True)
+        self._slider.blockSignals(True)
+        self._spin.setValue(float(v))
+        self._slider.setValue(round((float(v) - self._min) / self._step))
+        self._spin.blockSignals(False)
+        self._slider.blockSignals(False)
+
 
 class Int_slider_row(QWidget):
     """슬라이더와 스핀박스를 동기화한 정수 입력 행.
@@ -151,3 +164,12 @@ class Int_slider_row(QWidget):
     def value(self) -> int:
         """현재 값을 반환한다."""
         return self._spin.value()
+
+    def set_value(self, v: int) -> None:
+        """값을 설정한다 — **시그널 없이**(복원용). 슬라이더·스핀을 함께 맞춘다."""
+        self._spin.blockSignals(True)
+        self._slider.blockSignals(True)
+        self._spin.setValue(int(v))
+        self._slider.setValue(int(v))
+        self._spin.blockSignals(False)
+        self._slider.blockSignals(False)

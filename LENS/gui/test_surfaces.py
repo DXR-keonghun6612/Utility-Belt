@@ -27,7 +27,7 @@ from PySide6.QtWidgets import QApplication
 from core import Pipeline, Pipeline_config
 from core.constant import MODIFIED, STAGED
 
-_CONVERTER = {"globs": {"frame": {"pattern": "img_*.png"}}}
+_CONVERTER = {"globs": {"frame": {"pattern": "img_*", "ext": "png", "type": "image"}}}
 _FLOWS = [{
     "object_type": "extract", "unit": "frame",
     "processes": [

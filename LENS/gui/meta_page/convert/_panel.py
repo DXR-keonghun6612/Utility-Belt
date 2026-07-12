@@ -20,21 +20,46 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from core import port
 from gui._worker import Pipeline_worker
 from gui.widgets import List_editor, List_row, Pair_list_editor
 
 
 # ── glob 편집기 ────────────────────────────────────────────────────────────────
 
-_GLOB_TYPES = ["", "image", "array", "attr", "rle"]   # "" = 확장자로 추론(Infer_type)
+# 등록된 핸들러가 진실원천 — 새 핸들러를 떨구면 여기가 따라온다(하드코딩하면 조용히 뒤처진다).
+# 첫 항목 ""(미지정)은 **유효하지 않다** — Convert 가 "type 을 명시하세요"로 실패한다.
+# 추론하지 않는 이유: 같은 png 라도 image 일 수도 segmap 일 수도 있다.
+_GLOB_TYPES = ["", *port.Types()]
+
+
+# glob 행의 컬럼 규격 — 헤더와 행이 **같은 값**을 써야 정렬이 맞는다 (라벨, 폭(0=stretch), 툴팁).
+# 세 필드가 각각 다른 일을 한다: pattern+ext=찾기 · type=핸들러 · format=서술자 detail.
+_GLOB_COLUMNS = [
+    ("종류 (key)", 110, "이 데이터의 이름. **저장 폴더이자 process 가 ctx 에서 읽는 키**가 된다.\n"
+                        "예: frame → modified/frame/{stem}.png · flow 의 process 가 `frame` 으로 받는다."),
+    ("stem 패턴",    0, "raw 파일을 찾을 패턴 (확장자 없이). `*` 자리가 stem 이 된다.\n"
+                        "예: *_rgb + png → '*_rgb.png' 를 찾고, 20260508_rgb.png 의 stem 은 20260508.\n"
+                        "선언한 종류를 **다 갖춘 stem 만** 들인다."),
+    ("확장자",      64, "**소스** 파일의 확장자 — 패턴과 합쳐 glob 한다 (*_rgb + png → *_rgb.png).\n"
+                        "패턴에 이미 확장자를 썼다면 비워둔다."),
+    ("type",       92, "핸들러 — **필수**. 확장자로 추론하지 않는다:\n"
+                        "같은 png 라도 image(색 이미지)일 수도 segmap(라벨맵)일 수도 있다.\n"
+                        "attr = 파일을 안 남기고 텍스트를 값으로 읽는다."),
+    ("format",     72, "서술자 detail (선택) — **파일이면 비워두세요**.\n"
+                        "값을 주면 변환 없이 이름만 바뀌어 깨진 파일이 된다(복사이지 변환이 아니다).\n"
+                        "attr 에서만 의미가 있다: 값 타입(str·xyxy)."),
+]
 
 
 class _Glob_row(List_row):
-    """glob key 한 개를 편집하는 행 — ``key | pattern | type | dir | format | ✕``.
+    """glob key 한 개를 편집하는 행 — ``종류 | stem 패턴 | 확장자 | type | format | ✕``.
 
-    ``type`` 을 비우면 패턴 확장자로 핸들러를 추론한다(추론 안 되는 txt 등은 명시). 직렬화는
-    pattern 만 있으면 패턴 문자열로, 추가 키가 있으면 ``{pattern, type?, dir?, format?}`` dict 로 한다.
-    시그널(``changed``/``remove_requested``)은 ``List_row`` 베이스가 갖는다.
+    **세 필드가 각각 다른 일을 한다** — ``pattern``+``ext`` 는 파일을 *찾고*, ``type`` 은 *핸들러*를
+    정하고, ``format`` 은 *서술자 detail* 이다. 예전엔 확장자와 detail 이 한 칸(``format``)이라
+    "확장자는 여기 적는 것"으로 읽혔고, 그 바람에 패턴이 아무것도 못 찾아 **조용히 0건**이 났다.
+
+    **저장 위치를 정하는 칸은 없다** — 경로는 트리 위치에서 파생된다(kind-major: 종류 key 가 곧 폴더).
     """
 
     def __init__(self, key: str = "", spec=None, parent=None) -> None:
@@ -45,68 +70,61 @@ class _Glob_row(List_row):
         _lay.setSpacing(4)
 
         self._key = QLineEdit(key)
-        self._key.setPlaceholderText("key")
-        self._key.setFixedWidth(120)
+        self._key.setPlaceholderText("frame")
         self._pattern = QLineEdit(str(_spec.get("pattern", "")))
-        self._pattern.setPlaceholderText("*_pose.png")
+        self._pattern.setPlaceholderText("*_rgb")
+        self._ext = QLineEdit(str(_spec.get("ext", "")))
+        self._ext.setPlaceholderText("png")
         self._type = QComboBox()
-        self._type.addItems(_GLOB_TYPES)
+        self._type.addItems(_GLOB_TYPES)                  # registry 가 진실원천 (하드코딩 아님)
         self._type.setCurrentText(str(_spec.get("type", "")))
-        self._type.setToolTip("비우면 확장자로 추론 · txt 등 추론 안 되는 건 명시")
-        self._dir = QLineEdit(str(_spec.get("dir", "")))
-        self._dir.setPlaceholderText("dir")
-        self._dir.setFixedWidth(80)
-        self._dir.setToolTip("저장 디렉토리명 오버라이드 (선택)")
         self._format = QLineEdit(str(_spec.get("format", "")))
-        self._format.setPlaceholderText("fmt")
-        self._format.setFixedWidth(56)
+        self._format.setPlaceholderText("—")
 
-        _rm = self._remove_button()
+        for _w, (_label, _width, _tip) in zip(
+                (self._key, self._pattern, self._ext, self._type, self._format), _GLOB_COLUMNS):
+            _w.setToolTip(_tip)
+            if _width:
+                _w.setFixedWidth(_width)
+                _lay.addWidget(_w)
+            else:
+                _lay.addWidget(_w, stretch=1)
+        _lay.addWidget(self._remove_button())
 
-        for _w, _stretch in ((self._key, 0), (self._pattern, 1), (self._type, 0),
-                             (self._dir, 0), (self._format, 0)):
-            _lay.addWidget(_w, stretch=_stretch)
-        _lay.addWidget(_rm)
-
-        self._key.textChanged.connect(self.changed)
-        self._pattern.textChanged.connect(self.changed)
-        self._type.currentTextChanged.connect(self.changed)
-        self._dir.textChanged.connect(self.changed)
-        self._format.textChanged.connect(self.changed)
+        for _sig in (self._key.textChanged, self._pattern.textChanged, self._ext.textChanged,
+                     self._type.currentTextChanged, self._format.textChanged):
+            _sig.connect(self.changed)
 
     @staticmethod
     def _normalize(spec) -> dict:
-        """패턴 문자열 또는 dict 를 ``{pattern, type?, dir?, format?}`` dict 로 정규화한다."""
+        """패턴 문자열 또는 dict 를 ``{pattern, ext?, type?, format?}`` dict 로 정규화한다."""
         if isinstance(spec, dict):
             return spec
         return {"pattern": str(spec or "")}
 
     def to_config(self) -> tuple[str, object]:
-        """``(key, 패턴 문자열 또는 spec dict)`` 로 직렬화한다 (key가 빈 행은 상위에서 버림).
+        """``(key, spec dict)`` 로 직렬화한다 (key 가 빈 행은 상위에서 버림).
 
-        type/dir/format 이 모두 비면 패턴 문자열만, 하나라도 있으면 dict 로 낸다.
+        빈 칸은 안 싣는다. ``type`` 이 비면 Convert 가 **에러로 알려준다**(조용히 추론하지 않는다).
         """
         _key = self._key.text().strip()
-        _pattern = self._pattern.text().strip()
-        _extra = {_k: _v for _k, _v in (
-            ("type",   self._type.currentText().strip()),
-            ("dir",    self._dir.text().strip()),
-            ("format", self._format.text().strip()),
-        ) if _v}
-        if not _extra:
-            return _key, _pattern
-        return _key, {"pattern": _pattern, **_extra}
+        _spec: dict = {"pattern": self._pattern.text().strip()}
+        for _field, _w in (("ext", self._ext), ("type", self._type), ("format", self._format)):
+            _val = (_w.currentText() if isinstance(_w, QComboBox) else _w.text()).strip()
+            if _val:
+                _spec[_field] = _val
+        return _key, _spec
 
 
 class _Glob_list_editor(List_editor):
-    """``key → {pattern, type?, dir?, format?}`` glob 맵을 행 단위로 편집한다.
+    """``key → {pattern, ext?, type, format?}`` glob 맵을 행 단위로 편집한다 (컬럼 헤더 포함).
 
-    행 수명·dict 직렬화(``to_config``/``load``)는 ``List_editor`` 베이스가 갖고, 여기선 행 타입만
-    지정한다.
+    행 수명·dict 직렬화(``to_config``/``load``)는 ``List_editor`` 베이스가 갖고, 여기선 행 타입과
+    컬럼 규격만 지정한다.
     """
 
     def __init__(self, parent=None) -> None:
-        super().__init__("+ glob 추가", parent)
+        super().__init__("+ glob 추가", parent, headers=_GLOB_COLUMNS)
 
     def _make_row(self, key, spec) -> List_row:
         return _Glob_row(key, spec)

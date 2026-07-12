@@ -18,16 +18,33 @@ Converter_panel
   ├── object_type     glob (현재 고정 — _CONVERTER_WIDGETS dict 등록 기반)
   └── _Glob_settings
         ├── sources   raw 소스 디렉터리 목록
-        ├── globs     key → {pattern, type?, dir?, format?}   (라벨 특수처리 없음)
+        ├── globs     key → {pattern, ext?, type, format?}   (라벨 특수처리 없음)
         └── params    key → 파일 경로 (dataset-wide root leaf; id_map 등도 특수 필드 없이 여기로)
 ```
 
 > `id_map`(class→정수) 은 converter 가 소유하지 않는다 — 파생(sample) 계층 소유이고 Convert 는
 > 소비하지 않는다. 예전의 전용 id_map 입력은 제거했다(필요하면 제네릭 `params` 로 넣는다).
 
-`globs` 행은 `key | pattern | type | dir | format`. `type` 을 비우면 패턴 확장자로 핸들러를
-추론하고(`Infer_type`), txt 등 추론 안 되는 건 `type` 을 명시한다 (예: `attr`). 모든 glob key 가
-`type` 으로 핸들러가 갈린다 — 특수 취급되는 key 는 없다.
+`globs` 행은 `종류(key) | stem 패턴 | 확장자(ext) | type | format`. **세 필드가 각각 다른 일을 한다:**
+
+| 필드 | 하는 일 |
+|---|---|
+| `pattern` + `ext` | **파일을 찾는다** — 합쳐서 glob (`*_rgb` + `png` → `*_rgb.png`). `ext` 는 **소스** 확장자 |
+| `type` | **핸들러** — **필수**. 확장자로 추론하지 않는다 |
+| `format` | **서술자 detail** (선택) — 파일이면 비운다. `attr` 의 값 타입(`str`·`xyxy`)에만 의미 |
+
+**`type` 을 추론하지 않는 이유** — 같은 `png` 라도 `image`(색 이미지)일 수도 `segmap`(라벨맵)일 수도 있다.
+추론은 **둘 중 하나를 말없이 고르는 것**이라 한 줄 더 쓰게 한다.
+
+**`format` 을 파일에 주지 마라** — 저장은 복사(`shutil.copy2`)라 **변환이 아니다.** 소스가 `.jpg` 인데
+`format: png` 를 주면 JPEG 바이트가 `.png` 이름으로 앉는다(깨진 파일). 비우면 소스 확장자를 그대로 쓴다.
+
+**아무것도 못 찾으면 조용히 넘어가지 않는다** — 어느 종류가 몇 개 잡혔는지와 함께 실패한다. 예전엔 패턴이
+틀려도 빈 목록만 떴다(무엇이 잘못됐는지 알 길이 없었다).
+
+**저장 위치를 정하는 칸은 없다.** 경로는 트리 위치에서 파생된다(kind-major) — **종류 key 가 곧 폴더**이고
+동시에 **process 가 ctx 에서 읽는 이름**이다(`frame` → `modified/frame/{stem}.png`, flow 의 process 가
+`frame` 으로 받는다). 옛 `dir` 오버라이드는 없어졌다 — 두 곳이 위치를 정하면 어긋난다.
 
 ---
 
@@ -39,9 +56,9 @@ Converter_panel
         "object_type": "glob",
         "sources": ["/path/to/raw"],
         "globs": {
-            "frame":    "*_pose.png",                       # type 생략 → 확장자 추론
-            "class_id": {"pattern": "*_pose.txt", "type": "attr"},
-            "mask":     {"pattern": "*_mask.png", "type": "image", "dir": "raw_mask"},
+            "frame":    {"pattern": "*_rgb",   "ext": "png", "type": "image"},
+            "class_id": {"pattern": "*_label", "ext": "txt", "type": "attr"},   # 인라인 값
+            "mask":     {"pattern": "*_mask",  "ext": "png", "type": "segmap"}, # png 지만 라벨맵!
         },
         "params": {"roi": "/path/to/roi.png"},
     }

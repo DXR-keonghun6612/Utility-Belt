@@ -8,7 +8,11 @@ from gui.widgets import List_editor, List_row
 
 
 class _Output_row(List_row):
-    """``outputs`` 한 항목 편집 행 — ``key | → to | level | type | format | dir | ✕`` (route spec 은 README)."""
+    """``outputs`` 한 항목 편집 행 — ``출력키 | → | to | 위치 | type | 확장자 | ✕`` (route spec 은 README).
+
+    **저장 위치를 정하는 칸은 없다** — 파일 경로는 spec 이 아니라 **트리 위치**(범주·stem·obj_id)와
+    출력키에서 파생된다(kind-major: 출력키가 곧 종류 폴더). 그래서 `dir` 같은 칸이 없다.
+    """
 
     def __init__(self, key: str = "", spec: dict | None = None,
                  keys=(), block: bool = False, parent=None) -> None:
@@ -16,7 +20,7 @@ class _Output_row(List_row):
 
         Args:
             key: 초기 출력 키.
-            spec: 초기 라우팅 스펙 (``to`` / ``level`` / ``type`` / ``format`` / ``dir``).
+            spec: 초기 라우팅 스펙 (``to`` / ``level`` / ``type`` / ``format``).
             keys: 키 콤보에 채울 후보(이 process의 OUTPUTS).
             block: True면 finalize/params 레벨 — level 숨김, ``to=meta`` 는 params 를 뜻한다.
             parent: 부모 위젯.
@@ -32,34 +36,35 @@ class _Output_row(List_row):
         self._key.setEditable(True)
         self._key.addItems(list(keys))
         self._key.setCurrentText(key)
-        self._key.setToolTip("process 출력 키")
+        self._key.setToolTip(
+            "영속할 출력 키 (이 process 의 OUTPUTS 중에서).\n"
+            "**여기 선언한 키만 저장된다** — 나머지는 ctx 로만 흐르다 사라진다.\n"
+            "저장 폴더 이름도 이 키다 (kind-major).")
 
         self._to = QComboBox()
         self._to.addItems(["meta", "storage"])
         self._to.setCurrentText(spec.get("to", "meta"))
-        self._to.setToolTip("meta=params(dataset-wide, 스칼라 인라인/배열 npy) · storage=params 파일"
-                            if block else "meta=dataset_meta 인라인(rle/attr) · storage=파일(image/array)")
+        self._to.setToolTip(
+            "보관 방식 — meta=사이드카에 인라인(스칼라·rle) · storage=별도 파일(image·array)"
+            + ("\n(finalize 라 위치가 없다 → dataset-wide params 로 간다)" if block else ""))
 
         self._level = QComboBox()
         self._level.addItems(["object", "frame"])
         self._level.setCurrentText(spec.get("level", "object"))
-        self._level.setToolTip("object=object.data · frame=frame.data")
+        self._level.setToolTip(
+            "트리에서 값이 붙을 위치 — object=객체마다 한 개 · frame=프레임에 한 개")
 
         self._type = QLineEdit(str(spec.get("type", "")))
         self._type.setPlaceholderText("type")
-        self._type.setFixedWidth(72)
-        self._type.setToolTip("storage 저장 타입 (segmap·image·array 등) — 비우면 format 으로 추론")
+        self._type.setFixedWidth(84)
+        self._type.setToolTip(
+            "핸들러 (segmap·image·array 등) — 비우면 값과 맥락으로 추론한다.\n"
+            "추론이 안 되면 조용한 기본값 없이 실패하므로 그때 명시한다.")
 
         self._format = QLineEdit(str(spec.get("format", "")))
-        self._format.setPlaceholderText("format")
-        self._format.setFixedWidth(56)
-        self._format.setToolTip("storage일 때 ext/직렬화 (png·npy 등)")
-
-        self._dir = QLineEdit(str(spec.get("dir", "")))
-        self._dir.setPlaceholderText("dir")
-        self._dir.setToolTip("storage일 때 파일이 저장될 디렉토리명 (경로 전용)")
-
-        _rm = self._remove_button()
+        self._format.setPlaceholderText("png")
+        self._format.setFixedWidth(64)
+        self._format.setToolTip("저장 확장자 (png·npy 등) — 비우면 핸들러의 기본 확장자")
 
         _lay.addWidget(self._key, stretch=1)
         _lay.addWidget(QLabel("→"))
@@ -67,8 +72,8 @@ class _Output_row(List_row):
         _lay.addWidget(self._level)
         _lay.addWidget(self._type)
         _lay.addWidget(self._format)
-        _lay.addWidget(self._dir, stretch=1)
-        _lay.addWidget(_rm)
+        _lay.addStretch(1)
+        _lay.addWidget(self._remove_button())
 
         self._to.currentTextChanged.connect(self._sync_storage_fields)
         self._key.currentTextChanged.connect(self.changed)
@@ -76,15 +81,13 @@ class _Output_row(List_row):
         self._level.currentTextChanged.connect(self.changed)
         self._type.textChanged.connect(self.changed)
         self._format.textChanged.connect(self.changed)
-        self._dir.textChanged.connect(self.changed)
         self._sync_storage_fields()
 
     def _sync_storage_fields(self) -> None:
-        # type·format·dir 는 storage(파일 저장)일 때만, level 은 finalize/params 가 아닐 때만 의미 있음
+        """type·확장자는 storage(파일 저장)일 때만, level 은 finalize/params 가 아닐 때만 의미 있다."""
         _storage = self._to.currentText() == "storage"
         self._type.setVisible(_storage)
         self._format.setVisible(_storage)
-        self._dir.setVisible(_storage)
         self._level.setVisible(not self._block)
 
     def set_keys(self, keys) -> None:
@@ -103,7 +106,7 @@ class _Output_row(List_row):
     def to_config(self) -> tuple[str, dict]:
         """행을 ``(출력키, 스펙 dict)`` 로 직렬화한다.
 
-        기본값(``to=meta``, ``level=object``)은 생략하고, ``type`` / ``format`` / ``dir`` 은 storage일 때만 담는다.
+        기본값(``to=meta``, ``level=object``)은 생략하고, ``type``/``format`` 은 storage 일 때만 담는다.
 
         Returns:
             ``(key, spec)``. key가 비면 상위에서 버려진다.
@@ -114,16 +117,13 @@ class _Output_row(List_row):
             _spec["to"] = _to
         if not self._block and self._level.currentText() != "object":  # finalize/params 는 level 없음
             _spec["level"] = self._level.currentText()
-        if _to == "storage":  # type·format·dir 는 storage 전용
+        if _to == "storage":                                # type·확장자는 storage 전용
             _tp = self._type.text().strip()
             if _tp:
                 _spec["type"] = _tp
             _fmt = self._format.text().strip()
             if _fmt:
                 _spec["format"] = _fmt
-            _d = self._dir.text().strip()
-            if _d:
-                _spec["dir"] = _d
         return self._key.currentText().strip(), _spec
 
 
