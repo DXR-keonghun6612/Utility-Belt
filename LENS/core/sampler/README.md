@@ -66,7 +66,7 @@ cfg)`/`Load_sample`/`Delete_tasker`) — store↔recipe 분리는 converter/flow
 ## Pipeline 단계
 
 `Pipeline.Sample` = `Sample_Set` 새로 만들어 `Sample_stage(task=…, unit=…, target=sset)(meta)` 구동 →
-`sset.Scatter()`(split 없는 작업 store). config `sample.task` 가 sink 를, `unit` 이 순회를 정한다.
+`sset.Save()`(split 없는 작업 store). config `sample.task` 가 sink 를, `unit` 이 순회를 정한다.
 `Pipeline.Export_tasker(name, dest)` = 그 tasker 를 `SAMPLE_SINKS[task](target=Load_sample(name)).Export(
 dest, ratios=…, salt=…)` 로 split 실체화(레시피의 `ratios`/`salt` 는 여기서만 쓴다 — 빌드는 split 모름).
 

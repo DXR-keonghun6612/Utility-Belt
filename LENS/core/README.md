@@ -35,7 +35,7 @@ task-특화(classification=class 폴더, detection/seg=frame 축 + class 통계)
 core/                  ← 데이터(data) + 계산(process/converter/sampler) + 횡단(typing·constant) + 바인더(_base)
 ├── typing.py    횡단 타입 — Arg_Info·Arg(표시 힌트) · BBOX · GRAY_IMAGE
 ├── constant.py  횡단 상수 — MODIFIED·STAGED·META_STATES …
-├── data/        데이터 계층(store) — schema(Data_Ref·Bucket_Store) · handler · meta(정본) · sample(파생)
+├── data/        데이터 계층(store) — data_ref·bucket_store(Data_Ref·Bucket_Store) · handler · meta(정본) · sample(파생)
 ├── process/     계산 엔진 — Base_Process 유닛 + Stage(source→체인→sink) + Run(Flow)
 ├── converter/   Convert 스테이지 — Raw_source(발견) → Register_sink(등록)  (raw → 정본)
 ├── sampler/     Sample 스테이지 — Staged_source(순회) → Sample_sink[task]  (정본 → 파생)
@@ -55,8 +55,8 @@ core/                  ← 데이터(data) + 계산(process/converter/sampler) +
 어느 단계에도 안 속하고 **둘 이상이 공유**하는 원시. 활용부(form·process·sample)가 여기 맞추지, 그
 반대가 아니다. 도메인-로컬 상수/타입(`META_FILE`·`DEFAULT_SPACE` 등)은 여기로 안 올린다.
 
-> **위치:** `typing`·`constant` 는 core 최상위. 데이터 공유 primitive **`schema`(Data_Ref·
-> Bucket_Store)·`handler`** 는 **`data/` 계층 안**에 산다(정본·파생이 공유) — 아래 서술은 그 설계.
+> **위치:** `typing`·`constant` 는 core 최상위. 데이터 공유 primitive **`data_ref`(Data_Ref)·
+> `bucket_store`(Bucket_Store)·`handler`** 는 **`data/` 계층 안**에 산다(정본·파생이 공유) — 아래 서술은 그 설계.
 > 현재 구조·API 는 [`data/README.md`](data/README.md)·[`data/handler/README.md`](data/handler/README.md).
 
 ### `typing.py` — 타입
@@ -71,34 +71,36 @@ core/                  ← 데이터(data) + 계산(process/converter/sampler) +
 
 - staging 상태 어휘 **`MODIFIED`·`STAGED`·`META_STATES`**(단일 소스 — 문자열 중복 방지).
 
-### `schema.py` — flat 스키마 (Data_Ref · Bucket_Store)
+### `data_ref.py` · `bucket_store.py` — flat 스키마 (Data_Ref · Bucket_Store)
 
 정본·파생이 **같은 구조를 공유**하므로 core 로 둔다. 트리를 **단일 재귀 타입 `Data_Ref` 하나**로 압축한다
-(구 Dataset_Meta/Frame/Object/Data_Ref 5타입 → 1타입 + forest 파사드).
+(구 Dataset_Meta/Frame/Object/Data_Ref 5타입 → 1타입 + forest 파사드). 순수 트리 코어(`data_ref.py`)와
+영속을 든 forest 파사드(`bucket_store.py`)를 **파일로 가른다** — 데이터모델만 필요한 소비자가 cv2 없이
+`data_ref.py` 만 들이게(진짜 cv2-free 코어).
 
-- **`Data_Ref(type, format, info)`** — 트리의 **유일** 노드.
+- **`data_ref.Data_Ref(type, format, info)`** — 트리의 **유일** 노드 (handler 무의존).
   - **leaf** (`type`=image/array/attr/rle/segmap): `info` = payload(인라인 값 or 파일 위치). `Is_inline()` 이
     인라인(attr/rle/bbox) vs 파일 참조(dir)를 가른다.
   - **컨테이너** (`type="stem"`): `info: {name → Data_Ref}` = 자식(leaf 든 중첩 stem 이든). `__post_init__` 이
     역직렬화 시 자식을 재구성하고, `Serialize` 는 중첩 `Data_Ref` 를 재귀 직렬화. **Frame/Object 를 흡수** —
-    obj_id·이름은 부모 `info` 의 **key**, class 는 `info["class_id"]` attr(`schema.Attr`/`Set_attr`). 노드 클래스·
-    필드가 없어 frame/object 가 균일한 stem.
-- **`Bucket_Store`** — 트리 노드가 **아니라 forest 파사드**(`Data_Ref` 상속 안 함). `params`(범주 무관 root
-  leaf) + `buckets: {category → {key: stem Data_Ref}}`(n개 독립 persistence root) + **`CATEGORIES`**
-  ClassVar. 순회 헬퍼(`_iter_leaves`)만 데이터모델이 소유하고, **전이·병합·영속 I/O 는 [`store_io`](data/store_io.py)
-  자유함수**가 store 를 받아 수행한다(데이터모델은 I/O 를 모름). 서브클래스는 CATEGORIES 만 고정:
-  `Dataset_Meta`=`META_STATES`, `Sample_Set`=split(보류).
+    obj_id·이름은 부모 `info` 의 **key**, class 는 `info["class_id"]` attr(`data_ref.Attr`/`Set_attr`). 노드
+    클래스·필드가 없어 frame/object 가 균일한 stem. 트리 순회 `Iter_leaves`·병합 `Merge_into` 도 여기.
+- **`bucket_store.Bucket_Store`** — 트리 노드가 **아니라 forest 파사드**(`Data_Schema` 상속, `Data_Ref` 아님).
+  `params`(범주 무관 root leaf) + `buckets: {category → {key: stem Data_Ref}}`(n개 독립 persistence root) +
+  **`CATEGORIES`** ClassVar. 조회 게이트에 더해 **전이·병합·영속 I/O 를 자기 메서드로** 든다(구 `store_io`
+  자유함수 흡수). payload I/O 메서드만 `handler` 를 지역 import(cv2-free 코어 보존). 서브클래스는 CATEGORIES
+  만 고정: `Dataset_Meta`=`META_STATES`, `Sample_Set`=단일 작업 버킷.
 
-**흩기 / 모으기 — 두 구조 연산** (`store_io` 자유함수). leaf payload 는 `Data_Ref` → `handler` 위임,
+**흩기 / 모으기 — 두 구조 연산** (`Bucket_Store` 메서드). leaf payload 는 `Data_Ref` → `handler` 위임,
 차이는 **트리 레이아웃**뿐.
 
 | 연산 | 하는 일 | 언제 |
 |---|---|---|
-| `store_io.Scatter(s)` / `Save_item(s, key)` | **흩기** — 전체(top+전 사이드카) / 항목 하나(증분) 구조 사이드카로 | 수정 시 |
-| `store_io.Gather(s, categories)` | **모으기** — 흩어진 항목을 모아 자기완결 번들 한 파일로 | hand-off |
+| `store.Save()` / `Save(key)` | **흩기** — 전체(top+전 사이드카) / 항목 하나(증분) 구조 사이드카로 | 수정 시 |
+| `store.Gather(categories)` | **모으기** — 흩어진 항목을 모아 자기완결 번들 한 파일로 | hand-off |
 
-증분 저장이 `store_io.Save_item(s, stem)` 로 first-class 라 "하나 바뀌었다고 전체 내보내기" 없이 **실시간
-편집**. flow resolve 는 `Bucket_Store.Iter_refs` + `handler` **직접**(payload Load/Save).
+증분 저장이 `store.Save(stem)` 로 first-class 라 "하나 바뀌었다고 전체 내보내기" 없이 **실시간 편집**.
+flow resolve 는 `Bucket_Store.Iter_refs` + `handler` **직접**(payload Load/Save).
 
 ### `handler/` — Data_Ref 실체화
 
@@ -131,7 +133,7 @@ schema·process(resolve/route)가 공유하는 payload/구조 I/O 게이트.
 COCO detection 은 `{split}/{image}/{object}` + split 별 manifest. 이 depth 차이는 flat `Data_Ref` 가
 공짜로 흡수하고(stem 임의 중첩), task 별로 변하는 건 **트리 배치(`Place`)와 집계 export(`Finalize`)뿐**
 — `Base_Sampler` 뼈대가 staged 순회·split 결정적 배정을 소유한다(`converter`↔`Convert` 대칭). class→정수
-`id_map` 도 이 계층 소유(정본은 class 이름만). 상세는 [`data/sample/README.md`](data/sample/README.md).
+`id_map` 도 이 계층 소유(정본은 class 이름만). 상세는 [`data/sample/store.py`](data/sample/store.py).
 
 ---
 
@@ -143,26 +145,26 @@ COCO detection 은 `{split}/{image}/{object}` + split 별 manifest. 이 depth �
 Convert → Run → [staging 전이는 meta] → (Sample) → Verify
 ```
 
-- **`Convert`** — raw → modified 에 stem 컨테이너 등록(`converter` + `store_io.Scatter`).
-- **`Run`** — flow 시퀀스를 meta 위에서 구동(process 체인, frame 축) + `store_io.Scatter`.
-- **`Sample`** — 이름 붙은 tasker 재생성(`Sample(name, cfg)` → `Sample_stage(staged meta)` → `Sample_Set.Scatter`
+- **`Convert`** — raw → modified 에 stem 컨테이너 등록(`converter` + `meta.Save`).
+- **`Run`** — flow 시퀀스를 meta 위에서 구동(process 체인, frame 축) + `meta.Save`.
+- **`Sample`** — 이름 붙은 tasker 재생성(`Sample(name, cfg)` → `Sample_stage(staged meta)` → `Sample_Set.Save`
   → `taskers.yaml` 등록). `{root}/sample/{name}`, crop 체인 있으면 실체화.
 - **`Verify`** — 품질 검수(선택적). 미구현.
 - 무거운 prediction 모델은 **클래스 dict 풀**(`Pipeline._RESOURCE_POOL`)로 공유(프로세스 수명, 인스턴스
   공유 — GUI 가 실행마다 새 바인더를 만들어도 재사용).
 
 **데이터 라이프사이클**(staging 전이·병합·내보내기 `Move`/`Delete`/`Merge`/`Gather`)은 바인더가 아니라
-`data` 계층 **`store_io` 자유함수**가 수행한다(데이터모델 `Bucket_Store` 는 I/O 를 모른다) — 호출 측
-(GUI 등)이 `store_io.Move(meta, …)` 등을 직접 부른다.
+`data` 계층 **`Bucket_Store` 메서드**가 수행한다(payload I/O 만 handler 지역 import) — 호출 측
+(GUI 등)이 `meta.Move(…)` 등을 직접 부른다.
 
 ---
 
 ## 구현 상태
 
 - **횡단** — `typing.py`(`Arg_Info`/`Arg`/`BBOX`/`GRAY_IMAGE`)·`constant.py`(`META_STATES` …) 안정.
-- **`data/`** — 완료(store). `schema`(flat `Data_Ref` + forest `Bucket_Store` + stateless 재귀 헬퍼)
-  · `handler`(payload I/O+RLE + `Structure` 구조 사이드카) · `meta`(정본 `Dataset_Meta` + 영속 `Scatter`/
-  `Save_item`/`Gather`/`Load` + 전이 `Move`/`Delete`/`Merge`) · `sample`(파생 `Sample_Set` store만).
+- **`data/`** — 완료(store). `data_ref`(flat `Data_Ref` + 트리 연산) + `bucket_store`(forest `Bucket_Store`
+  (Data_Schema) + 영속 `Save`/`Restore`/`Gather` + 전이 `Move`/`Delete`/`Merge` 메서드) · `handler`(payload
+  I/O+RLE + `Structure` 구조 사이드카) · `meta`(정본 `Dataset_Meta`) · `sample`(파생 `Sample_Set`).
 - **`process/`** — 완료. `Base_Process` 유닛 + **`Stage` 엔진**(source→체인→sink) + Run(`Flow`=`Frame_source`/
   `Meta_sink`) + 모델 풀. source/sink 계약은 `source.py`/`sink.py`.
 - **`converter/`·`sampler/`** — 완료. process 기반 top-level 스테이지 — Convert=`Raw_source`/`Register_sink`,

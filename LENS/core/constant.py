@@ -16,7 +16,10 @@ META_STATES: tuple[str, ...] = (MODIFIED, STAGED, SKIPPED)
 
 # ── 파생(sample) 스테이지 어휘 ──────────────────────────────────────────────────
 
-WORKING = "data"                      # 파생 작업 버킷 — split 없는 단일 범주 (분석·class 재배정 대상)
-# train/val/test 는 store 범주가 아니라 내보내기 산출물(frame stem 해시로 파생) — 여기선 이름만.
-SPLITS: tuple[str, ...] = ("train", "val", "test")
+WORKING = "data"                      # (레거시) split 없는 단일 파생 버킷 — sampler 마이그레이션 전까지 존치
+# split = 파생(sample) store 범주. build 때 frame stem 해시로 배정(=데이터셋 정체성, 재-export 파생 아님).
+TRAIN = "train"
+VAL   = "val"
+TEST  = "test"
+SPLITS: tuple[str, ...] = (TRAIN, VAL, TEST)
 UNCLASSIFIED = "__unclassified__"     # 미분류 class 이름 — 정본 class_id 미지정 값 = classification fallback

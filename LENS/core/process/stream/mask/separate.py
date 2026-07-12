@@ -46,9 +46,9 @@ class Split_objects(Base_Process, outputs=("segment", "object"), category="마�
             return {}
 
         _objs = [                               # obj_id = 리스트 순번 (sink 가 info key 로 씀)
-            Data_Ref(type="stem", info={
-                "class_id": Data_Ref(type="attr", info={"value": _cls}),
-                "bbox":     Data_Ref(type="attr", format="xyxy", info={"value": _box}),
+            Data_Ref(info={
+                "class_id": Data_Ref(format=("attr", "str"),  info={"value": _cls}),
+                "bbox":     Data_Ref(format=("attr", "xyxy"), info={"value": _box}),
             })
             for _box in _boxes
         ]

@@ -78,6 +78,16 @@ class Handler(ABC):
         return None
 
     @classmethod
+    def Path_of(cls, root: str, path: tuple[str, ...], name: str, ref: Data_Ref) -> Path | None:
+        """이 leaf 를 받치는 **파일 경로** (인라인이라 파일이 없으면 ``None``; 없는 파일이어도 경로는 준다).
+
+        경로 파생은 핸들러 소유라 밖에서 조립하면 안 된다. 그런데 **store 레이아웃이 아닌 곳에 쓰는**
+        소비자(내보내기 — ImageFolder·COCO 등 학습 프레임워크 레이아웃)는 원본 파일 위치를 알아야 자기
+        레이아웃으로 복사할 수 있다. 그 질의를 여는 자리 (``Copy`` 는 양끝이 모두 store 규약일 때만 쓴다).
+        """
+        return None
+
+    @classmethod
     def Default_format(cls) -> str:
         """포맷 미지정 시 기본 format."""
         return ""
@@ -100,9 +110,8 @@ class Handler(ABC):
 class File_Handler(Handler):
     """디스크 파일 기반 핸들러 공통 베이스 (등록하지 않는 추상 베이스).
 
-    경로 파생(``{root}/<*path>/{name}.{ext}`` — ``path`` = store 가 넘기는 key 시퀀스) 과
-    복사(raw Path → 그대로 copy) 를 소유한다. 서브클래스는 인식 확장자 ``Extensions`` 와
-    in-memory io 인 ``_Read``/``_Write`` 만 구현한다.
+    경로 파생(``_path`` — 아래 레이아웃 규약) 과 복사(raw Path → 그대로 copy) 를 소유한다.
+    서브클래스는 인식 확장자 ``Extensions`` 와 in-memory io 인 ``_Read``/``_Write`` 만 구현한다.
     """
 
     @classmethod
@@ -115,8 +124,26 @@ class File_Handler(Handler):
 
     @classmethod
     def _path(cls, root: str, path: tuple[str, ...], name: str, ref: Data_Ref) -> Path:
-        """파일 경로 = ``{root}/{*path}/{name}.{ext}`` — 재귀 key 뭉치기 (format = (handler, ext))."""
-        return Path(root, *path, f"{name}.{ref.format[1]}")
+        """파일 경로 = ``{root}/{범주}/{종류}/{stem}[_{나머지 key…}].{ext}`` (**kind-major**).
+
+        ``path`` = store 가 넘기는 트리 key 시퀀스 ``(범주, stem, *안쪽 key)``, ``name`` = leaf 이름
+        (= 종류), ``ext`` = ``format[1]``. 범주와 stem 만 성분으로 남기고 그 안쪽 key(객체 id 등)는
+        stem 에 ``_`` 로 병합한다.
+
+        종류가 폴더라 ``{root}/{범주}/rgb`` 를 그대로 가리키면 그 범주의 이미지 전체다(ML 관행·외부
+        도구와 1:1). 범주가 경로 앞머리라 전이(``Move``)는 여전히 prefix 치환으로 끝난다. params 는
+        stem 이 없어 ``{root}/params/{name}.{ext}``.
+
+        Example:
+            ``(modified, frame0)`` + ``rgb``      → ``modified/rgb/frame0.png``
+            ``(modified, frame0, "0")`` + ``seg`` → ``modified/seg/frame0_0.png``
+            ``(params,)`` + ``c0_stats``          → ``params/c0_stats.npy``
+        """
+        _ext = ref.format[1]
+        _cat, *_rest = path
+        if not _rest:                                   # params — stem 이 없다
+            return Path(root, _cat, f"{name}.{_ext}")
+        return Path(root, _cat, name, f"{'_'.join(_rest)}.{_ext}")
 
     @classmethod
     def Move(cls, src_root: str, src_path: tuple[str, ...],
@@ -144,6 +171,11 @@ class File_Handler(Handler):
     def Delete(cls, root: str, path: tuple[str, ...], name: str, ref: Data_Ref) -> None:
         """이 leaf 파일을 지운다 (없으면 no-op)."""
         cls._path(root, path, name, ref).unlink(missing_ok=True)
+
+    @classmethod
+    def Path_of(cls, root: str, path: tuple[str, ...], name: str, ref: Data_Ref) -> Path | None:
+        """이 leaf 를 받치는 파일 경로 (존재 여부는 안 본다)."""
+        return cls._path(root, path, name, ref)
 
     @classmethod
     def Load(cls, root: str, path: tuple[str, ...], name: str, ref: Data_Ref) -> Any:

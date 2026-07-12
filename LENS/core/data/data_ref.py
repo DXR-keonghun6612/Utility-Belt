@@ -25,7 +25,8 @@ class Data_Ref(Data_Schema):
 
     Attributes:
         format: LEAF ``(handler, detail)`` (handler = 디스패치 키, detail = ext/dtype); BRANCH 는 ``()``.
-        info:   BRANCH = 자식 ``dict[str, Data_Ref]`` / LEAF = payload(``value`` 인라인 / ``dir`` 파일).
+        info:   BRANCH = 자식 ``dict[str, Data_Ref]`` / LEAF = 인라인 payload(``value``; 파일 LEAF 는
+            비어 있다 — 경로는 트리 위치와 leaf 이름에서 handler 가 파생한다).
     """
 
     format: tuple[str, ...] = ()
@@ -71,16 +72,26 @@ class Data_Ref(Data_Schema):
             _node = _node.Get(_k)
         return _node
 
-    def Locate(self, key: str, path: tuple[str, ...] = ()) -> "tuple[str, ...] | None":
-        """이름이 ``key`` 인 첫 자손의 경로를 재귀로 찾는다 (없으면 None)."""
-        for _name, _child in self.info.items():
-            if _name == key:
-                return path + (_name,)
-            if _child.Is_branch():
-                _found = _child.Locate(key, path + (_name,))
-                if _found is not None:
-                    return _found
-        return None
+    # ── kind 로 가른 직속 자식 — 이 물음의 유일한 답처 ────────────────────────────
+    # LEAF 와 BRANCH 가 한 ``info`` 를 공유하므로 "이 자식이 payload 냐 컨테이너냐" 를 소비처마다
+    # 손으로 거르면 같은 필터가 흩어진다. 그 물음은 여기서만 답한다.
+    # (``Iter_leaves`` 와 혼동 주의 — 저건 **서브트리 전체**를 재귀로 훑고, 이건 **직속 자식**만 본다.)
+    def Leaves(self) -> dict[str, "Data_Ref"]:
+        """직속 자식 중 LEAF (payload 서술자) — ``{이름: ref}``."""
+        return {_k: _v for _k, _v in self.info.items() if not _v.Is_branch()}
+
+    def Branches(self) -> dict[str, "Data_Ref"]:
+        """직속 자식 중 BRANCH (객체 등 컨테이너) — ``{이름: ref}``."""
+        return {_k: _v for _k, _v in self.info.items() if _v.Is_branch()}
+
+    def Replace_branches(self, refs: "list[Data_Ref]") -> None:
+        """BRANCH 자식을 통째로 갈아끼운다 — **LEAF 는 보존**, 새 이름은 순번(``"0"``, ``"1"`` …).
+
+        프로세스가 낸 객체 리스트로 프레임의 객체 집합을 교체하는 자리. LEAF(rgb·segmap 등)는 객체와 같은
+        ``info`` 에 살지만 교체 대상이 아니라, 그 보존이 이 연산의 **불변식**이다(소비처가 손으로 지키지 않게).
+        """
+        self.info = {**self.Leaves(),
+                     **{str(_i): _ref for _i, _ref in enumerate(refs)}}
 
     # ── 복제 ────────────────────────────────────────────────────────────────────
     def Clone(self) -> "Data_Ref":

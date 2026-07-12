@@ -1,9 +1,15 @@
 """forest 파사드 ``Bucket_Store`` — 범주 = 트리 구조 key (nested) + 자기 영속·전이.
 
-``tree`` 는 단일 ``Data_Ref``(BRANCH), 최상위 ``info`` 키 = ``{params, <범주들>}``. 각 범주 branch 의
-자식이 item. 검색·순회·경로는 전부 ``Data_Ref`` 재귀(``Locate``/``At``/``Iter_leaves``)에 위임하고,
-여기는 범주 정책 + 영속 오케스트레이션만 든다. 영속은 재귀 key-path — 사이드카 ``{root}/.meta/<*keys>.json``,
-payload ``{root}/<*keys>/{name}.{ext}``.
+``tree`` 는 단일 ``Data_Ref``(BRANCH), 최상위 ``info`` 키 = ``{params, <범주들>}``. 순회·payload 경로는
+``Data_Ref`` 재귀(``Iter_leaves``)에 위임하고, 여기는 범주 정책 + 영속 오케스트레이션만 든다.
+
+**item = 범주 branch 의 직속 자식** — 그것만이 store 의 주소 단위다. key 단위 API(``Find``/``Has``/
+``Save``/``Move``/``Delete``)는 정확히 그 자리에서만 찾는다. item 안쪽(객체·leaf)은 트리 내부 구조라
+store 가 bare key 로 주소지정하지 않는다 — 그건 ``Data_Ref`` 몫이다. 사이드카 입도도 같은 자리라
+**한 item = 한 사이드카**이고, 그래서 save/restore/delete 가 서로 어긋나지 않는다.
+
+영속 경로는 트리 위치에서 파생 — 사이드카 ``{root}/.meta/{범주}/{key}.json``, payload 는 handler 가
+kind-major 로(``{root}/{범주}/{종류}/{stem}.{ext}`` — [`handler/_base.py`](handler/_base.py) ``_path``).
 """
 
 from __future__ import annotations
@@ -63,15 +69,26 @@ class Bucket_Store(Data_Schema):
         self.Set(key, ref, category=category)
         return ref
 
-    # ── 조회 — Data_Ref 재귀(Locate/At)에 위임 ───────────────────────────────────
+    # ── 조회 — item(범주 직속 자식)만 ────────────────────────────────────────────
+    def _item_path(self, key: str) -> tuple[str, str] | None:
+        """item 의 트리 경로 ``(범주, key)`` — 범주 직속에서만 찾는다 (없으면 None).
+
+        item 안쪽(객체·leaf)은 안 본다 — 그 이름이 우연히 겹쳐도 item 으로 오인하지 않는다.
+        """
+        for _c in self.CATEGORIES:
+            _b = self.tree.Get(_c)
+            if _b is not None and _b.Has(key):
+                return _c, key
+        return None
+
     def Find(self, key: str) -> Data_Ref | None:
-        """key 의 item (트리 어디에 있든 재귀로; 없으면 None)."""
-        _p = self.tree.Locate(key)
-        return self.tree.At(_p) if _p is not None else None
+        """key 의 item (어느 범주에 있든; 없으면 None)."""
+        _p = self._item_path(key)
+        return self.tree.Get(_p[0]).Get(_p[1]) if _p is not None else None
 
     def Has(self, key: str) -> bool:
-        """key 가 트리 어딘가에 있는지."""
-        return self.tree.Locate(key) is not None
+        """그 key 의 item 이 있는지."""
+        return self._item_path(key) is not None
 
     def Conflicts(self, other: "Bucket_Store") -> list[str]:
         """``other`` 를 들일 때 겹치는 key 목록 (범주 무관). 병합 전 질의용."""
@@ -91,29 +108,43 @@ class Bucket_Store(Data_Schema):
                 for _k, _it in _b.Items():
                     yield _c, _k, _it
 
-    # ── 영속 — 재귀 key-path (경로 = 트리 위치) ──────────────────────────────────
+    # ── 영속 — 사이드카 = item 하나 (경로 = 트리 위치) ────────────────────────────
     @classmethod
     def Restore(cls, root: str | Path) -> "Bucket_Store":
-        """``{root}/.meta`` 트리를 walk 해 복원 — 경로 key 시퀀스가 곧 트리 위치."""
+        """``{root}/.meta`` 트리를 walk 해 복원 — 경로 key 가 곧 트리 위치 ``(최상위, item)``.
+
+        Raises:
+            ValueError: 사이드카 경로가 ``{범주|params}/{key}.json`` 모양이 아닐 때 (모르는 최상위 key
+                또는 깊이 불일치). 조용히 버리지 않는다 — 옛 레이아웃이면 마이그레이션이 필요하다.
+        """
         from .handler import Structure
         _store = cls(root=str(root))
+        _tops = (cls.PARAMS, *cls.CATEGORIES)
         for _keys, _d in Structure.Walk(str(root)):
-            _parent = _store.tree.At(_keys[:-1])
-            if _parent is not None:
-                _parent.Push(_keys[-1], Data_Ref(**_d))
+            if len(_keys) != 2 or _keys[0] not in _tops:
+                raise ValueError(
+                    f"{cls.__name__}: 복원 불가한 사이드카 .meta/{'/'.join(_keys)}.json — "
+                    f"{{최상위}}/{{item}}.json 이어야 한다 (최상위: {', '.join(_tops)}). "
+                    f"옛 레이아웃이면 마이그레이션 필요.")
+            _store.tree.Get(_keys[0]).Push(_keys[1], Data_Ref(**_d))
         return _store
 
     def Save(self, key: str | None = None) -> None:
-        """구조를 사이드카로 흩는다 — ``key`` 면 그 item 하나, 아니면 전 최상위 branch (params 포함)."""
+        """구조를 사이드카로 흩는다 — ``key`` 면 그 item 하나, 아니면 전 item (params 포함).
+
+        Raises:
+            KeyError: ``key`` 가 item 이 아닐 때 (item 안쪽 노드는 store 의 저장 단위가 아니다).
+        """
         from .handler import Structure
         if key is None:
             for _top, _b in list(self.tree.Items()):
-                for _stem, _item in list(_b.Items()):
-                    Structure.Write(self.root, (_top, _stem), _item.Serialize())
+                for _item_key, _item in list(_b.Items()):
+                    Structure.Write(self.root, (_top, _item_key), _item.Serialize())
             return
-        _p = self.tree.Locate(key)
-        if _p is not None:
-            Structure.Write(self.root, _p, self.tree.At(_p).Serialize())
+        _p = self._item_path(key)
+        if _p is None:
+            raise KeyError(f"저장할 item 이 없음: {key}")
+        Structure.Write(self.root, _p, self.tree.Get(_p[0]).Get(_p[1]).Serialize())
 
     def Export(self, categories: list[str] | None = None,
                out_file: str = "bundle.json") -> str:
@@ -135,24 +166,24 @@ class Bucket_Store(Data_Schema):
         Structure.Delete(self.root, src)
 
     def Move(self, key: str, to_category: str) -> None:
-        """항목을 다른 범주로 — pop→push + payload/사이드카를 새 범주 경로로 이동."""
-        _p = self.tree.Locate(key)
+        """item 을 다른 범주로 — pop→push + payload/사이드카를 새 범주 경로로 이동."""
+        _p = self._item_path(key)
         if _p is None:
-            raise KeyError(f"이동할 항목이 없음: {key}")
-        _item = self.tree.At(_p[:-1]).Pop(key)
+            raise KeyError(f"이동할 item 이 없음: {key}")
+        _item = self.tree.Get(_p[0]).Pop(key)
         if _p[0] != to_category:
-            self._relocate(_item, _p, (to_category,) + _p[1:])
+            self._relocate(_item, _p, (to_category, key))
         self.tree.Get(to_category).Push(key, _item)
         self.Save(key)
 
     def Delete(self, key: str) -> None:
-        """항목을 완전히 제거 — payload·사이드카·tree (없으면 no-op)."""
+        """item 을 완전히 제거 — payload·사이드카·tree (없으면 no-op)."""
         from . import handler
         from .handler import Structure
-        _p = self.tree.Locate(key)
+        _p = self._item_path(key)
         if _p is None:
             return
-        _item = self.tree.At(_p[:-1]).Pop(key)
+        _item = self.tree.Get(_p[0]).Pop(key)
         for _lp, _name, _leaf in _item.Iter_leaves():
             handler.Delete(self.root, _p + _lp, _name, _leaf)
         Structure.Delete(self.root, _p)
@@ -186,10 +217,10 @@ class Bucket_Store(Data_Schema):
                 self.tree.Get(_dst_cat).Push(_key, _new)
             else:                                                 # merge — host 에 없는 것만 → 진입 범주
                 _dst_cat = self.DEFAULT_CATEGORY
-                _p = self.tree.Locate(_key)
-                _new = self.tree.At(_p[:-1]).Pop(_key)
+                _p = self._item_path(_key)
+                _new = self.tree.Get(_p[0]).Pop(_key)
                 if _p[0] != _dst_cat:                             # 기존 payload 를 진입 범주로 이동
-                    self._relocate(_new, _p, (_dst_cat,) + _p[1:])
+                    self._relocate(_new, _p, (_dst_cat, _key))
                 _leaves = _new.Merge_from(_item)                  # 삽입분만
                 self.tree.Get(_dst_cat).Push(_key, _new)
 

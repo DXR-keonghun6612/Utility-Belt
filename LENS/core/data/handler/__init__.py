@@ -86,6 +86,11 @@ def Delete(root: str, path: tuple[str, ...], name: str, ref: Data_Ref) -> None:
     HANDLER_REGISTRY.Get(ref.format[0], Handler).Delete(root, path, name, ref)
 
 
+def Path_of(root: str, path: tuple[str, ...], name: str, ref: Data_Ref):
+    """이 ref 를 받치는 파일 경로 (인라인이면 None) — store 밖 레이아웃으로 내보낼 때."""
+    return HANDLER_REGISTRY.Get(ref.format[0], Handler).Path_of(root, path, name, ref)
+
+
 def _claim_type(value: Any, *, storage: bool, params: bool) -> str | None:
     """spec 이 type/format 을 안 줄 때, value+맥락을 담당하는 핸들러 type (최고 ``Claims``; 없으면 None).
 
@@ -104,8 +109,11 @@ def Template(spec: dict, value: Any, *, params: bool = False) -> Data_Ref:
     """routing spec(+값·맥락) → ``Data_Ref`` 템플릿 — 값을 어떤 서술자로 담을지 한곳에서 정한다.
 
     handler 확정 순서: ``spec.type`` → ``spec.format`` 확장자 추론 → value+맥락 ``Claims``(핸들러 선언).
-    정해진 핸들러의 ``INLINE``(인라인 vs 파일)·``Default_format`` 으로 조립하고, ``spec`` 의 ``dir``/
-    ``format`` 이 있으면 그게 이긴다. 파일 dir 기본은 ``""``(→name), ``params`` 맥락은 ``"params"``.
+    정해진 핸들러의 ``INLINE``(인라인 vs 파일)·``Default_format`` 으로 조립하고, ``spec`` 의 ``format``
+    이 있으면 그게 이긴다.
+
+    **위치는 spec 이 안 정한다** — 파일 경로는 트리 위치(``path``)와 leaf 이름에서 ``File_Handler._path``
+    가 파생한다. 그래서 template 은 ``format`` 만 정하고 ``info`` 는 비운 채 낸다(payload 는 ``Save`` 가 채움).
     """
     _storage = spec.get("to", "meta") == "storage"
     _type = (spec.get("type")
@@ -116,11 +124,7 @@ def Template(spec: dict, value: Any, *, params: bool = False) -> Data_Ref:
             f"routing: value({type(value).__name__})·맥락(storage={_storage}, params={params})"
             f" 으로 type 을 정할 수 없음 — spec 에 type 을 명시하세요")
     _cls = HANDLER_REGISTRY.Get(_type, Handler)
-    _fmt = spec.get("format") or _cls.Default_format()
-    if _cls.INLINE:
-        return Data_Ref(format=(_type, _fmt), info={})
-    _ddir = "params" if params else ""
-    return Data_Ref(format=(_type, _fmt), info={"dir": spec.get("dir", _ddir)})
+    return Data_Ref(format=(_type, spec.get("format") or _cls.Default_format()), info={})
 
 
 def Route(root: str, path: tuple[str, ...], name: str, spec: dict, value: Any,
@@ -132,6 +136,6 @@ def Route(root: str, path: tuple[str, ...], name: str, spec: dict, value: Any,
 __all__ = [
     "Data_Ref",
     "Handler", "File_Handler", "Structure", "HANDLER_REGISTRY",
-    "Types", "Infer_type", "Load", "Save", "Move", "Copy", "Delete",
+    "Types", "Infer_type", "Load", "Save", "Move", "Copy", "Delete", "Path_of",
     "Template", "Route",
 ]

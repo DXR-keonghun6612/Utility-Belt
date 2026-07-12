@@ -1,12 +1,12 @@
 """core 기본 구조 — Pipeline(계산 오케스트레이션 binder) + 모델 풀.
 
 ``Pipeline`` 은 정본(``Dataset_Meta``)을 중심으로 **계산 단계**(Convert → Run)를 조율하고 결과를
-``store_io.Scatter(meta)`` 로 영속한다. flow 시퀀스를 조립·실행하며, 무거운 prediction 모델을 **클래스
+``meta.Save()`` 로 영속한다. flow 시퀀스를 조립·실행하며, 무거운 prediction 모델을 **클래스
 dict 풀**(``Pipeline._RESOURCE_POOL``)로 공유한다(프로세스 수명, 인스턴스 간 공유 — GUI 가 실행마다 새
 바인더를 만들어도 재사용).
 
 staging 전이·병합·내보내기(Move/Delete/Merge/Gather) 같은 **데이터 라이프사이클**은 바인더가 아니라
-``data`` 계층 ``store_io`` **자유함수**가 소유한다 — 호출 측(GUI 등)이 ``store_io.Move(meta, …)`` 등을
+``data`` 계층 ``Bucket_Store`` **메서드**가 소유한다 — 호출 측(GUI 등)이 ``meta.Move(…)`` 등을
 직접 부른다. Verify(품질 검수)는 Sampling 이후로 미룬다.
 
 진입점·경로 resolve 는 [`__init__.py`](__init__.py).
@@ -21,11 +21,12 @@ from typing import Any, Callable, ClassVar
 
 from python_toolbox.project.config import Base_Config
 
-from .data import handler, store_io
+from .constant import MODIFIED
+from .data import handler
 from .data.meta import Dataset_Meta
-from .data.sample import SAMPLE_DIR, WORKING, Sample_Set
-from .converter import Convert_stage
-from .sampler import Load_taskers, SAMPLE_SINKS, Sample_stage, Save_taskers
+from .data.sample import SAMPLE_DIR, Sample_Set
+from .converter import Ingest
+from .sampler import EXPORTERS, Load_taskers, Sample_stage, Save_taskers
 from .process import Build_flow
 from .process.stream.model._sam3 import Sam3_runner
 
@@ -77,7 +78,7 @@ class Pipeline:
         self._flow_cfgs      = cfg.flows
         self._sample_cfg     = cfg.sample
         self._verify_cfg     = cfg.verify
-        self.meta            = store_io.Restore(Dataset_Meta, self.root)   # 정본 (Dataset_Meta)
+        self.meta            = Dataset_Meta.Restore(self.root)   # 정본 (Dataset_Meta)
         self._sample_root    = self.root / SAMPLE_DIR            # 파생 root ({root}/sample/{tasker})
 
     # ── config 섹션 갱신 (단일 Pipeline 에 섹션별 주입) ─────────────────────────
@@ -110,26 +111,24 @@ class Pipeline:
         return _out
 
     # ── 단계 ──────────────────────────────────────────────────────────────────
-    def Convert(self) -> int:
+    def Convert(self, progress: Callable[[str, int, int], None] | None = None) -> int:
         """raw 파일을 탐색해 modified 버킷에 컨테이너 ``Data_Ref`` 를 등록하고 저장한다.
 
-        ``Convert_stage``(``Raw_source`` → ``Register_sink``)를 meta 위에서 구동한다 — Run 과 같은
-        Stage 엔진(source→sink). config ``sources``/``globs``/``params`` 는 ``Raw_source`` 로 넘어간다.
+        Convert 는 **stage 가 아니다** — 체인이 비어 엔진을 안 쓰므로 ingest 게이트(``converter.Ingest``)를
+        직접 부른다. 이미 들인 stem 은 건드리지 않는다(검수 이력 보존).
 
         Returns:
             modified 버킷의 총 frame 수. 0이면 sources/globs 가 어떤 파일도 매칭하지 못한 것.
         """
         _cfg = self._converter_cfg
-        _stage = Convert_stage(
-            sources=_cfg.get("sources", []),
-            globs=_cfg.get("globs", {}),
-            params=_cfg.get("params", {}),
-            processes=_cfg.get("processes", []),   # raw→정본 변환 체인 (보통 빔)
-        )
-        _stage(self.meta)
+        Ingest(self.meta,
+               sources=_cfg.get("sources", []),
+               globs=_cfg.get("globs", {}),
+               params=_cfg.get("params", {}),
+               progress=progress)
         # class→id 매핑(id_map)은 파생(sample) 소유 — 정본은 class 이름만 든다.
-        store_io.Scatter(self.meta)
-        return len(self.meta.Bucket("modified"))
+        self.meta.Save()
+        return len(self.meta.Bucket(MODIFIED))
 
     def Run(self, progress: Callable[[str, int, int], None] | None = None,
             flows: list | None = None) -> None:
@@ -143,7 +142,7 @@ class Pipeline:
         _flows = [Build_flow(self._resolve_models(_cfg)) for _cfg in _cfgs]
         for _flow in _flows:
             _flow(self.meta, progress=progress)
-        store_io.Scatter(self.meta)
+        self.meta.Save()
 
     # ── 파생(Sample) — 이름 붙은 tasker ({root}/sample/{name} + taskers.yaml) ────
     def Taskers(self) -> dict[str, dict]:
@@ -163,50 +162,58 @@ class Pipeline:
         return sorted(_names)
 
     def Load_sample(self, name: str) -> Sample_Set:
-        """이름 붙은 tasker 의 ``Sample_Set`` 을 복원한다 (``{root}/sample/{name}``)."""
-        return store_io.Restore(Sample_Set, self._sample_root / name)
+        """이름 붙은 tasker 의 학습셋 store 를 복원한다 (``{root}/sample/{name}``).
+
+        파생 store 는 타입이 하나뿐이다 — task(classification/detection)는 빌드가 아니라 **내보내기**의
+        축이라 store 모양을 가르지 않는다.
+        """
+        return Sample_Set.Restore(self._sample_root / name)
 
     def Tasker_root(self, name: str) -> Path:
-        """빌드된 tasker 의 작업 버킷 경로 ``{root}/sample/{name}/data`` (``{class}/*.png`` — mask 분석 입력)."""
-        return self._sample_root / name / WORKING
+        """빌드된 tasker 의 store 루트 ``{root}/sample/{name}`` (payload 는 ``{split}/crop/*.png``)."""
+        return self._sample_root / name
 
     def Sample(self, name: str, cfg: dict | None = None) -> int:
         """staged 정본을 소비해 이름 붙은 tasker 를 (재)빌드·영속하고 ``taskers.yaml`` 에 등록한다.
 
-        ``Sample_stage``(``Staged_source`` → ``Sample_sink[task]``)를 meta 위에서 구동한다 — Run/Convert 와
-        같은 Stage 엔진(source=staged meta, sink=새 ``Sample_Set``). 매 호출이 그 tasker 트리를 새로 지어
-        ``{root}/sample/{name}`` 에 흩고(A+ 순수 재생성), 레시피(``cfg``)를 ``taskers.yaml`` 에 등록한다.
+        ``Sample_stage`` 를 meta 위에서 구동한다 — Run 과 **같은 엔진**이고 양 끝만 다르다(순회=staged
+        정본, 배치=새 ``Sample_Set``). 매 호출이 그 tasker 를 새로 지어 ``{root}/sample/{name}`` 에
+        흩고(A+ 순수 재생성), 레시피(``cfg``)를 ``taskers.yaml`` 에 등록한다.
+
+        **split 은 빌드가 배정한다** — split 이 곧 store 범주라 배치 시점에 정해져야 한다. 레시피의
+        ``ratios``/``salt`` 가 그래서 여기로 온다(옛 모델은 내보내기가 갈랐다).
 
         Args:
             name: tasker 이름 (폴더·레지스트리 key).
-            cfg:  sample 설정(``task``/``ratios``/``unit``/``salt``). None 이면 등록된 레시피(없으면
-                  생성 시 ``sample`` 섹션).
+            cfg:  sample 설정(``unit``/``ratios``/``salt``/``processes``, 내보내기용 ``task``). None 이면
+                  등록된 레시피(없으면 생성 시 ``sample`` 섹션).
 
         Returns:
-            파생된 sample(=범주 직속 항목) 수 합계.
+            파생된 sample 수 합계 (전 split).
         """
         _cfg = cfg if cfg is not None else self.Taskers().get(name, self._sample_cfg)
         _sset = Sample_Set(root=str(self._sample_root / name))
-        _stage = Sample_stage(                     # 빌드는 split 을 모른다 — ratios/salt 는 내보내기 몫
-            task=_cfg.get("task", _cfg.get("object_type", "classification")),
+        _stage = Sample_stage(
             unit=_cfg.get("unit", "object"),
+            ratios=_cfg.get("ratios") or {},       # 빈 dict → 균등 배분 (Sample_stage._norm_ratios)
+            salt=_cfg.get("salt", ""),
             target=_sset,
-            processes=_cfg.get("processes", []),   # crop 실체화 체인 (Phase B)
+            processes=_cfg.get("processes", []),   # crop 실체화 체인
         )
         _stage(self.meta)
-        store_io.Scatter(_sset)
+        _sset.Save()
         _taskers = self.Taskers()                  # 레시피 등록 (name ↔ 폴더 매칭)
         _taskers[name] = _cfg
         Save_taskers(self._sample_root, _taskers)
         return sum(len(_sset.Bucket(_s)) for _s in _sset.CATEGORIES)
 
     def Export_tasker(self, name: str, dest: str | Path) -> Path:
-        """빌드된 tasker 를 split 별로 갈라 외부 경로에 실체화한다 (``= split 처리``).
+        """빌드된 tasker 를 학습 프레임워크 레이아웃으로 외부 경로에 실체화한다.
 
-        작업 store 는 split 없는 단일 버킷이라, 내보내기가 레시피의 ``ratios``/``salt`` 로 frame stem
-        해시를 태워 ``dest/{name}/{split}/…`` 로 실체화한다 — 레이아웃·집계는 task(sink)가 소유
-        (``Sample_sink.Export``). 원본(작업 store)은 비파괴. 데이터 라이프사이클(내보내기)은 binder
-        소유 — GUI 가 이 메서드를 직접 부른다.
+        **split 재배정은 없다** — store 가 이미 split 범주로 갈려 있다(빌드가 배정). 여기서 정하는 건
+        레이아웃뿐이고, 그게 task 다: classification=ImageFolder(`{split}/{class}/…`), detection=COCO
+        (`{split}/images/` + `instances_{split}.json`). 원본(작업 store)은 비파괴. 데이터 라이프사이클
+        (내보내기)은 binder 소유 — GUI 가 이 메서드를 직접 부른다.
 
         Args:
             name: 내보낼 tasker 이름.
@@ -217,20 +224,20 @@ class Pipeline:
 
         Raises:
             FileNotFoundError: tasker 폴더가 없으면 (아직 빌드 안 됨).
-            ValueError: 레시피의 task 에 맞는 sink 가 없으면.
+            ValueError: 레시피의 task 에 맞는 exporter 가 없으면.
         """
         _src = self._sample_root / name
         if not _src.exists():
             raise FileNotFoundError(f"빌드된 tasker 가 없습니다: {name!r} (먼저 Sample 실행)")
-        _cfg = self.Taskers().get(name, {})
+        _cfg  = self.Taskers().get(name, {})
         _task = _cfg.get("task", _cfg.get("object_type", "classification"))
-        _sink_cls = SAMPLE_SINKS.get(_task)
-        if _sink_cls is None:
-            raise ValueError(f"알 수 없는 sample task: {_task!r}")
+        _exporter_cls = EXPORTERS.get(_task)
+        if _exporter_cls is None:
+            raise ValueError(f"알 수 없는 sample task: {_task!r} "
+                             f"(가능: {', '.join(EXPORTERS)})")
         _out = Path(dest) / name
-        _sink_cls(target=self.Load_sample(name)).Export(
-            _out, ratios=_cfg.get("ratios"), salt=_cfg.get("salt", ""),
-            id_map=self._meta_id_map())
+        _exporter_cls(source=self.Load_sample(name), meta=self.meta,
+                      id_map=self._meta_id_map()).Export(_out)
         return _out
 
     def Id_map(self) -> dict:
@@ -240,10 +247,11 @@ class Pipeline:
         읽는다. 값 구조(``{class:{class_id,category_id}}`` 등)는 그대로 — 재배정 class 후보(키 = class
         이름) 소스로 GUI 가 쓴다. index 로 평탄화한 건 ``_meta_id_map``(내보내기용).
         """
-        _ref = self.meta.params.get("id_map") if self.meta is not None else None
+        _ref = (self.meta.Bucket(self.meta.PARAMS).get("id_map")
+                if self.meta is not None else None)
         if _ref is None:
             return {}
-        _val = handler.Load(self.meta.root, None, "id_map", _ref)
+        _val = handler.Load(self.meta.root, (self.meta.PARAMS,), "id_map", _ref)
         return _val if isinstance(_val, dict) else {}
 
     def _meta_id_map(self) -> dict[str, int] | None:

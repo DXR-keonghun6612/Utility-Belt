@@ -14,7 +14,6 @@ from typing import Annotated, Any
 import numpy as np
 
 from core.data.handler import Data_Ref
-from core.data.meta import Dataset_Meta
 from ....func.cv.geom import Mask_to_box
 from ... import PROCESS_REGISTRY, Base_Process, GRAY_IMAGE, UI
 
@@ -42,10 +41,13 @@ def _bbox_of(obj: Data_Ref) -> list | None:
 class Segment(Base_Process, outputs=("segment", "object"), category="모델/분할"):
     """프레임 객체 bbox 들을 backend 로 분할하는 정책 프로세스 (plain box→best mask).
 
-    ``unit: frame`` — ``meta``/``stem`` 으로 프레임 ``info`` 의 객체(컨테이너 entry) 전체를 읽어 객체별 box 를
-    프롬프트로 준다. backend 이미지 인코딩은 프레임당 1회(``encode``), box 마다 가벼운 ``run``
-    디코드. best mask 로 (1) 인스턴스 라벨맵 ``segment``(픽셀=obj_id+1) 재칠 (2) bbox 재계산.
-    ``class_id`` 는 SAM3 가 정하지 않고 기존 객체 값을 그대로 유지한다. 결과 없으면 빈 dict("스킵").
+    ``unit: frame`` — ctx 의 ``object``(프레임의 객체 목록)에서 객체별 box 를 프롬프트로 준다. backend
+    이미지 인코딩은 프레임당 1회(``encode``), box 마다 가벼운 ``run`` 디코드. best mask 로 (1) 인스턴스
+    라벨맵 ``segment``(픽셀=obj_id+1) 재칠 (2) bbox 재계산. ``class_id`` 는 SAM3 가 정하지 않고 기존 객체
+    값을 그대로 유지한다. 결과 없으면 빈 dict("스킵").
+
+    ``object`` 는 입력이자 출력이다 — engine 이 store 에서 seed 하고, 앞 step(``split_objects``)이 있으면
+    그 출력이 ctx 에서 이긴다. 유닛은 store 를 모른다.
 
     영역 제거(구멍/슬릿 carve)는 여기 넣지 않고 downstream process(edge·fill·combine)로 조합한다.
     """
@@ -56,10 +58,8 @@ class Segment(Base_Process, outputs=("segment", "object"), category="모델/분�
     conf:     Annotated[float, UI(label="점수 하한", tip="0 = best mask 그대로 채택", min=0.0, max=1.0, step=0.05)] = 0.0
     min_area: Annotated[int,   UI(label="최소 면적 (px²)", min=0, max=10000)]            = 200
 
-    def Run(self, frame: np.ndarray, meta: Dataset_Meta, stem: str, **kwargs) -> dict:
-        _node = meta.Find(stem)
-        _objs = ([_v for _v in _node.info.values() if _v.Is_stem()]
-                 if _node is not None else [])
+    def Run(self, frame: np.ndarray, object: list[Data_Ref], **kwargs) -> dict:
+        _objs = object
         if not _objs:
             return {}
 
@@ -76,12 +76,12 @@ class Segment(Base_Process, outputs=("segment", "object"), category="모델/분�
             _box = Mask_to_box(_m)                             # 정제 mask 기준 bbox 재계산
             if _box is None:
                 continue
-            _data: dict = {"bbox": Data_Ref(type="attr", format="xyxy",
+            _data: dict = {"bbox": Data_Ref(format=("attr", "xyxy"),
                                             info={"value": [float(_v) for _v in _box]})}
-            _cid = _o.info.get("class_id")                     # 기존 class 유지 (SAM3 는 class 안 정함)
+            _cid = _o.Get("class_id")                          # 기존 class 유지 (SAM3 는 class 안 정함)
             if _cid is not None:
                 _data["class_id"] = _cid
-            _new.append(Data_Ref(type="stem", info=_data))
+            _new.append(Data_Ref(info=_data))
 
         if not _new:
             return {}

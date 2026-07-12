@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ....data.handler import Data_Ref
-from ....data.meta import Dataset_Meta
 from ...func.mask.instance import Order_by_center
 from .. import PROCESS_REGISTRY, Base_Process, GRAY_IMAGE
 
@@ -29,13 +28,10 @@ class Order_objects(Base_Process, outputs=("segment", "object"), category="마�
     ``class_id``·bbox 등 객체 데이터는 그대로 유지된다. 객체가 없으면 빈 dict("스킵").
     """
 
-    def Run(self, segment: GRAY_IMAGE, meta: Dataset_Meta, stem: str, **kwargs) -> dict:
-        _frame = meta.Find(stem)
-        _objs  = ([_v for _v in _frame.info.values() if _v.Is_stem()]
-                  if _frame is not None else [])
-        if not _objs:
+    def Run(self, segment: GRAY_IMAGE, object: list[Data_Ref], **kwargs) -> dict:
+        if not object:
             return {}
 
-        _seg, _order = Order_by_center(segment, [_bbox(_o) for _o in _objs])
-        _new = [Data_Ref(type="stem", info=dict(_objs[_i].info)) for _i in _order]
+        _seg, _order = Order_by_center(segment, [_bbox(_o) for _o in object])
+        _new = [Data_Ref(info=dict(object[_i].info)) for _i in _order]
         return {"segment": _seg, "object": _new}

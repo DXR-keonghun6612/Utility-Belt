@@ -12,8 +12,9 @@ LENS **데이터 계층** — 데이터가 어떤 모양으로 담기고, 어떻
 갈린다 — 별도 타입 필드가 없다:
 
 - **BRANCH** (`format` 비었음) — `info` 가 자식 `dict[str, Data_Ref]`. 재귀 컨테이너. 이름은 부모 `info` 의 key.
-- **LEAF** (`format = (handler, detail)`) — payload 서술자. `info` 는 인라인 값(`{value}`) 또는 파일 위치(`{dir}`).
-  실체화(read/write·경로 파생)는 `handler` 가 `format[0]` 로 디스패치한다.
+- **LEAF** (`format = (handler, detail)`) — payload 서술자. `info` 는 인라인 값(`{value}`); **파일 LEAF 는 비어
+  있다** — 위치를 서술자에 안 적고 트리 위치에서 파생하기 때문이다(→ 4절). 실체화(read/write·경로 파생)는
+  `handler` 가 `format[0]` 로 디스패치한다.
 
 **LEAF 는 디스패치용 handler 가 반드시 있어 `format` 이 비지 않고, BRANCH 는 없어 항상 빈다** — 그래서
 `bool(format)` 이 곧 kind 다. class_id·bbox 같은 인라인 라벨도 특별한 종류가 아니라 그냥 `("attr", …)` LEAF 이고,
@@ -64,20 +65,30 @@ payload I/O 는 `handler` 소유고, `Bucket_Store` 가 트리 순회(`Iter_leav
 
 ---
 
-## 4. 영속 — 재귀 key-path (경로 = 트리 위치)
+## 4. 영속 — 경로는 트리 위치에서 파생 (서술자에 안 적는다)
 
-디스크 레이아웃이 트리 위치를 그대로 반영한다 — 경로가 곧 root 부터 뭉친 key 시퀀스다:
+**위치는 `Data_Ref` 에 없다.** 구조도 payload 도 트리에서의 자리로 경로가 정해진다 — 그래서 같은 값이 두
+위치를 가리키는 상태가 구조적으로 불가능하고, 범주 전이가 파일까지 자동으로 데려간다.
 
+```text
+{root}/.meta/{최상위}/{key}.json         # 구조 사이드카 — item.Serialize() (예: .meta/staged/frame0.json)
+{root}/{범주}/{종류}/{stem}.{ext}        # payload 파일 (예: staged/rgb/frame0.png) — kind-major
+{root}/params/{종류}.{ext}               # params payload — 범주 무관이라 stem 이 없다
+{root}/bundle.json                       # Export — 범주별 자기완결 번들 (hand-off)
 ```
-{root}/.meta/<*keys>.json          # 구조 사이드카 — item.Serialize() (예: .meta/staged/frame0.json)
-{root}/<*keys>/{name}.{ext}        # payload 파일 (예: staged/frame0/0/seg.rle) — 생산 때 handler 가 씀
-{root}/bundle.json                 # Export — 범주별 자기완결 번들 (hand-off)
-```
 
-- **사이드카는 per-stem 백업** — item 하나가 파일 하나라, 20k+ 프레임에서 한 편집이 한 write 다(증분·크래시 내구).
-- **payload 는 범주 경로 아래** — 전이(`Move`)가 payload 도 새 범주 경로로 함께 옮긴다(handler 가 `shutil` 이동).
-  인라인 LEAF(attr/rle)는 값이 사이드카 안이라 파일 이동이 no-op.
-- **복원은 `.meta` 트리 walk** — 경로 key 시퀀스가 곧 트리 위치라, walk 결과를 그 위치에 꽂으면 트리가 선다.
+`{최상위}` = 범주 **또는 `params`** — 둘은 트리에서 나란한 최상위 key 라 영속 경로에서도 같은 자리를 쓴다
+(`params` 만 item 이 dataset-wide leaf 라 stem 축이 없다). `Restore` 가 아는 최상위는 이 둘뿐이다.
+
+- **사이드카는 item 하나 = 파일 하나** — 20k+ 프레임에서 한 편집이 한 write 다(증분·크래시 내구). 그래서
+  store 의 key 단위 API 도 **item(범주 직속 자식)만** 주소지정한다 — 저장·삭제·복원의 입도가 어긋나지 않게.
+- **payload 는 kind-major** — 종류(leaf 이름)가 폴더라 `{root}/modified/rgb` 가 곧 그 범주의 이미지 전체다
+  (외부 도구·dataloader 와 1:1). 객체 단위 leaf 는 stem 에 `_` 로 병합(`modified/seg/frame0_0.png`). 경로
+  규칙은 [`handler/README.md`](handler/README.md) 가 소유.
+- **전이(`Move`)는 prefix 치환** — 범주가 경로 앞머리라 payload 도 새 범주로 함께 옮겨진다(handler 가
+  `shutil` 이동). 인라인 LEAF(attr/rle)는 값이 사이드카 안이라 파일 이동이 no-op.
+- **복원은 `.meta` walk** — 경로 key 가 곧 트리 위치라 walk 결과를 그 자리에 꽂으면 트리가 선다. 모양이
+  안 맞는 사이드카(모르는 범주·깊이 불일치)는 **조용히 버리지 않고 실패**한다 — 옛 레이아웃이면 마이그레이션.
 
 ---
 
@@ -88,10 +99,16 @@ payload I/O 는 `handler` 소유고, `Bucket_Store` 가 트리 순회(`Iter_leav
 
 - **`Dataset_Meta`** (정본) — 범주 = staging 상태 `(modified, staged, skipped)`. [`meta/store.py`](meta/store.py)
 - **`Sample_Set`** (파생) — 범주 = split `(train, val, test)`. [`sample/store.py`](sample/store.py)
-  - `Classification_Set` / `Detection_Set` — task 별 트리 모양(`{class}/{sample}` vs `{image}/{object}`).
 
-트리 **모양**(중첩 깊이)은 task(sampler sink)가 짓고, `Bucket_Store`/`Data_Ref` 는 그 깊이를 모른다 —
-`info` 재귀가 임의 깊이를 흡수한다.
+**task 별 store 타입은 없다.** 파생 빌드는 "무엇을 뽑나"(`unit`·crop 여부)만 정하고, task
+(classification/detection)는 **내보낼 때** 의미를 갖는다 — ImageFolder(`{class}/{sample}.png`)든
+COCO(`images/`+`instances.json`)든 학습 프레임워크 레이아웃은 **export 산출물**이지 store 구조가 아니다.
+task 마다 그 축이 달라서(class-major 대 kind-major) store 가 하나를 고르면 다른 하나를 못 섬긴다.
+
+**store 가 고정하는 건 item 의 자리(범주 직속)까지고, item *안쪽* 모양은 자유다** — `info` 재귀가 임의
+깊이를 흡수하므로 `Bucket_Store`/`Data_Ref` 는 그 안을 모른다. 경계가 여기인 이유는 영속이다: 사이드카·
+전이·key 조회가 전부 item 단위라, item 의 자리가 안 정해지면 그 셋이 서로 어긋난다(실제로 어긋나 있었다
+— 삭제한 항목이 복원 때 되살아났다).
 
 ---
 

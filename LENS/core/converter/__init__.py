@@ -1,12 +1,13 @@
-"""converter — raw → 정본(modified) ingest 스테이지 (process 기반).
+"""converter — raw → 정본(modified) ingest.
 
-``process`` 의 Stage 엔진 위에서 ``Raw_source``(glob 발견) → ``Register_sink``(stem 등록)를 잇는다.
-``Convert_stage`` 가 config-facing 엔트리(``Pipeline.Convert`` 가 빌드). 정해진 포맷 파서(coco/yolo)는
-다른 Source 로 이 패키지에 더한다.
+**stage 가 아니다.** Convert 는 process 체인이 비어 엔진을 쓰지 않는다 — ``scan → Save → store.Set`` 이라
+계산이 아니라 **store 진입 게이트**이고, ``Restore``/``Merge``/``Export`` 의 형제다. 그래서 source/sink 를
+세우지 않고 자유함수 ``Ingest`` 하나로 둔다 ([`ingest.py`](ingest.py)).
+
+정해진 포맷 파서(coco/yolo)는 다른 ``Scan``/``Ingest`` 변주로 여기 더한다.
+(2단계에서 `core/port/` 로 이사한다 — [`../TODO.md`](../TODO.md) "★ core 4분할".)
 """
 
-from .sink import Register_sink
-from .source import Raw_source
-from .stage import Convert_stage
+from .ingest import Ingest, Scan
 
-__all__ = ["Convert_stage", "Raw_source", "Register_sink"]
+__all__ = ["Ingest", "Scan"]

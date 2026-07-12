@@ -1,31 +1,34 @@
-"""process 패키지 기본 구조 — process 유닛 베이스 + Stage(체인 엔진).
+"""process 기본 구조 — process 유닛 베이스 + Stage(순회·체인·라우팅 엔진).
 
 - **Base_Process** — 한 process 유닛의 베이스(``@dataclass`` config + ``__init_subclass__`` 계약:
   INPUTS 자동추출·OUTPUTS 주입·출력키 검증). 표시용 힌트 ``UI``(= ``core.typing.Arg_Info``)·타입 별칭
-  ``BBOX``/``GRAY_IMAGE`` 는 횡단 ``core.typing`` 에서 재노출. 등록은 각 모듈에서
-  ``@PROCESS_REGISTRY.Register_module()`` 로 명시(``target_type=Base_Process`` 하위만 통과).
-- **Stage** — ``source → Base_Process 체인 → sink`` 엔진(callable). source(무엇을 순회·resolve)와
-  sink(출력을 어디로)를 갈아끼워 Convert/Run/Sample 을 한 엔진으로 표현한다. ``Flow`` 는 그중 Run 구성
-  (``Frame_source`` + ``Meta_sink``)을 config 로 여는 서브클래스 — 기존 flow config 와 호환된다.
+  ``BBOX``/``GRAY_IMAGE`` 는 횡단 ``core.typing`` 에서 재노출.
+- **Stage** — ``store 범주 순회 → Base_Process 체인 → 라우팅`` 엔진(callable). 서브클래스는 **양 끝**
+  (무엇을 ctx 로 풀고, 출력을 어디에 앉히나)만 override 한다: Run=``Flow``, Sample=``Sample_stage``.
 
-source/sink 계약은 [`source.py`](source.py)·[`sink.py`](sink.py), 라우팅 규칙은 [`README.md`](README.md).
+**source/sink 계약은 없다** — 순회는 ``store.Bucket(범주)`` 한 줄, resolve 는 자유함수(:func:`resolve`),
+route 는 ``handler`` 직접 호출이라 클래스로 세울 것이 없었다. 세 stage 의 진짜 변주는 traversal 기계가
+아니라 양 끝이고, 그건 **파라미터와 두어 개의 훅**이다. Convert 는 체인을 아예 안 써서 엔진을 떠났다
+(→ ``core.converter.Ingest``). 근거·계획은 [`../TODO.md`](../TODO.md) "★ core 4분할".
+
+라우팅 규칙(``outputs`` spec 스키마)은 :meth:`Stage._route`, 설계는 [`README.md`](README.md).
 """
 
 from __future__ import annotations
 
 import inspect
 from dataclasses import dataclass, field
-from typing import Any, Callable, ClassVar
+from typing import Any, Callable, ClassVar, Iterator
 
 from python_toolbox.project.config import Base_Config
 
+from ..constant import MODIFIED
+from ..data import handler
+from ..data.handler import Data_Ref
 from ..typing import Arg_Info as UI, BBOX, GRAY_IMAGE
-from .source import Base_Source, Frame_source
-from .sink import Base_Sink, Meta_sink
 
 
 # ── process 유닛: 베이스 ───────────────────────────────────────────────────────
-
 
 @dataclass
 class Base_Process:
@@ -60,7 +63,6 @@ class Base_Process:
 
     def __call__(self, **kwargs) -> dict:
         """계약 프레임 — 입력 별칭 remap → Run → OUTPUTS 검증 → port→slot 재배선. 빈 dict("스킵")는 그대로 통과."""
-        # print(type(self).__name__)  # debug — 실행 중인 process 확인
         if self.input_slots:  # ctx 키 → Run 파라미터명 별칭 (output_slots 의 입력쪽 대칭)
             kwargs = {**kwargs, **{_p: kwargs.get(_k) for _p, _k in self.input_slots.items()}}
         _out = self.Run(**kwargs)
@@ -89,18 +91,67 @@ def _extract_inputs(call_fn) -> tuple[str, ...]:
     )
 
 
-# ── Stage: 체인 엔진 (source → Base_Process 체인 → sink) ────────────────────────
+# ── 순회 단위 + resolve (계약이 아니라 레코드·자유함수) ─────────────────────────
+
+@dataclass
+class Unit:
+    """한 처리 단위 — process 체인 입력 ctx + 출력을 꽂을 **주소**.
+
+    ``frame``/``obj_id``/``obj`` 가 주소다 (frame·obj 가 모두 ``None`` = 위치 없음 → dataset-wide params).
+    """
+
+    stem:   str
+    ctx:    dict[str, Any]
+    frame:  Data_Ref | None = None
+    obj_id: str | None      = None
+    obj:    Data_Ref | None = None
+
+
+def resolve(root: str, path: tuple[str, ...], node: Data_Ref) -> dict:
+    """``node`` 의 직속 LEAF 를 핸들러로 풀어 ctx dict 로 만든다 (BRANCH 자식=객체는 안 파고든다).
+
+    각 leaf 를 ``handler.Load`` 로 payload(이미지·배열·값·디코드 마스크)로 해제한다. 대상이 없으면(None)
+    건너뛴다 — process 는 ``Data_Ref`` 가 아니라 ready-to-use 값만 본다.
+
+    Args:
+        root: store fs 루트.
+        path: 이 노드의 트리 key 경로 (예 ``(MODIFIED, stem)`` / ``(MODIFIED, stem, obj_id)``).
+        node: 풀어낼 컨테이너 (프레임 / 객체 / params).
+    """
+    _out: dict = {}
+    for _name, _ref in node.Leaves().items():
+        _val = handler.Load(root, path, _name, _ref)
+        if _val is not None:
+            _out[_name] = _val
+    return _out
+
+
+def inline_ctx(ref: Data_Ref) -> dict:
+    """ref 의 **인라인 attr leaf** 값만 ctx dict 로 (파일 payload 는 건너뜀 — 경량 역참조).
+
+    gate·select process 가 정본에 기록된 attr(``class_id``·``center_dist`` 등)로 거를 수 있게 한다 —
+    payload(image/array/rle)는 로드하지 않으므로 파일 I/O 가 없다.
+    """
+    return {_k: _v.info.get("value")
+            for _k, _v in ref.Leaves().items()
+            if _v.format[:1] == ("attr",)}
+
+
+# ── Stage: 순회·체인·라우팅 엔진 ───────────────────────────────────────────────
 
 @dataclass
 class Stage(Base_Config):
-    """``source → 체인 → sink`` 엔진 — Convert/Run/Sample 공통 골격.
+    """``store 범주 순회 → 체인 → 라우팅`` 엔진 — Run/Sample 공통 골격.
 
     per-unit ``processes`` 체인과 순회 후 1회 ``finalize_processes`` 체인을 같은 규칙으로 빌드하고,
-    ``source`` 가 낸 각 unit ctx 에 체인을 태워 step 출력을 ``sink`` 로 route 한다. carry 는 프레임 간
-    이월(cross-frame reduce), cacheable 은 재실행 캐시(finalize 출력이 이미 있으면 순회 skip). source/
-    sink 는 서브클래스가 ``_make_source``/``_make_sink`` 로 준다(Run=Frame_source/Meta_sink).
+    ``category`` 버킷의 각 unit ctx 에 체인을 태워 step 출력을 라우팅한다. carry 는 프레임 간 이월
+    (cross-frame reduce), cacheable 은 재실행 캐시(finalize 출력이 이미 있으면 순회 skip).
 
-    라우팅 규칙·outputs 스키마·slot 재배선은 ``README.md``, 복붙 템플릿은 ``presets.example.yaml``.
+    **서브클래스가 바꾸는 건 양 끝뿐이다** — ``_block_ctx``/``_unit_ctx``(무엇을 ctx 로 푸나) ·
+    ``_route``/``_emit``(출력을 어디에 앉히나). 순회 기계는 여기 하나뿐이다.
+
+    엔진은 순회 상태를 인스턴스에 남기지 않는다. 누산조차 ``__call__`` 지역 변수라, 같은 ``Stage`` 를
+    두 번 돌려도 서로를 오염시키지 않는다.
     """
 
     name:   str             = ""      # 진행 표시용 이름 (없으면 서브클래스 라벨)
@@ -120,12 +171,16 @@ class Stage(Base_Config):
         default_factory=list,
         metadata={"ui": {"label": "프레임 간 이월 키 (carry)",
                          "tip": "다음 프레임 ctx로 넘겨 누산할 키"}})
-    # True면 이 stage의 params 출력 키(=finalize step들의 outputs)가 sink 에 모두 있을 때 순회를
+    # True면 이 stage의 params 출력 키(=finalize step들의 outputs)가 store 에 모두 있을 때 순회를
     # 건너뛴다 — "출력이 이미 있으면 다시 만들지 않는다"는 일반 규칙.
     cacheable: bool         = field(
         default=False,
         metadata={"ui": {"label": "재실행 캐시 (cacheable)",
                          "tip": "stage의 출력이 이미 있으면 순회 건너뜀"}})
+    # 순회할 store 범주 — Run=modified, Sample=staged. "무엇을 순회하나"는 클래스가 아니라 값이다.
+    category: str           = MODIFIED
+    # 순회 단위 — "frame": 프레임당 1회 / "object": 프레임의 객체마다.
+    unit:     str           = "frame"
 
     __exclude_serialize__: ClassVar[set[str]] = {"config_type"}
 
@@ -135,16 +190,53 @@ class Stage(Base_Config):
         # 이 stage가 params(dataset-wide)로 내보내는 키 = finalize step들의 outputs 합집합.
         self._param_keys = [_k for _outs in self._fin_outputs for _k in _outs]
 
-    # ── source/sink (서브클래스 제공) ─────────────────────────────────────────
-    def _make_source(self) -> Base_Source:
-        raise NotImplementedError
+    # ── 양 끝 훅 (서브클래스가 구현) ──────────────────────────────────────────
+    def _prelude(self, store) -> dict:
+        """순회 전 1회 resolve 하는 공통 ctx (예: params). 없으면 ``{}``."""
+        return {}
 
-    def _make_sink(self) -> Base_Sink:
-        raise NotImplementedError
+    def _block_ctx(self, store, stem: str, frame: Data_Ref) -> dict:
+        """배치(=stem 하나) ctx — unit 루프와 무관하게 1회. 여기서 푼 값은 객체마다 다시 안 읽는다."""
+        return {}
+
+    def _unit_ctx(self, store, stem: str, bctx: dict,
+                  obj_id: str | None, obj: Data_Ref | None) -> dict:
+        """한 unit(객체 / frame-단위의 프레임)의 ctx — 배치 ctx 위에 unit 고유 값을 얹는다."""
+        return dict(bctx)
+
+    def _route(self, store, unit: Unit, spec_map: dict, out: dict) -> None:
+        """step 출력 중 **선언된 키만** 영속한다 (per-step; 기본 no-op = ctx 로만 흐르다 소멸).
+
+        ``spec_map`` = ``{출력키: spec}``. 미선언 키는 저장되지 않는다 — 그래서 "이 값이 저장되나?"는
+        값이 아니라 config 를 봐야 안다(의도된 성질). spec 스키마::
+
+            {to: "meta"|"storage", level?: "frame"|"object", type?: str, format?: str}
+
+        ``to`` = 보관 방식(인라인 / 파일), ``level`` = 위치(기본 ``"object"``), ``format`` = 확장자
+        override. **파일 경로는 spec 이 안 정한다** — 트리 위치(범주·stem·obj_id)와 출력키에서 handler 가
+        파생한다(kind-major). 값 → ``Data_Ref`` 타입 결정도 spec 이 아니라
+        :func:`core.data.handler.Template` 가 값·맥락으로 정한다.
+
+        Example:
+            체인의 mask 출력을 객체 info 에 rle 인라인으로, score 를 png 파일로::
+
+                outputs:
+                  mask:  {to: meta,    level: object}
+                  score: {to: storage, level: object, format: png}   # → modified/score/{stem}_{obj}.png
+        """
+
+    def _emit(self, store, unit: Unit, ctx: dict) -> None:
+        """체인 후 unit 당 1회 — 구조 생성/배치 (기본 no-op). gate 로 걸러진 unit 은 호출되지 않는다."""
+
+    def _cached(self, store) -> bool:
+        """재실행 캐시 적중 — 이 stage 의 params 출력 키가 store 에 모두 있으면 True."""
+        _params = store.Bucket(store.PARAMS)
+        return all(_k in _params for _k in self._param_keys)
 
     def _label(self) -> str:
         return self.name or "stage"
 
+    # ── 체인 조립 ─────────────────────────────────────────────────────────────
     @staticmethod
     def _build_chain(process_list: list, shared: dict | None = None) -> tuple[list, list[dict]]:
         """process 설정 목록 → ``(inner 인스턴스 리스트, step별 outputs 라우팅 spec 리스트)``.
@@ -183,85 +275,148 @@ class Stage(Base_Config):
             _outputs.append(_outs)
         return _inners, _outputs
 
-    def _cache_hit(self, store, sink: Base_Sink) -> bool:
-        """재실행 캐시 적중 — cacheable이고 이 stage의 출력 키가 sink 에 모두 있으면 True."""
-        return (self.cacheable
-                and bool(self._param_keys)
-                and sink.cached(store, self._param_keys))
+    # ── 순회 골격 ─────────────────────────────────────────────────────────────
+    def _units(self, store, stem: str, frame: Data_Ref, bctx: dict) -> Iterator[Unit]:
+        """이 배치의 처리 단위들 — object=자식 obj 마다, frame=``_frame_unit``.
+
+        **resolve 는 불변인 가장 넓은 스코프에서 1회** — 프레임 leaf 를 ``_block_ctx`` 에서 한 번 풀고
+        객체마다 다시 읽지 않는다. block→unit 2단이 존재하는 이유가 이것이다.
+        """
+        if self.unit == "object":
+            for _oid, _obj in frame.Branches().items():
+                yield Unit(stem=stem, ctx=self._unit_ctx(store, stem, bctx, _oid, _obj),
+                           frame=frame, obj_id=_oid, obj=_obj)
+        else:
+            yield from self._frame_unit(store, stem, frame, bctx)
+
+    def _frame_unit(self, store, stem: str, frame: Data_Ref, bctx: dict) -> Iterator[Unit]:
+        """frame-단위 기본 — 프레임 자신을 한 unit 으로 (obj = frame)."""
+        yield Unit(stem=stem, ctx=self._unit_ctx(store, stem, bctx, None, frame),
+                   frame=frame, obj_id=None, obj=frame)
 
     def __call__(self, store, progress: Callable[[str, int, int], None] | None = None) -> None:
-        _source, _sink = self._make_source(), self._make_sink()
         _label = self._label()
-        if self._cache_hit(store, _sink):          # 이전 실행 결과가 그대로 → 건너뜀
-            if progress is not None:
-                _n = _source.count(store)
+        if self.cacheable and self._param_keys and self._cached(store):
+            if progress is not None:                       # 이전 실행 결과가 그대로 → 건너뜀
+                _n = len(store.Bucket(self.category))
                 progress(_label, _n, _n)
             return
 
-        _params_ctx = _source.prelude(store)       # 순회 전 1회 (params 등)
-        _carry: dict = {}                          # cross-block reduce (이 호출에만 사는 transient)
-        _blocks = list(_source.blocks(store))
+        _params_ctx = self._prelude(store)                 # 순회 전 1회 (params 등)
+        _carry: dict = {}                                  # cross-block reduce (이 호출에만 사는 transient)
+        _blocks = list(store.Bucket(self.category).items())
         _total = len(_blocks)
-        for _i, _block in enumerate(_blocks, start=1):
-            _bctx = _block.context(store, _params_ctx)   # 배치 ctx (unit 루프와 무관하게 1회)
-            _bctx.update(_carry)                          # 직전 배치 누산 상태 되먹임
+        for _i, (_stem, _frame) in enumerate(_blocks, start=1):
+            _bctx = {**_params_ctx, **self._block_ctx(store, _stem, _frame)}
+            _bctx.update(_carry)                           # 직전 배치 누산 상태 되먹임
             _last = _bctx
-            for _unit in _block.units(store, _bctx):
+            for _unit in self._units(store, _stem, _frame, _bctx):
                 _ctx, _gated = _unit.ctx, False
                 for _idx, _inner in enumerate(self._inners):
                     _out = _inner(**_ctx)
-                    if not _out:                          # 빈 dict = gate "이 unit 스킵"
+                    if not _out:                           # 빈 dict = gate "이 unit 스킵"
                         _gated = True
                         break
                     _ctx = {**_ctx, **_out}
-                    _sink.route(store, _unit, self._outputs[_idx], _out)   # per-step leaf 라우팅(Run)
-                if not _gated:                            # gate 로 걸러진 unit 은 구조 생성도 스킵
-                    _sink.emit(store, _unit, _ctx)        # per-unit 구조 생성(Convert/Sample; Run=no-op)
+                    self._route(store, _unit, self._outputs[_idx], _out)
+                if not _gated:                             # gate 로 걸러진 unit 은 구조 생성도 스킵
+                    self._emit(store, _unit, _ctx)
                 _last = _ctx
             _carry = {_k: _last[_k] for _k in self.carry if _k in _last}
             if progress is not None:
                 progress(_label, _i, _total)
-        self._finalize(store, _sink, _carry)
-        _sink.close(store)
+        self._finalize(store, _carry)
 
-    def _finalize(self, store, sink: Base_Sink, carry: dict) -> None:
-        """순회 종료 후 1회 도는 reduce 체인 — carry 누산기를 sink 의 params 단위로 낸다.
+    def _finalize(self, store, carry: dict) -> None:
+        """순회 종료 후 1회 도는 reduce 체인 — carry 누산기를 params 단위로 낸다.
 
-        per-frame step 과 **완전히 같은 규칙**이고, params 단위(위치 없음)라 sink 가 dataset-wide 로
-        보낸다. 누산기 자체는 어느 step 의 출력도 아니면 영속되지 않는다.
+        per-frame step 과 **완전히 같은 규칙**이고, 차이는 도는 시점뿐이다. frame/obj 위치가 없으므로
+        출력은 자동으로 dataset-wide(params)로 간다. 누산기 자체는 어느 step 의 출력도 아니면 영속되지
+        않는다 — 라우팅 게이트 규칙 그대로다.
         """
         if not self._fin_inners:
             return
-        _unit = sink.params_unit()
-        _ctx = {**sink.finalize_ctx(store), **carry}
+        _unit = Unit(stem="", ctx={})                      # 위치 없음 → params
+        _ctx: dict = dict(carry)
         for _idx, _inner in enumerate(self._fin_inners):
             _out = _inner(**_ctx)
             if not _out:
                 break
             _ctx = {**_ctx, **_out}
-            sink.route(store, _unit, self._fin_outputs[_idx], _out)
+            self._route(store, _unit, self._fin_outputs[_idx], _out)
 
 
-# ── Flow: Run 구성 (Frame_source + Meta_sink) ─────────────────────────────────
+# ── Flow: Run 구성 (modified 순회 → meta 로 route) ─────────────────────────────
 
 @dataclass
 class Flow(Stage):
     """Run stage — modified 프레임/객체를 순회하며 process 체인을 meta 로 route 한다.
 
-    ``Stage`` 엔진에 ``Frame_source``(unit=frame/object) + ``Meta_sink`` 를 끼운 구성. flow 종류는
-    subclass도 코드 preset도 아니라 **config가 직접 기술**한다(``unit``/``processes``/``finalize_processes``/
-    ``shared``/``carry``/``cacheable``). ``object_type`` 은 진행 표시 라벨.
+    flow 종류는 subclass도 코드 preset도 아니라 **config가 직접 기술**한다(``unit``/``processes``/
+    ``finalize_processes``/``shared``/``carry``/``cacheable``). ``object_type`` 은 진행 표시 라벨.
+
+    staged(검수 끝)는 안 건드린다 — 재가공하려면 먼저 modified 로 되돌린다.
     """
 
     object_type: str = "flow"                     # 진행 표시 라벨 (자유 명명)
-    # 순회 단위 — "frame": 프레임당 1회(첫 객체) / "object": 프레임의 객체마다.
-    unit:        str = "frame"
-
-    def _make_source(self) -> Base_Source:
-        return Frame_source(unit=self.unit)
-
-    def _make_sink(self) -> Base_Sink:
-        return Meta_sink()
 
     def _label(self) -> str:
         return self.name or self.object_type
+
+    # ── 입력: params 1회 + 프레임 leaf 1회 + 객체 leaf ──────────────────────────
+    def _prelude(self, store) -> dict:
+        return resolve(store.root, (store.PARAMS,), store.tree.Get(store.PARAMS))
+
+    def _block_ctx(self, store, stem: str, frame: Data_Ref) -> dict:
+        """프레임 leaf resolve + **객체 목록**을 ctx 로.
+
+        ``object`` 는 store 에서 seed 하고, 체인의 ``split_objects`` 등이 같은 키로 덮어쓴다 — 입력과
+        출력이 같은 이름이라 대칭이다. 유닛이 store 핸들을 받아 직접 뒤지지 않게 하는 자리.
+        """
+        _ctx: dict = {"stem": stem, "object": list(frame.Branches().values())}
+        _ctx.update(resolve(store.root, (self.category, stem), frame))
+        return _ctx
+
+    def _unit_ctx(self, store, stem: str, bctx: dict,
+                  obj_id: str | None, obj: Data_Ref | None) -> dict:
+        _ctx = dict(bctx)
+        _ctx["obj_id"] = obj_id                             # gate·select 가 obj_id 로 거를 수 있게
+        if obj is not None:
+            _path = ((self.category, stem, obj_id) if obj_id is not None else
+                     (self.category, stem))                 # frame-단위: 프레임 자신이 obj
+            _ctx.update(resolve(store.root, _path, obj))
+        return _ctx
+
+    def _frame_unit(self, store, stem: str, frame: Data_Ref, bctx: dict) -> Iterator[Unit]:
+        """unit=frame: 첫 객체 1회(obj_id 바인딩). 객체가 없으면 프레임만."""
+        _objs = frame.Branches()
+        if _objs:
+            _k = next(iter(_objs))
+            yield Unit(stem=stem, ctx=self._unit_ctx(store, stem, bctx, _k, _objs[_k]),
+                       frame=frame, obj_id=_k, obj=_objs[_k])
+        else:
+            yield Unit(stem=stem, ctx=self._unit_ctx(store, stem, bctx, None, None),
+                       frame=frame, obj_id=None, obj=None)
+
+    # ── 출력: handler 로 meta 에 앉힌다 ────────────────────────────────────────
+    def _route(self, store, unit: Unit, spec_map: dict, out: dict) -> None:
+        _frame, _obj, _stem, _obj_id = unit.frame, unit.obj, unit.stem, unit.obj_id
+        for _key, _spec in spec_map.items():
+            _val = out.get(_key)
+            if _val is None:
+                continue
+            if _frame is None and _obj is None:            # 위치 없음(finalize) — params
+                store.Set_param(_key, handler.Route(
+                    store.root, (store.PARAMS,), _key, _spec, _val, params=True))
+                continue
+            _is_obj = _spec.get("level", "object") == "object"
+            if _is_obj and _obj is None:                   # 객체 위치 없음
+                continue
+            _target = _obj if _is_obj else _frame
+            _path = ((self.category, _stem, _obj_id) if _is_obj and _obj_id is not None else
+                     (self.category, _stem))
+            _target.Push(_key, handler.Route(store.root, _path, _key, _spec, _val))
+
+        _objs = out.get("object")
+        if isinstance(_objs, list) and _frame is not None:  # 구조 교체 — 순번=obj_id; leaf 보존
+            _frame.Replace_branches(_objs)
