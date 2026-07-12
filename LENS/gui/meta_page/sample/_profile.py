@@ -26,7 +26,7 @@ from gui._io import load_dict, save_dict
 from gui.steps import Step_list
 from gui.widgets import Pop_dialog
 
-TASKS = ["classification", "detection"]   # sink 종류 (core SAMPLE_SINKS)
+TASKS = ["classification", "detection"]   # 내보내기 레이아웃 (core.sampler.EXPORTERS) — 빌드 축이 아니다
 UNITS = ["object", "frame"]               # 순회 단위
 
 

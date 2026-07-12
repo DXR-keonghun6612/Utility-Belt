@@ -6,7 +6,8 @@ Converter 패널 — raw 소스를 탐색해 초기 `Dataset_Meta` 를 생성하
 한 번 쓰는 단계라서다. `Pipeline.Convert()` 를 실행할 설정을 구성하고, `{"converter": {...}}`
 (Pipeline_config 의 converter 섹션)로 직렬화한다.
 
-핸들러·디스크립터 규약은 [`../../../core/converter/README.md`](../../../core/converter/README.md) 참조.
+핸들러·서술자 규약은 [`../../../core/port/README.md`](../../../core/port/README.md) 참조 (들이기 자체는
+`meta.Import` — 라이프사이클은 store 소유).
 
 ---
 

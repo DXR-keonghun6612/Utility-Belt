@@ -1,6 +1,6 @@
 """Meta_ops — 보유 ``Pipeline`` 위의 백그라운드 meta 연산(run·전이·삭제) 컨트롤러.
 
-한 워커로 진행바 + 실행 중 ``Meta_view`` 편집 잠금을 공유한다. store_io 라이프사이클(``Move``/``Delete``)과
+한 워커로 진행바 + 실행 중 ``Meta_view`` 편집 잠금을 공유한다. store 라이프사이클(``Move``/``Delete``)과
 ``Pipeline.Run`` 을 백그라운드로 돌리고 완료 후 ``Meta_view`` 를 동기화한다 — app 연결층이라 core 는 주입받은
 ``pipeline`` 으로만 만진다. 완료 슬롯은 **bound method** 로 연결(cross-thread 큐드 — 워커 스레드서 self.wait 금지).
 """
@@ -10,7 +10,6 @@ from __future__ import annotations
 from PySide6.QtCore import QObject, QThread
 from PySide6.QtWidgets import QMessageBox, QProgressBar, QPushButton, QWidget
 
-from core.data import store_io
 from gui._worker import Pipeline_worker
 
 
@@ -71,7 +70,7 @@ class Meta_ops(QObject):
         def _task(_progress) -> None:
             _n = len(stems)
             for _i, _stem in enumerate(stems, 1):
-                store_io.Move(_pipe.meta, _stem, to_state)  # payload+사이드카+버킷 (store_io 소유)
+                _pipe.meta.Move(_stem, to_state)  # payload+사이드카+버킷 (Bucket_Store 소유)
                 _progress("이동 중", _i, _n)
 
         self._txn = (to_state, stems)
@@ -94,7 +93,7 @@ class Meta_ops(QObject):
         def _task(_progress) -> None:
             _n = len(stems)
             for _i, _stem in enumerate(stems, 1):
-                store_io.Delete(_pipe.meta, _stem)          # payload+사이드카+버킷 제거 (store_io 소유)
+                _pipe.meta.Delete(_stem)          # payload+사이드카+버킷 제거 (Bucket_Store 소유)
                 _progress("삭제 중", _i, _n)
 
         self._rm = stems

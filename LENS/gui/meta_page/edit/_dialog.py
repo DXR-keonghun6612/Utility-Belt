@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QDialogButtonBox
 
 _SAVE = QDialogButtonBox.StandardButton.Save
 
-from core.data.meta import Dataset_Meta
+from core.store import Dataset_Meta
 from gui.meta_page.edit._editor import Stem_editor
 from gui.widgets import Pop_dialog
 

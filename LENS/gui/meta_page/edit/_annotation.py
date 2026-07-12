@@ -19,8 +19,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core.data.handler import Data_Ref
-from core.data.meta import Dataset_Meta
+from core.schema import Data_Ref
+from core.store import Dataset_Meta
 from gui.meta_page.edit import _overlay
 from gui.meta_page.edit._edit_form import _Ann_edit_form
 from gui.meta_page.edit._helpers import _bbox_of, _color_icon
@@ -133,7 +133,7 @@ class _Annotation_panel(QWidget):
 
     def _obj_items(self) -> list[tuple[str, Data_Ref]]:
         """work.info 의 객체(컨테이너 entry)를 ``(obj_id, ref)`` 리스트로 (트리 순서)."""
-        return [(_k, _v) for _k, _v in self._work.info.items() if _v.Is_stem()]
+        return list(self._work.Branches().items())
 
     def focus_tree(self) -> None:
         """object 트리(QTreeWidget)에 키보드 포커스를 준다 (Tab 토글용)."""
@@ -190,7 +190,7 @@ class _Annotation_panel(QWidget):
         _values = [int(_v) for _v in values]
         _ref = obj.info.get("bbox")
         if _ref is None:
-            obj.info["bbox"] = Data_Ref(type="attr", info={"value": _values})
+            obj.Push("bbox", Data_Ref(format=("attr", "xyxy"), info={"value": _values}))
         else:
             _ref.info["value"] = _values
         _node = self._node_of_obj(obj)
@@ -325,7 +325,7 @@ class _Annotation_panel(QWidget):
     def add_object(self) -> None:
         """``work.info`` 에 빈 object(컨테이너 Data_Ref)를 추가한다 (mask/bbox 없이 class_id/obj_id 만)."""
         _oid = self._next_obj_id()
-        _obj = Data_Ref(type="stem", info={})
+        _obj = Data_Ref(info={})                       # BRANCH — format 이 비면 컨테이너
         self._work.info[_oid] = _obj
         _node = self._add_obj(self._top, _obj, _oid, len(self._nodes))
         self._tree.blockSignals(True)

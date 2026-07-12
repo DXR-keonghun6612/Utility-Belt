@@ -15,8 +15,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core.data.handler import Data_Ref
-from core.data.schema import Attr, Set_attr
+from core.schema import Data_Ref
 
 from gui.meta_page.edit._helpers import _bbox_of
 
@@ -43,7 +42,7 @@ class _Ann_edit_form(QWidget):
         self._form.setContentsMargins(6, 6, 6, 6)
 
         # class_id (편집 가능 콤보)
-        _cls_val = Attr(obj, "class_id")
+        _cls_val = obj.Attr("class_id")
         self._cls = QComboBox()
         self._cls.setEditable(True)
         self._cls.addItems(sorted(set(classes) | {_cls_val}))
@@ -97,7 +96,7 @@ class _Ann_edit_form(QWidget):
             _sp.blockSignals(False)
 
     def _set_cls(self, text: str) -> None:
-        Set_attr(self._obj, "class_id", text)
+        self._obj.Set_attr("class_id", text)
         self.edited.emit()
 
     def _set_obj_id(self, text: str) -> None:

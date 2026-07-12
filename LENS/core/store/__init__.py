@@ -9,10 +9,10 @@
 
 from .bucket_store import MERGE, MERGE_MODES, OVERWRITE, SKIP, Bucket_Store
 from .meta import Dataset_Meta
-from .sample import EXPORTERS, SAMPLE_DIR, SPLITS, WORKING, Sample_Set
+from .sample import EXPORTERS, SAMPLE_DIR, SPLITS, Sample_Set
 
 __all__ = [
     "Bucket_Store", "SKIP", "OVERWRITE", "MERGE", "MERGE_MODES",
     "Dataset_Meta",
-    "Sample_Set", "SAMPLE_DIR", "SPLITS", "WORKING", "EXPORTERS",
+    "Sample_Set", "SAMPLE_DIR", "SPLITS", "EXPORTERS",
 ]

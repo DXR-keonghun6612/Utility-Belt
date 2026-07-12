@@ -5,8 +5,7 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-from core.data import handler
-from core.data.meta import Dataset_Meta
+from core.store import Dataset_Meta
 
 
 def color_for(idx: int) -> tuple[int, int, int]:
@@ -26,42 +25,34 @@ def color_for(idx: int) -> tuple[int, int, int]:
 
 
 def load_base_images(meta: Dataset_Meta, stem: str) -> dict[str, np.ndarray]:
-    """stem의 frame.info 중 이미지로 디코드되는 것을 모두 로드한다.
+    """stem 의 프레임 LEAF 중 이미지로 디코드되는 것을 모두 로드한다.
 
-    경로 파생·디코드는 ``handler.Load`` 에 위임한다 (계산 계층은 위치·타입만 정함). attr·객체(stem) 등
-    이미지가 아닌 값은 제외한다.
+    payload 는 ``meta.Load(stem, key)`` 에 **요청**한다 — 어느 범주에 있는지도, 파일이 어디 있는지도
+    store 가 안다(gui 는 key 만 안다). 객체(BRANCH)·인스턴스 라벨맵(segmap)은 base 가 아니라 제외한다.
 
     Returns:
         ``{key: BGR ndarray}`` — 이미지가 아닌 키는 제외.
     """
     _out: dict[str, np.ndarray] = {}
-    _frame = meta.Get(stem)
+    _frame = meta.Find(stem)
     if _frame is None:
         return _out
-    _root = meta.State_root(meta.State_of(stem))   # 프레임 파일은 그 stem 의 상태 버킷에
-    for _key, _ref in _frame.info.items():
-        if _ref.Is_stem() or _ref.type == "segmap":   # 객체(컨테이너)·인스턴스 라벨맵은 base 아님
+    for _key, _ref in _frame.Leaves().items():          # BRANCH(객체)는 애초에 안 나온다
+        if _ref.format[:1] == ("segmap",):              # 인스턴스 라벨맵은 base 아님
             continue
-        _val = handler.Load(_root, stem, _key, _ref)
+        _val = meta.Load(stem, _key)
         if isinstance(_val, np.ndarray) and _val.ndim >= 2:
             _out[_key] = _val if _val.ndim == 3 else cv2.cvtColor(_val, cv2.COLOR_GRAY2BGR)
     return _out
 
 
 def load_segment(meta: Dataset_Meta, stem: str) -> np.ndarray | None:
-    """stem 의 ``frame.info["segment"]`` 인스턴스 라벨맵을 ``(H, W)`` uint8 로 로드한다.
+    """stem 의 ``segment`` 인스턴스 라벨맵을 ``(H, W)`` uint8 로 로드한다.
 
-    객체별 mask 는 더 이상 따로 저장하지 않고 이 한 장(픽셀값 = obj_id + 1, 0 = 배경)에서
-    파생한다. segment 가 없으면 ``None``.
+    객체별 mask 는 따로 저장하지 않고 이 한 장(픽셀값 = obj_id + 1, 0 = 배경)에서 파생한다.
+    segment 가 없으면 ``None``.
     """
-    _frame = meta.Get(stem)
-    if _frame is None:
-        return None
-    _ref = _frame.info.get("segment")
-    if _ref is None:
-        return None
-    _root = meta.State_root(meta.State_of(stem))   # 프레임 파일은 그 stem 의 상태 버킷에
-    _val = handler.Load(_root, stem, "segment", _ref)
+    _val = meta.Load(stem, "segment")
     return _val if isinstance(_val, np.ndarray) and _val.ndim == 2 else None
 
 

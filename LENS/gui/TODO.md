@@ -32,14 +32,14 @@ gui/
   _worker.py  _io.py             # 중립 인프라 (async · recipe I/O)
   app/                           # 연결: Pipeline 소유 + page 창·다이얼로그 배선·주입
   meta_page/                     # 구성: 정본 편집 창 하나 (주입 수신, 싱글턴)
-    view/ (今 meta_view) · verify/ · convert/ (今 converter) · run/
-    _adapter.py (今 _meta_tree)  # core.data ↔ 위젯 seam (갈래 소유)
+    view/ (今 meta_view) · edit/ (今 verify) · convert/ (今 converter) · run/
+    _adapter.py                  # core.schema ↔ 위젯 seam (갈래 소유)
     sample/ (今 sampler)         # 파생 갈래 (meta 입력 → 1:N tasker)
 ```
 
 - **converter·run 은 "빌더 3형제"가 아니라 정본 생성·enrich 연산** → `meta_page` 소속. sampler 는
   파생 → `meta_page/sample/`. 셋의 recipe-dialog 유사성은 표현 축 착시(W2 베이스는 위젯 레벨만).
-- **verify 는 Pipeline peer 아님** — `meta_page` 의 깊은 주석-편집 surface(view 와 `_adapter` 공유).
+- **edit 는 Pipeline peer 아님** — `meta_page` 의 깊은 주석-편집 surface(view 와 `_adapter` 공유).
 - **1:1(meta, 싱글턴) vs 1:N(sample, 컬렉션 매니저) 비대칭**은 구조로 드러낸다.
 
 ### steps 미래 — card(1D) → block/node-graph (Simulink 형)
@@ -54,15 +54,15 @@ run/sample 소비처는 무변경. steps/ 를 지금 중립 패키지로 떼는 
 
 **W1–W4 실행 완료 — 위 north-star 구조가 이제 실제 구조다.** W1(process-chain → `gui/steps`,
 `_flow_card` 807→213) · `widgets/` 서브패키지화(`image`/`rows`/`list_editor`) · **W2**(정본 도메인 →
-`meta_page/{view,verify,convert,run,sample,_adapter}` git mv) · **W3**(`page/`→`app/`, `Main_page` 의 워커·
+`meta_page/{view,edit,convert,run,sample,_adapter}` git mv) · **W3**(`page/`→`app/`, `Main_page` 의 워커·
 전이·삭제를 `Meta_ops` 로 분리, `_converter_dialog`→`meta_page/convert/_dialog`). **W4**(recipe-dialog 공통
 베이스)는 payoff 얇아 **보류**(아래 근거). 상세 이력은 git.
 
 ### W5 — 잔여 (낮은 우선순위)
 - [x] store_io 표기 정정 + 이동 반영 문서(README 헤더·상대링크·gui 구조표) — 완료.
-- [ ] `app/_main.py`(~350): meta import/export/clear(`_on_import_meta`·`_export_annotation`·`_on_clear_all`)는
-      아직 셸에 남음 — 필요 시 `_session` helper 로 추가 분리(당장은 응집 OK).
-- [ ] `verify/_editor.py`(598): undo/redo/snapshot 를 `_history` 로 더 축소. 응집 높아 **낮은 우선순위**.
+- [ ] `app/_main.py`: meta 가져오기·비우기(`_on_import_meta`·`_on_clear_all`)는 아직 셸에 남음 —
+      필요 시 `_session` helper 로 추가 분리(당장은 응집 OK).
+- [ ] `edit/_editor.py`(598): undo/redo/snapshot 를 `_history` 로 더 축소. 응집 높아 **낮은 우선순위**.
 
 > **W4 보류 근거.** 진짜 공유분(`Pop_dialog`·`save_dict`/`load_dict`)은 이미 `widgets`·`_io` 로 팩터됨.
 > 남는 공통은 save/load 버튼 배선(~4줄)뿐인데 본문·수명이 이질적(Run=edit-only · Converter=임베드 패널

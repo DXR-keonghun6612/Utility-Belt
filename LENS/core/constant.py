@@ -16,7 +16,6 @@ META_STATES: tuple[str, ...] = (MODIFIED, STAGED, SKIPPED)
 
 # ── 파생(sample) 스테이지 어휘 ──────────────────────────────────────────────────
 
-WORKING = "data"                      # (레거시) split 없는 단일 파생 버킷 — sampler 마이그레이션 전까지 존치
 # split = 파생(sample) store 범주. build 때 frame stem 해시로 배정(=데이터셋 정체성, 재-export 파생 아님).
 TRAIN = "train"
 VAL   = "val"

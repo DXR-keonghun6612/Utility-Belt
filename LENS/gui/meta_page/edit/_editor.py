@@ -21,9 +21,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core.data.handler import Data_Ref
-from core.data.meta import Dataset_Meta
-from core.data.schema import Attr
+from core.schema import Data_Ref
+from core.store import Dataset_Meta
 from gui.meta_page.edit import _fill, _overlay, _segment
 from gui.meta_page.edit._annotation import _Annotation_panel
 from gui.meta_page.edit._draw import Draw_controller
@@ -172,11 +171,11 @@ class Stem_editor(QWidget):
         작업 사본이라 저장 전까지 원본 ``meta`` 는 건드리지 않는다.
         """
         self._stem = stem
-        self._state = self._meta.State_of(stem)
-        self._work = deepcopy(self._meta.Get(stem))
+        self._state = self._meta.Category_of(stem)
+        self._work = deepcopy(self._meta.Find(stem))
         # object 별 bbox 원본 스냅샷 — 저장 시 바뀐 bbox 만 골라 mask 를 잘라낸다.
         self._bbox_orig = {id(_o): _bbox_of(_o)
-                           for _o in self._work.info.values() if _o.Is_stem()}
+                           for _o in self._work.Branches().values()}
         self._bases = _overlay.load_base_images(self._meta, stem)
         self._data_items = {}
         self._draw.reset()
@@ -382,23 +381,23 @@ class Stem_editor(QWidget):
             _bb = None
 
         # class_id 는 선택 중 첫 비어있지 않은 값
-        _cls = next((Attr(_o, "class_id") for _, _o, _ in _sel if Attr(_o, "class_id")),
-                    Attr(_sel[0][1], "class_id"))
+        _cls = next((_o.Attr("class_id") for _, _o, _ in _sel if _o.Attr("class_id")),
+                    _sel[0][1].Attr("class_id"))
 
         # 병합 대상 제거(= 그 obj_id key 제거) + 겹치지 않는 새 obj_id 부여
         _merged_ids = {_oid for _oid, _, _ in _sel}
         _remain = {_k: _v for _k, _v in self._work.info.items()
-                   if not (_v.Is_stem() and _k in _merged_ids)}
+                   if not (_v.Is_branch() and _k in _merged_ids)}
         _i = 0
         while str(_i) in _remain:
             _i += 1
         _new_id = str(_i)
 
-        _data: dict = {"class_id": Data_Ref(type="attr", info={"value": _cls})}
+        _data: dict = {"class_id": Data_Ref(format=("attr", "str"), info={"value": _cls})}
         if _bb is not None:
-            _data["bbox"] = Data_Ref(type="attr", format="xyxy",
+            _data["bbox"] = Data_Ref(format=("attr", "xyxy"),
                                      info={"value": [float(_v) for _v in _bb]})
-        _remain[_new_id] = Data_Ref(type="stem", info=_data)
+        _remain[_new_id] = Data_Ref(info=_data)           # BRANCH — 객체 컨테이너
         self._work.info = _remain
 
         # rebuild 시 주입할 mask 스냅샷: 남은 것 유지 + 병합본(합집합) 추가
@@ -417,7 +416,7 @@ class Stem_editor(QWidget):
 
         _first_unset = True
         for _key, _val in self._work.info.items():
-            if not isinstance(_val, Data_Ref) or _val.Is_stem():
+            if not isinstance(_val, Data_Ref) or _val.Is_branch():
                 continue
             _it = QTreeWidgetItem(_root, [_key])
             _it.setData(0, Qt.ItemDataRole.UserRole, _key)
@@ -585,14 +584,14 @@ class Stem_editor(QWidget):
         """작업 사본을 meta 의 같은 상태 버킷에 되쓰고 저장을 알린다.
 
         반영 전에 모든 객체 mask 를 인스턴스 ``segment`` 한 장으로 합치며 obj_id 를 압축한다
-        (``_segment.write_segment`` — 지워진 객체 정리 + 재번호). 파일은 이 stem 의 상태 루트
-        (``{root}/{state}``)에 저장한다. 상태 승격(stage/commit)은 하지 않는다 — 그건 목록의
-        버튼이 ``meta.Move`` 로 따로 한다. ``saved`` 에 저장한 stem 을 실어 보낸다.
+        (``_segment.write_segment`` — 지워진 객체 정리 + 재번호). payload 가 어디 갈지는 **store 가
+        정한다**(트리 위치에서 파생) — gui 는 경로를 모른다. 상태 승격(stage/commit)은 하지 않는다 —
+        그건 목록의 버튼이 ``meta.Move`` 로 따로 한다. ``saved`` 에 저장한 stem 을 실어 보낸다.
         """
         if not self._editable:                # 잠금 중(백그라운드 작업)엔 저장 금지
             return
         _segment.write_segment(
-            self._meta.State_root(self._state), self._stem, self._work,
+            self._meta, self._stem, self._work,
             self._anns.all_masks(), self._bbox_orig, self._canvas_size())
-        self._meta.Bucket(self._state)[self._stem] = self._work
+        self._meta.Set(self._stem, self._work, category=self._state)   # 같은 범주 — 내용 갱신
         self.saved.emit(self._stem)

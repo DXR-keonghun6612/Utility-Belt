@@ -83,6 +83,19 @@ class Bucket_Store(Data_Schema):
         """그 key 의 item 이 있는지."""
         return self._item_path(key) is not None
 
+    def Category_of(self, key: str) -> str | None:
+        """이 item 이 **어느 범주에 있나** (없으면 None).
+
+        범주가 곧 트리 위치라 이 물음의 답은 store 만 안다 — 호출 측(GUI 의 상태 뱃지 등)이 스스로
+        버킷을 뒤지지 않게 하는 자리다.
+        """
+        _p = self._item_path(key)
+        return _p[0] if _p is not None else None
+
+    def Item_path(self, key: str) -> tuple[str, str] | None:
+        """item 의 트리 경로 ``(범주, key)`` — payload I/O 에 넘길 주소 (없으면 None)."""
+        return self._item_path(key)
+
     def Conflicts(self, other: "Bucket_Store") -> list[str]:
         """``other`` 를 들일 때 겹치는 key 목록 (범주 무관). 병합 전 질의용."""
         return [_k for _c, _k, _it in other._iter() if self.Has(_k)]
@@ -133,6 +146,18 @@ class Bucket_Store(Data_Schema):
         정하는 키(``to``/``type``/``format``)뿐이다.
         """
         return port.Route(self.root, path, name, spec, value, params=params)
+
+    def Load(self, key: str, name: str):
+        """item 의 leaf 하나를 payload 로 푼다 (item·leaf 가 없으면 None).
+
+        **범주를 호출 측이 몰라도 된다** — key 만 주면 store 가 자기 트리에서 자리를 찾아 경로를
+        파생한다. ``Resolve``(직속 leaf 전부)의 단건 판이다.
+        """
+        _p = self._item_path(key)
+        if _p is None:
+            return None
+        _ref = self.tree.Get(_p[0]).Get(_p[1]).Get(name)
+        return None if _ref is None else port.Load(self.root, _p, name, _ref)
 
     def Param(self, name: str):
         """``params`` 의 root leaf 하나를 payload 로 풀어 돌려준다 (없으면 None)."""

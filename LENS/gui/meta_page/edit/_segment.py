@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from core.data import handler
-from core.data.handler import Data_Ref
+from core.schema import Data_Ref
+from core.store import Dataset_Meta
 
 from gui.meta_page.edit._helpers import _bbox_of
 
@@ -30,11 +30,11 @@ def _intersect_mask_bbox(mask: np.ndarray, bbox) -> np.ndarray:
 
 
 def write_segment(
-    root: str, stem: str, work: Data_Ref,
+    meta: Dataset_Meta, stem: str, work: Data_Ref,
     all_masks: list[tuple[Data_Ref, np.ndarray | None]],
     bbox_orig: dict, size: tuple[int, int] | None,
 ) -> None:
-    """모든 객체 mask 를 인스턴스 라벨맵 한 장으로 합쳐 ``work.info["segment"]`` 로 저장한다.
+    """모든 객체 mask 를 인스턴스 라벨맵 한 장으로 합쳐 ``work`` 의 ``segment`` LEAF 로 저장한다.
 
     저장 시 **obj_id 를 자동 압축**한다 — mask 가 빈(지워진/안 그린) 객체는 버리고, 남은
     객체를 트리 순서대로 ``0..N-1`` 로 재부여(= info key)한 뒤 그 값 + 1 로 segment 를 칠한다.
@@ -42,10 +42,13 @@ def write_segment(
     항상 빈틈 없이 맞는다. bbox 가 로드 이후 바뀐 객체는 새 bbox 와의 교집합으로 mask 를
     자른 뒤 칠한다(편집 중엔 보존, 저장 때만 적용). ``work`` 를 제자리에서 갱신한다.
 
+    payload write 는 ``meta.Route`` 에 **요청**한다 — 파일이 어디 갈지는 store 가 정한다(트리 위치에서
+    파생). gui 는 "이 값을 segmap 으로 담아라"만 말한다.
+
     Args:
-        root: 데이터셋 루트 (segment 파일 저장 위치 파생).
+        meta: 정본 store (payload write 위임).
         stem: 대상 stem.
-        work: 갱신할 작업 프레임 컨테이너 ``Data_Ref`` (info["segment"]·객체 entry 가 바뀐다).
+        work: 갱신할 작업 프레임 컨테이너 ``Data_Ref`` (``segment`` LEAF·객체 entry 가 바뀐다).
         all_masks: ``(객체 Data_Ref, mask|None)`` 목록 (트리 순서 = object 순서).
         bbox_orig: ``{id(obj): bbox|None}`` 로드 직후 bbox 스냅샷 (변경 감지용).
         size: segment 캔버스 크기 ``(H, W)`` (없으면 첫 mask 에서 파생).
@@ -70,12 +73,11 @@ def write_segment(
         for _i, (_obj, _mask) in enumerate(_kept):
             _seg[_mask > 0] = np.uint8(_i + 1)          # 그 값 + 1 로 segment 칠함
             _new_objs[str(_i)] = _obj                   # obj_id 압축 (0..N-1) = info key
-        _ref = work.info.get("segment") or Data_Ref(
-            type="segmap", format="png", info={"dir": "segment"})
-        work.info["segment"] = handler.Save(root, stem, "segment", _ref, _seg)
+        _path = meta.Item_path(stem)
+        work.Push("segment", meta.Route(                # 경로는 store 가 파생 (kind-major)
+            _path, "segment", {"to": "storage", "type": "segmap", "format": "png"}, _seg))
     else:
-        work.info.pop("segment", None)                  # 남은 mask 없음 → segment 제거
+        work.Pop("segment")                             # 남은 mask 없음 → segment 제거
 
-    # work.info 재구성 — leaf(segment 등) 보존 + 정리된 객체(mask 없는 객체 제외)
-    _leaves = {_k: _v for _k, _v in work.info.items() if not _v.Is_stem()}
-    work.info = {**_leaves, **_new_objs}
+    # work 재구성 — LEAF(segment 등) 보존 + 정리된 객체(mask 없는 객체 제외)
+    work.info = {**work.Leaves(), **_new_objs}

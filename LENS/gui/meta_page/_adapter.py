@@ -1,4 +1,6 @@
-"""meta 값(dict/list/Data_Ref[leaf|stem]/스칼라)을 재귀적으로 트리 아이템으로 변환하는 도메인 헬퍼."""
+"""meta 값(dict/list/Data_Ref[LEAF|BRANCH]/스칼라)을 재귀적으로 트리 아이템으로 변환하는 도메인 헬퍼.
+
+`core.schema` ↔ 위젯 seam — 트리 모양을 아는 유일한 자리다(밖으론 위젯만 보인다)."""
 
 from __future__ import annotations
 
@@ -6,8 +8,7 @@ from typing import Any
 
 from PySide6.QtWidgets import QTreeWidgetItem
 
-from core.data.handler import Data_Ref
-from core.data.schema import Attr
+from core.schema import Data_Ref
 
 # dict/list/Data_Ref 이 아닌 값 = 더 펼칠 것이 없는 말단 값 (컨테이너 stem 도 Data_Ref).
 _CONTAINER = (dict, list, tuple, Data_Ref)
@@ -19,16 +20,16 @@ def _is_scalar(val: Any) -> bool:
 
 
 def _data_ref_text(val: Data_Ref) -> str:
-    """Data_Ref 를 한 줄 요약 문자열로 만든다.
+    """LEAF ``Data_Ref`` 를 한 줄 요약으로.
 
-    인라인(attr 등 ``info["value"]`` 보유)이면 값을, 디스크면 ``type(.format) @dir`` 을 보인다.
+    인라인(``info["value"]`` 보유)이면 값을, 파일이면 ``handler(.detail)`` 을 보인다 —
+    **위치는 안 보인다**(서술자에 없다; 트리 위치에서 파생된다).
     """
-    if "value" in val.info:                                   # 인라인 payload
-        return f"{val.type}: {val.info['value']!r}"
-    _fmt = f"(.{val.format})" if val.format else ""
-    _dir = val.info.get("dir")
-    _suffix = f"  @{_dir}" if _dir else ""
-    return f"{val.type}{_fmt}{_suffix}"
+    _handler = val.format[0] if val.format else ""
+    if "value" in val.info:                                   # 인라인 payload (attr·rle)
+        return f"{_handler}: {val.info['value']!r}"
+    _detail = f"(.{val.format[1]})" if len(val.format) > 1 and val.format[1] else ""
+    return f"{_handler}{_detail}"
 
 
 def value_node(key: Any, value: Any, key_col: int = 0) -> QTreeWidgetItem:
@@ -54,8 +55,8 @@ def value_node(key: Any, value: Any, key_col: int = 0) -> QTreeWidgetItem:
         _texts[_val_col] = val_text
         return QTreeWidgetItem(_texts)
 
-    if isinstance(value, Data_Ref) and value.Is_stem():        # 컨테이너(obj/frame) — key = obj_id
-        _item = _make(f"{Attr(value, 'class_id')}  (obj {key})")
+    if isinstance(value, Data_Ref) and value.Is_branch():       # 컨테이너(obj/frame) — key = obj_id
+        _item = _make(f"{value.Attr('class_id')}  (obj {key})")
         for _k, _v in value.info.items():
             _item.addChild(value_node(_k, _v, key_col))
         return _item

@@ -5,8 +5,8 @@ flow 실행(run)으로 가공한 뒤 학습 annotation 을 내보낸다. core �
 구동한다 — 설계는 [`../core/README.md`](../core/README.md).
 
 메인은 영속 `Pipeline` 을 하나 보유한다(`meta = pipeline.meta` 단일 소스). Convert·Run 은 Pipeline 을
-거치고, staging(`Move`)·편집 저장(`Save_item`)·meta 가져오기(`Merge`)·annotation 내보내기(`Gather`)는
-그 `meta` 를 인자로 `store_io` 자유함수에 직접 넘긴다(데이터모델은 I/O 를 모른다).
+거치고, staging(`Move`)·편집 저장(`Save`)·meta 가져오기(`Merge`)는 그 `meta` 의 **라이프사이클 메서드**를
+직접 부른다 — core 원칙 그대로(라이프사이클은 store 소유, 바인더는 계산 조율만).
 
 ---
 
@@ -18,7 +18,7 @@ Main_page
   ├── [flow_profile 가져오기] [▶ run]   현재 프로필: 3 flow — …
   ├── ── 진행바 ──
   ├── 본문 = Meta_view   (stem 목록 상태 뱃지[작업/검수/보류] + 임베드 Stem_editor + id_map/params)
-  └── [meta 가져오기] [전부 비우기] [Sampler…]          [annotation 생성]
+  └── [meta 가져오기] [전부 비우기] [Sampler…]
 ```
 
 - dataset_root 는 읽기전용 뷰어 — 값 편집은 Converter 창에서만.
@@ -36,8 +36,9 @@ Main_page
 | converter 설정 | 레시피(raw→meta) | Converter 창 저장/불러오기 · 실행 시 `set_converter` 주입 |
 | flow 프로필 | 레시피(meta 가공, `flows:`) | flow 빌더 창 저장/불러오기 · 실행 시 `Run(flows=…)` 주입 |
 
-메타 파일 자체는 core `store` 가 소유(`{root}/dataset_meta.json` + 사이드카, 내보내기 =
-`{root}/annotation.json`). root 는 저장하지 않고 로드 위치에서 잡는다.
+메타 파일 자체는 core `store` 가 소유한다 — **item 하나 = 사이드카 하나**(`{root}/.meta/{범주}/{key}.json`)
++ kind-major payload. 정본을 뭉쳐 내보내는 기능은 없다(폴더째 옮기면 된다). root 는 저장하지 않고 로드
+위치에서 잡는다. 레이아웃은 [`../core/store/README.md`](../core/store/README.md).
 
 ---
 
@@ -49,10 +50,9 @@ Main_page
       ▼
 dataset_root 열기 → Dataset_Meta 로드
   → [flow 빌더 + ▶ run]  flow 실행 → modified 채움     Pipeline.Run(flows)
-  → [Meta 뷰어]          검수·편집 → 작업/검수/보류 전이   store_io.Move / store_io.Delete (백그라운드)
-  → [meta 가져오기]      다른 결과 병합(상태 보존)        store_io.Merge
+  → [Meta 뷰어]          검수·편집 → 작업/검수/보류 전이   meta.Move / meta.Delete (백그라운드)
+  → [meta 가져오기]      다른 결과 병합(상태 보존)        meta.Merge
   → [Sampler 창]         staged → 파생 tasker + crop      Pipeline.Sample(name, cfg)  (gui/meta_page/sample)
-  → [annotation 생성]    staged → {root}/annotation.json   store_io.Gather(meta, ["staged"], ANNOTATION_FILE)
 ```
 
 flow 한 장(카드) = `flows:` 리스트의 1 엔트리 — `object_type`·`unit`·`shared`·`processes`/
@@ -81,13 +81,13 @@ flow 한 장(카드) = `flows:` 리스트의 1 엔트리 — `object_type`·`uni
 | 폴더/파일 | 역할 |
 |---|---|
 | `app/` | **연결층 셸** — `Main_page`(보유 Pipeline 소유 + meta_page 창 배선·주입) + `Meta_ops`(백그라운드 run/전이/삭제) |
-| `meta_page/` | **정본 편집 갈래** (아래 하위 surface). core.data 접점은 갈래 내부, 밖으론 주입만 |
+| `meta_page/` | **정본 편집 갈래** (아래 하위 surface). core 접점은 갈래 내부, 밖으론 주입만 |
 | `meta_page/view/` | Dataset_Meta 뷰어 — stem 목록 + 임베드 편집기 + id_map/params |
-| `meta_page/verify/` | `Stem_editor` — base 이미지 + mask/bbox 오버레이 편집 |
+| `meta_page/edit/` | `Stem_editor` — base 이미지 + mask/bbox 오버레이 편집 (view 와 `_adapter`/`_overlay` 공유) |
 | `meta_page/convert/` | Converter 패널 + 다이얼로그 — raw 소스 탐색 설정 (`Pipeline.Convert`) |
 | `meta_page/run/` | flow 시퀀스 빌더(`Flow_card`/`Flow_sequence`) + 빌더 다이얼로그 |
 | `meta_page/sample/` | 파생 tasker 빌더 창 + tasker별 sample 뷰어(트리+crop+class write-back) (`Pipeline.Sample`) |
-| `meta_page/_adapter.py` | core.data ↔ 위젯 seam (값→트리아이템; 옛 `_meta_tree`) |
+| `meta_page/_adapter.py` | `core.schema` ↔ 위젯 seam (값→트리아이템) — 트리 모양을 아는 유일한 자리 |
 | `steps/` | process-chain 편집 (`Process_step` + `Step_list`) — run·sample 공유 |
 | `form/` | process/모델 파라미터 폼 자동 생성 (`Annotated[UI]` 기반) |
 | `widgets/` | 공통 저수준 위젯 (core 의존 0) — `image`/`rows`/`list_editor` 하위 |

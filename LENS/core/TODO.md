@@ -35,11 +35,9 @@ import 하면 실패 ② `core.schema` 만 들였을 때 cv2·numpy 가 안 딸�
 
 **남은 것**
 
-- [ ] **`analysis/` 계산을 `func/` 로** — 계약은 죽였지만 **모듈 이사는 안 했다**. 계산(align·features·
-      polar·stats) → `func/`, chroma 진단 → params 읽는 자유함수, shape 군집 → 산출물 소비자.
-      소비처가 gui(`sample/_tab.py`)라 gui sweep 과 함께 가는 게 안전하다. → [`process/TODO.md`](process/TODO.md)
-- [ ] **gui 가 아직 `port` 를 직접 부른다** (`_overlay`·`_segment`·`_sample_view`) — `store.Resolve`/
-      `store.Path_of` 로 옮긴다. 계층 검사는 `core/` 만 보므로 안 잡힌다. → [`store/TODO.md`](store/TODO.md)
+- [ ] **`analysis/` 를 flow 로** — 계약은 죽였지만 **모듈 이사는 안 했다**. 계산 → `func/`, feature/cluster
+      두 flow 로. 다중 범주 순회는 준비됐다(carry 가 split 경계를 넘는다). → [`process/TODO.md`](process/TODO.md)
+- [ ] **`DEFAULT_RATIOS` 부채** (아래) — split 배정이 바뀌는 변경이라 의도적 결정이 필요하다.
 - [ ] **문서 패스** (마지막) — 아래.
 
 ---

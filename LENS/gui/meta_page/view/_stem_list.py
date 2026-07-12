@@ -17,14 +17,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core.data.meta import Dataset_Meta
+from core.store import Dataset_Meta
 
 # 항목 data 롤 — stem 이름 + 현재 상태 (메뉴에서 state별 구분에 쓴다)
 _STEM_ROLE  = Qt.ItemDataRole.UserRole
 _STATE_ROLE = Qt.ItemDataRole.UserRole + 1
 
 # 상태별 뱃지 텍스트 + 색 (목록 항목 전경색). 새 상태 추가 시 여기에 한 줄만 더하면 된다 —
-# 카운트·메뉴·번호는 meta.STATES 기준으로 제네릭하게 돈다(미등록 상태는 회색+상태명으로 degrade).
+# 카운트·메뉴·번호는 meta.CATEGORIES 기준으로 제네릭하게 돈다(미등록 상태는 회색+상태명으로 degrade).
 _BADGE: dict[str, tuple[str, QColor]] = {
     "modified": ("작업", QColor(0xE0, 0x7B, 0x00)),   # 주황 — 작업 할거
     "staged":   ("검수", QColor(0x1E, 0x6F, 0xD0)),   # 파랑 — 검수한거
@@ -55,7 +55,7 @@ class Stem_list(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._editable = True               # 편집 잠금 (잠그면 전이/삭제 메뉴만 막고 선택은 유지)
-        self._counts: dict[str, int] = {}   # 상태별 개수 — load 가 meta.STATES 로 채운다
+        self._counts: dict[str, int] = {}   # 상태별 개수 — load 가 meta.CATEGORIES 로 채운다
         self._focus_after: str | None = None  # 전이 후 포커스할 stem (이동 전에 계산해 다음 load 가 소비)
         _lay = QVBoxLayout(self)
         _lay.setContentsMargins(0, 0, 0, 0)
@@ -85,7 +85,7 @@ class Stem_list(QWidget):
     def _on_menu(self, pos) -> None:
         """선택 stem 들에 대한 우클릭 메뉴 — **모든 다른 상태**로 보내기(그 상태가 아닌 것만) + 삭제.
 
-        `Dataset_Meta.STATES` 를 순회해 현재 상태가 아닌 대상마다 "→ 라벨 로 보내기 (n)" 를 만든다 —
+        `Dataset_Meta.CATEGORIES` 를 순회해 현재 상태가 아닌 대상마다 "→ 라벨 로 보내기 (n)" 를 만든다 —
         상태 수가 늘어도(예: skipped) 코드 수정 없이 항목이 생긴다. 보낼 대상 0이면 그 항목은 뺀다.
         """
         if not self._editable:               # 잠금 중(백그라운드 작업)엔 전이/삭제 메뉴 없음
@@ -94,7 +94,7 @@ class Stem_list(QWidget):
         if not _items:
             return
         _menu = QMenu(self)
-        for _state in Dataset_Meta.STATES:
+        for _state in Dataset_Meta.CATEGORIES:
             _targets = [_it.data(_STEM_ROLE) for _it in _items
                         if _it.data(_STATE_ROLE) != _state]
             if not _targets:
@@ -205,7 +205,7 @@ class Stem_list(QWidget):
     def load(self, meta: Dataset_Meta, keep: str = "") -> None:
         """두 버킷의 stem 을 상태 뱃지와 함께 채운다 (``keep`` 선택 유지 시도).
 
-        카테고리 순서(``STATES``)는 유지하되 **각 카테고리 안은 stem 이름 오름차순**으로 정렬한다
+        카테고리 순서(``CATEGORIES``)는 유지하되 **각 카테고리 안은 stem 이름 오름차순**으로 정렬한다
         (전이로 순서가 뒤섞이지 않게). 전이 직후엔 미리 잡아둔 ``_focus_after`` 가 ``keep`` 을 덮어써
         포커스가 이동 대상을 따라가지 않게 한다(일회성).
 
@@ -219,7 +219,7 @@ class Stem_list(QWidget):
         self._list.blockSignals(True)
         self._list.clear()
         _target: QListWidgetItem | None = None
-        for _state in meta.STATES:                     # 카테고리 순서 유지 + 카테고리 안 오름차순
+        for _state in meta.CATEGORIES:                     # 카테고리 순서 유지 + 카테고리 안 오름차순
             for _stem in sorted(meta.Bucket(_state)):
                 _it = self._make_item(_stem, _state)
                 self._list.addItem(_it)
@@ -230,15 +230,15 @@ class Stem_list(QWidget):
             _target = self._list.item(0)
         self._list.setCurrentItem(_target)
         self._list.blockSignals(False)
-        self._counts = {_st: len(meta.Bucket(_st)) for _st in meta.STATES}
+        self._counts = {_st: len(meta.Bucket(_st)) for _st in meta.CATEGORIES}
         self._refresh_count()
         self.selected.emit(self.current_stem())
 
     def _refresh_count(self) -> None:
-        """상단 개수 라벨 갱신 — 전체 + 상태별(라벨 순, meta.STATES 기준 제네릭)."""
+        """상단 개수 라벨 갱신 — 전체 + 상태별(라벨 순, meta.CATEGORIES 기준 제네릭)."""
         _total = sum(self._counts.values())
         _parts = "   ·   ".join(
-            f"{_badge(_st)[0]} {self._counts.get(_st, 0)}" for _st in Dataset_Meta.STATES)
+            f"{_badge(_st)[0]} {self._counts.get(_st, 0)}" for _st in Dataset_Meta.CATEGORIES)
         self._count_label.setText(f"전체 {_total}" + (f"   ·   {_parts}" if _parts else ""))
 
     @staticmethod
@@ -297,6 +297,6 @@ class Stem_list(QWidget):
         self._list.blockSignals(True)
         self._list.clear()
         self._list.blockSignals(False)
-        self._counts = {"modified": 0, "staged": 0}
+        self._counts = {}                    # 비면 _refresh_count 가 CATEGORIES 별 0 으로 표시
         self._refresh_count()
         self.selected.emit("")

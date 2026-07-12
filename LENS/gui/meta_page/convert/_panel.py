@@ -115,9 +115,9 @@ class _Glob_list_editor(List_editor):
 # ── 타입별 설정 위젯 ──────────────────────────────────────────────────────────
 
 class _Glob_settings(QWidget):
-    """``Raw_source``(glob 발견) 전용 설정 위젯.
+    """glob ingest(``converter.Ingest``) 전용 설정 위젯.
 
-    sources(디렉터리 목록) · globs(key→{pattern,type?,dir?,format?}) · params(key→경로)를
+    sources(디렉터리 목록) · globs(key→{pattern,type?,format?}) · params(key→경로)를
     편집한다. glob key 마다 ``type`` 으로 핸들러가 갈리며, 특수 취급되는 key 는 없다.
 
     Attributes:

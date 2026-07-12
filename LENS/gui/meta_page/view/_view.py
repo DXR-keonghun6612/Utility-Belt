@@ -11,7 +11,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core.data import store_io
 from gui.meta_page.view._params import Params_panel
 from gui.meta_page.view._stem_list import Stem_list
 from gui.meta_page.edit import Stem_editor, Stem_edit_dialog
@@ -203,7 +202,7 @@ class Meta_view(QWidget):
     def _on_editor_saved(self, stem: str) -> None:
         """편집 저장 반영 — 그 stem 사이드카만 기록 + 그 stem 만 재동기화 (목록 전체 재로드 안 함)."""
         if self._pipeline is not None:
-            store_io.Save_item(self._pipeline.meta, stem)  # 그 stem 사이드카 하나만 (즉시)
+            self._pipeline.meta.Save(stem)  # 그 stem 사이드카 하나만 (즉시)
         if self._editor is not None and self._editor._stem == stem:
             self._editor.reload()               # 그 stem 하나 (압축 obj_id/segment 동기화)
         self._reload_popouts(stem)

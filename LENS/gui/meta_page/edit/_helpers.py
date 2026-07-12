@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from PySide6.QtGui import QColor, QIcon, QPixmap
 
-from core.data.handler import Data_Ref
+from core.schema import Data_Ref
 
 
 def _color_icon(color: tuple[int, int, int]) -> QIcon:

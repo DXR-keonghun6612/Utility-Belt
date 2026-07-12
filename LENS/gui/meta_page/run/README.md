@@ -14,7 +14,7 @@ flow/process 의 의미(unit·carry·outputs 라우팅 등)는
 - `Flow_sequence` — `Flow_card` 목록 추가/삭제/순서 변경.
 - `Flow_card` — flow 하나(= `flows:` 1 엔트리) config 편집. flow 는 등록 타입도 preset 도 아니라
   config 가 직접 기술한다 — 카드는 빈 상태로 시작해 수동 구성. header/shared/carry 조립과 per-unit·
-  finalize 두 `Step_list` 배치만 하고, **process step 편집 자체는 공통 모듈 [`gui/steps`](../steps/README.md)
+  finalize 두 `Step_list` 배치만 하고, **process step 편집 자체는 공통 모듈 [`gui/steps`](../../steps/README.md)
   소유**(sampler 와 공유). per-unit 은 `min_count=1`, finalize 는 `min_count=0`·`outputs_block=True`.
 
 ## Flow_card 필드

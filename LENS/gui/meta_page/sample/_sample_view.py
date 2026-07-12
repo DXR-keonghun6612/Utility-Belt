@@ -1,13 +1,16 @@
-"""tasker 하나의 sample 편집 뷰(임베드 위젯) — group→sample 트리 + crop 미리보기 + class 재배정.
+"""tasker 하나의 sample 편집 뷰(임베드 위젯) — class 트리 + crop 미리보기 + class 재배정.
 
-파생 ``Sample_Set``(``pipeline.Load_sample(name)``)을 읽어 트리로 보여준다. 작업 store 는 split 없는 단일
-버킷(``WORKING``)이라 트리는 task 서브구조 2단이다 — classification=class→sample, detection=image→object.
-sample 은 정본의 투영이라 미리보기는 **crop payload(있으면)** 또는 **정본 프레임 역참조**로 그린다.
+파생 ``Sample_Set``(``pipeline.Load_sample(name)``)을 읽어 보여준다. store 의 **범주는 split**(train/val/
+test)이고 sample 이 곧 item 이다. **class 는 구조가 아니라 sample 의 ``class_id`` attr** 이므로, 트리의
+class 그룹은 **표시용 group-by** 일 뿐 저장 구조가 아니다(split 은 컬럼으로 보인다).
 
-**class 재배정**은 트리에서 **여러 sample 을 동시에 선택**해 한 class 로 보낸다. 대상 class 후보는 정본
-params 의 **id_map**(+ 미분류 ``__unclassified__``)이며 검색 다이얼로그로 고른다. 재배정은 인라인 attr
-write-back(정본 obj 의 ``class_id`` 수정, [[project_sample_tasker_layer]]) + 그 sample 을 새 class 폴더로
-옮기는 부분 재파생이고, **재배정 로그**(``{stem: [처음class, 마지막class]}``)를 tasker 폴더 yaml 에 남긴다.
+sample 은 정본의 순수 역참조라 미리보기는 **crop payload(있으면)** 또는 **정본 프레임**으로 그린다.
+
+**class 재배정 = attr 갱신 두 줄이다.** class 가 경로에 안 들어가므로 **파일이 안 움직인다** — 옛 모델은
+class 가 폴더라 재배정이 crop 재저장 + 옛 파일 삭제 + 노드 이동 + 사이드카 2개 rewrite 였다. 지금은
+sample 의 ``class_id`` attr 를 고치고(파생) 정본 obj 의 ``class_id`` 도 고친다(write-back). **재배정
+로그**(``{sid: [처음class, 마지막class]}``)는 tasker 폴더 yaml 에 남긴다.
+
 geometry(mask)는 여기서 안 건드린다(Stem_editor 소유). ``Tasker_tab`` 이 이 위젯을 호스트한다.
 """
 
@@ -33,16 +36,13 @@ from PySide6.QtWidgets import (
 )
 
 from core.constant import UNCLASSIFIED
-from core.data import handler, store_io
-from core.data.handler import Data_Ref
-from core.data.sample import WORKING
-from core.data.schema import Attr, Set_attr
+from core.schema import Data_Ref
 from gui.meta_page.sample._class_picker import Class_picker
 from gui.meta_page.edit._overlay import load_base_images, merge_bases
 from gui.widgets import Image_label
 
-_ROLE = Qt.ItemDataRole.UserRole   # sample 항목 식별 (group, sample_id)
-_LOG_FILE = "reassign_log.yaml"    # tasker 폴더 재배정 로그 ({stem: [처음, 마지막]})
+_ROLE = Qt.ItemDataRole.UserRole   # sample 항목 식별 (sample_id — split 무관 유일 key)
+_LOG_FILE = "reassign_log.yaml"    # tasker 폴더 재배정 로그 ({sid: [처음, 마지막]})
 
 
 class Sample_view(QWidget):
@@ -84,7 +84,7 @@ class Sample_view(QWidget):
         _tb.addStretch(1)
         _ll.addLayout(_tb)
         self._tree = QTreeWidget()
-        self._tree.setHeaderLabels(["sample", "수"])
+        self._tree.setHeaderLabels(["sample", "split"])   # class 는 그룹 노드 (attr group-by)
         self._tree.setColumnWidth(0, 260)
         self._tree.setSelectionMode(QTreeWidget.SelectionMode.ExtendedSelection)
         self._tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -118,23 +118,34 @@ class Sample_view(QWidget):
         self._editable = editable
 
     # ── 채우기 ─────────────────────────────────────────────────────────────────
-    def reload(self, keep: tuple | None = None) -> None:
-        """tasker 의 ``Sample_Set`` 을 다시 읽어 트리를 채운다 (``keep`` = 유지할 (group, sid))."""
+    def reload(self, keep: str | None = None) -> None:
+        """tasker 의 ``Sample_Set`` 을 다시 읽어 트리를 채운다 (``keep`` = 유지할 sample id).
+
+        **class 그룹은 표시용 group-by 다** — 저장 구조는 split 범주이고 class 는 sample 의 attr 이라,
+        여기서 attr 로 묶어 보여줄 뿐이다(그래서 재배정이 트리를 재구성해도 파일은 안 움직인다).
+        """
         _pipe = self._get_pipeline()
         self._tree.clear()
         if _pipe is None:
             return
         self._sset = _pipe.Load_sample(self._name)
         self._task = _pipe.Taskers().get(self._name, {}).get("task", "classification")
+
+        _by_class: dict[str, list[tuple[str, str]]] = {}          # class → [(sid, split)]
+        for _split in self._sset.CATEGORIES:
+            for _sid, _ref in self._sset.Bucket(_split).items():
+                _cls = _ref.Attr("class_id") or UNCLASSIFIED
+                _by_class.setdefault(_cls, []).append((_sid, _split))
+
         _target = None
-        for _group, _gstem in sorted(self._sset.Bucket(WORKING).items()):
-            _gnode = QTreeWidgetItem([_group, str(len(_gstem.info))])
+        for _cls, _items in sorted(_by_class.items()):
+            _gnode = QTreeWidgetItem([_cls, str(len(_items))])
             self._tree.addTopLevelItem(_gnode)
-            for _sid in sorted(_gstem.info):
-                _it = QTreeWidgetItem([_sid, ""])
-                _it.setData(0, _ROLE, (_group, _sid))
+            for _sid, _split in sorted(_items):
+                _it = QTreeWidgetItem([_sid, _split])
+                _it.setData(0, _ROLE, _sid)
                 _gnode.addChild(_it)
-                if keep is not None and (_group, _sid) == keep:
+                if keep is not None and _sid == keep:
                     _target = _it
             _gnode.setExpanded(True)
         if _target is not None:
@@ -142,34 +153,32 @@ class Sample_view(QWidget):
 
     # ── 선택 → 미리보기 ─────────────────────────────────────────────────────────
     def _on_select(self, item: QTreeWidgetItem | None, _prev=None) -> None:
-        _id = item.data(0, _ROLE) if item is not None else None
-        if _id is None:                                 # group 노드 — 미리보기 비움
+        _sid = item.data(0, _ROLE) if item is not None else None
+        if _sid is None:                                # class 그룹 노드 — 미리보기 비움
             self._img.clear_image("sample 을 선택하세요")
             self._info.setText("")
             return
-        _group, _sid = _id
-        _ref = self._sample_ref(_group, _sid)
+        _ref = self._sample_ref(_sid)
         if _ref is None:
             return
         self._show_preview(_sid, _ref)
-        _src = Attr(_ref, "source_stem")
-        _obj = Attr(_ref, "source_obj")
-        _has_crop = "crop" in _ref.info
+        _src = _ref.Attr("source_stem")
+        _obj = _ref.Attr("source_obj")
+        _has_crop = _ref.Get("crop") is not None
         self._info.setText(
-            f"class={Attr(_ref, 'class_id') or _group}\n"
+            f"class={_ref.Attr('class_id') or UNCLASSIFIED}"
+            f"  ·  split={self._sset.Category_of(_sid)}\n"
             f"source: {_src}" + (f" · obj {_obj}" if _obj else "")
             + ("  ·  crop 실체화됨" if _has_crop else "  ·  crop 없음(정본 프레임 역참조)"))
 
     def _show_preview(self, sid: str, ref: Data_Ref) -> None:
         """crop payload(있으면) 또는 정본 프레임(역참조)을 미리보기에 그린다."""
-        _crop = ref.info.get("crop")
-        if _crop is not None:
-            _arr = handler.Load(self._sset.Category_root(WORKING), sid, "crop", _crop)
-            if _arr is not None:
-                self._img.set_image(_arr)
-                return
+        _arr = self._sset.Load(sid, "crop")             # 경로는 store 가 파생 (split 무관)
+        if _arr is not None:
+            self._img.set_image(_arr)
+            return
         _pipe = self._get_pipeline()
-        _src = Attr(ref, "source_stem")
+        _src = ref.Attr("source_stem")
         _meta = _pipe.meta if _pipe is not None else None
         if _meta is not None and _src and _meta.Has(_src):
             _img = merge_bases(list(load_base_images(_meta, _src).values()))
@@ -178,12 +187,9 @@ class Sample_view(QWidget):
                 return
         self._img.clear_image("미리보기 없음 (crop·정본 프레임 모두 없음)")
 
-    def _sample_ref(self, group: str, sid: str) -> Data_Ref | None:
-        """트리 식별자로 live sample stem 을 찾는다 (reload 후에도 stale 없이)."""
-        if self._sset is None:
-            return None
-        _grp = self._sset.Bucket(WORKING).get(group)
-        return _grp.info.get(sid) if _grp is not None else None
+    def _sample_ref(self, sid: str) -> Data_Ref | None:
+        """sample id 로 live sample 을 찾는다 — split 이 어디든 store 가 안다 (reload 후에도 stale 없이)."""
+        return None if self._sset is None else self._sset.Find(sid)
 
     # ── class 재배정 (우클릭 메뉴 + 다중선택 + id_map picker + write-back + 로그) ──
     def _on_menu(self, pos) -> None:
@@ -191,7 +197,7 @@ class Sample_view(QWidget):
         if not self._editable or self._task != "classification":
             return
         _targets = [_it.data(0, _ROLE) for _it in self._tree.selectedItems()
-                    if _it.data(0, _ROLE) is not None]         # leaf 만 (group 노드 제외)
+                    if _it.data(0, _ROLE) is not None]         # sample 만 (class 그룹 제외)
         _at = self._tree.itemAt(pos)
         _at_id = _at.data(0, _ROLE) if _at is not None else None
         if _at_id is not None and _at_id not in _targets:      # 선택 밖 항목 우클릭 → 그것만
@@ -204,8 +210,13 @@ class Sample_view(QWidget):
         _menu.addAction(_a)
         _menu.exec(self._tree.viewport().mapToGlobal(pos))
 
-    def _reassign(self, targets: list) -> None:
-        """``targets``((group, sid) 목록)를 id_map picker 로 고른 class 로 일괄 재배정 + 로그."""
+    def _reassign(self, targets: list[str]) -> None:
+        """``targets``(sample id 목록)를 id_map picker 로 고른 class 로 일괄 재배정 + 로그.
+
+        **파일은 안 움직인다** — class 가 경로에 안 들어가므로(attr) 재배정은 attr 갱신뿐이다:
+        파생 sample 의 ``class_id`` + 정본 obj 의 ``class_id``(write-back). split 도 안 바뀐다
+        (split 은 빌드가 정한 데이터셋 정체성이라 class 와 독립이다).
+        """
         _pipe = self._get_pipeline()
         if _pipe is None:
             return
@@ -217,61 +228,39 @@ class Sample_view(QWidget):
         if not _new:
             return
         _entries: list[tuple[str, str, str]] = []          # (sid, 원본class, 새class)
-        for _old_class, _sid in targets:
-            if _new == _old_class:
+        for _sid in targets:
+            _ref = self._sample_ref(_sid)
+            if _ref is None:
                 continue
-            _ref = self._sample_ref(_old_class, _sid)
-            if _ref is None or not self._writeback_class(_pipe, _ref, _new):
+            _old = _ref.Attr("class_id") or UNCLASSIFIED
+            if _new == _old:
                 continue
-            self._move_sample(_old_class, _sid, _new, _ref)    # 부분 재파생
-            _entries.append((_sid, _old_class, _new))
+            if not self._writeback_class(_pipe, _ref, _new):   # 정본 (실패하면 파생도 안 건드린다)
+                continue
+            _ref.Set_attr("class_id", _new)                    # 파생 — 이게 재배정의 전부다
+            self._sset.Save(_sid)                              # 그 sample 사이드카만 (증분)
+            _entries.append((_sid, _old, _new))
         if not _entries:
             return
         self._log_reassign(_pipe, _entries)
-        self.reload(keep=(_new, _entries[-1][0]))
+        self.reload(keep=_entries[-1][0])
         self.meta_changed.emit()
 
     def _writeback_class(self, pipe, ref: Data_Ref, new_class: str) -> bool:
         """정본 obj(source 역참조)의 ``class_id`` 를 고치고 그 stem 사이드카만 저장한다 (인라인 attr only)."""
-        _src = Attr(ref, "source_stem")
-        _obj = Attr(ref, "source_obj")
-        _frame = pipe.meta.Get(_src) if _src else None
+        _src = ref.Attr("source_stem")
+        _obj = ref.Attr("source_obj")
+        _frame = pipe.meta.Find(_src) if _src else None
         if _frame is None:
             QMessageBox.warning(self, "재배정", f"정본에서 source stem '{_src}' 를 찾지 못했습니다.")
             return False
-        _target = _frame.info.get(_obj) if _obj else _frame
+        _target = _frame.Get(_obj) if _obj else _frame
         if _target is None:
             QMessageBox.warning(self, "재배정", f"source obj '{_obj}' 를 찾지 못했습니다.")
             return False
-        Set_attr(_target, "class_id", new_class)      # 정본 write-back (인라인 attr)
-        store_io.Save_item(pipe.meta, _src)
+        _target.Set_attr("class_id", new_class)      # 정본 write-back (인라인 attr)
+        pipe.meta.Save(_src)
         return True
-
-    def _move_sample(self, old_class: str, sid: str, new_class: str, ref: Data_Ref) -> None:
-        """sample stem 하나를 old_class→new_class 로 옮긴다 — crop 파일 이동 + class attr + 사이드카.
-
-        crop 픽셀은 class 와 무관하게 동일하므로 재-crop 없이 폴더만 옮긴다(부분 재파생). crop 이 있으면
-        payload 를 새 class dir 로 다시 떨구고(옛 파일 삭제), sample stem 의 class_id attr 를 갱신한다.
-        """
-        _sroot = self._sset.Category_root(WORKING)
-        _old_stem = self._sset.Bucket(WORKING)[old_class]
-        _old_stem.info.pop(sid, None)
-        _crop = ref.info.get("crop")
-        if _crop is not None:                          # crop 파일을 새 class dir 로 이동
-            _arr = handler.Load(_sroot, sid, "crop", _crop)
-            handler.Delete(_sroot, sid, "crop", _crop)
-            ref.info["crop"] = handler.Save(
-                _sroot, sid, "crop",
-                Data_Ref(type="image", format="png", info={"dir": new_class}), _arr)
-        Set_attr(ref, "class_id", new_class)
-        _new_stem = self._sset.Bucket(WORKING).setdefault(new_class, Data_Ref(type="stem", info={}))
-        _new_stem.info[sid] = ref
-        store_io.Save_item(self._sset, new_class)      # 두 class 사이드카만 (증분)
-        if _old_stem.info:
-            store_io.Save_item(self._sset, old_class)
-        else:                                          # 빈 class 는 사이드카·버킷에서 제거
-            store_io.Drop(self._sset, WORKING, old_class)
-            self._sset.Bucket(WORKING).pop(old_class, None)
 
     def _log_reassign(self, pipe, entries: list[tuple[str, str, str]]) -> None:
         """재배정 로그를 tasker 폴더 yaml 에 남긴다 — ``{sid: [처음class, 마지막class]}``.

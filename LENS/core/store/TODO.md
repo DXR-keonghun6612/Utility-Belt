@@ -20,32 +20,18 @@
 
 ---
 
-## ✅ 합의됨 — gui 가 아직 `port` 를 직접 부른다
 
-계층 규정상 읽기/쓰기는 store 가 소유하고 위 계층은 **요청**한다. core 는 끝났지만(검사가 강제) gui 는
-`core/` 밖이라 검사에 안 잡힌다.
+## ✅ 결론 난 논의 — gui sweep 완료 (2026-07-12)
 
-- [ ] `gui/…/edit/_overlay.py`·`edit/_segment.py`·`sample/_sample_view.py` 의 `port.Load`/`port.Path_of`
-      → **`store.Resolve(path, node)`** / **`store.Path_of(path, name, ref)`** (이미 있다).
+gui 는 이제 새 API 만 쓴다. **경로를 gui 가 모른다** — `meta.Load(stem, key)` / `meta.Route(…)` /
+`sset.Load(sid, "crop")` 에 **요청**하고, 파일이 어디 있는지는 store 가 트리 위치에서 파생한다.
+gui 가 아는 건 "이 stem 이 어느 범주인가"(`Category_of`, 상태 뱃지용)뿐이다.
 
----
+**의미가 바뀐 곳은 하나였다** — `sample/_sample_view`. class 가 구조 key 에서 **attr** 이 되면서 재배정이
+"crop 재저장 + 옛 파일 삭제 + 노드 이동 + 사이드카 2개 rewrite" 에서 **attr 갱신 두 줄**이 됐다(정본
+write-back + 파생 attr). **파일이 안 움직인다.** 트리의 class 그룹도 저장 구조가 아니라 표시용 group-by 다.
 
-## ▶ 진행 중 — gui 소비처 sweep
-
-`import gui` 는 되지만 **런타임 코드가 옛 API 를 쓴다** (core 는 끝났다):
-
-- `Data_Ref(type="stem"/"attr", …)` → `Data_Ref(info=…)` / `Data_Ref(format=("attr","str"))`.
-- `.Is_stem()` → `.Is_branch()` (또는 `Leaves()`/`Branches()`).
-- `.type == "segmap"` → `.format[:1] == ("segmap",)`.
-- `Category_of`·`Category_root`·`Iter_category` 삭제 → `store.Find(key)` / `store.Bucket(cat)`.
-- `info["dir"]` 삭제 → 경로는 트리 위치에서 파생 (`port.Path_of` 로 물어볼 수 있다).
-- `meta.Gather(…)` → **삭제**(위 참조). `Get_or_add` → 삭제.
-
-**`sample/_sample_view` 는 의미가 바뀐다** — class 가 attr 이라 재분류가 파일 이동이 아니라
-**`ref.Set_attr("class_id", …)` + `Save(sample)`** 다. 트리도 class→sample 2단이 아니라 split 별 sample
-목록(class 는 attr 로 group-by). 끝나면 `WORKING` 상수 제거.
-
-(import 경로는 이미 정정됨 — `core.schema` / `core.store` / `core.port`.)
+`WORKING` 상수는 제거됐다 (마지막 참조가 gui 였다).
 
 ---
 
