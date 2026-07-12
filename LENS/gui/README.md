@@ -81,7 +81,7 @@ flow 한 장(카드) = `flows:` 리스트의 1 엔트리 — `object_type`·`uni
 | 폴더/파일 | 역할 |
 |---|---|
 | `app/` | **연결층 셸** — `Main_page`(보유 Pipeline 소유 + meta_page 창 배선·주입) + `Meta_ops`(백그라운드 run/전이/삭제) |
-| `meta_page/` | **정본 편집 갈래** (아래 하위 surface). core 접점은 갈래 내부, 밖으론 주입만 |
+| `meta_page/` | **정본 편집 갈래** (아래 하위 surface). `Pipeline` 은 주입받고, 도메인 타입(`Data_Ref`·`Dataset_Meta`)은 위젯이 직접 쓴다 ([`TODO.md`](TODO.md) "seam 이 없다") |
 | `meta_page/view/` | Dataset_Meta 뷰어 — stem 목록 + 임베드 편집기 + id_map/params |
 | `meta_page/edit/` | `Stem_editor` — base 이미지 + mask/bbox 오버레이 편집 (view 와 `_adapter`/`_overlay` 공유) |
 | `meta_page/convert/` | Converter 패널 + 다이얼로그 — raw 소스 탐색 설정 (`Pipeline.Convert`) |

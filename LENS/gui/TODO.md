@@ -50,6 +50,30 @@ run/sample 소비처는 무변경. steps/ 를 지금 중립 패키지로 떼는 
 
 ---
 
+## ❓ 논의 대상 — **seam 이 없다** (이념과 실제의 괴리)
+
+[`README.md`](README.md) 는 *"core 접점은 갈래 내부, `_adapter.py` 가 seam"* 이라고 말한다. **실제는
+아니다** — `Data_Ref` 가 7개 파일, `Dataset_Meta` 가 7개 파일에 흩어져 있다(`edit/`·`view/`·`sample/`).
+`_adapter` 는 seam 이 아니라 그중 하나일 뿐이다.
+
+**이게 실해로 나타났다.** core 4분할 후 gui sweep 을 grep 패턴으로 돌렸는데, **패턴에 없던 `meta.params`**
+가 살아남아 root 를 여는 순간 죽었다. 접점이 한 곳에 모였다면 거기만 보면 됐다 — 흩어져 있으니 "무엇을
+빠뜨렸는지" 알 방법이 없었다.
+
+**당장의 방어는 검사다** — [`test_surfaces.py`](test_surfaces.py) 가 offscreen 으로 **모든 surface 를 실제로
+띄운다**. 죽은 API 는 그 줄이 *실행될 때* 터지므로 compile·import 로는 못 잡고, 이 검사만이 잡는다.
+
+**구조적 답은 아직 없다.** 두 갈래:
+- **(a) 진짜 seam 을 만든다** — 위젯이 `Data_Ref`/`Dataset_Meta` 를 아예 못 보게 view-model 을 세운다.
+  파급이 한 곳에 모이지만, 도구 규모에 비해 무겁고 seam 이 core 타입을 그대로 베낀 껍데기가 되기 쉽다.
+- **(b) 도메인 타입을 gui 의 어휘로 인정한다** — `Data_Ref` 는 도메인 언어이지 core 의 사물이 아니라고
+  보고, README 의 거짓 주장을 지운다. 대신 검사(위)로 지킨다.
+
+지금은 **(b) + 검사**로 서 있다. (a) 가 필요해지는 신호는 "core API 가 바뀔 때마다 위젯 N개를 고친다"가
+**반복될 때**다. 한 번으로는 근거가 약하다.
+
+---
+
 ## A. 구조 리팩 — north-star 로의 이주 (W1–W4 완료, W5 잔여)
 
 **W1–W4 실행 완료 — 위 north-star 구조가 이제 실제 구조다.** W1(process-chain → `gui/steps`,

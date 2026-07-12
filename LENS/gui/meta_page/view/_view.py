@@ -104,7 +104,7 @@ class Meta_view(QWidget):
             return
         if keep is None:
             keep = self._editor._stem if self._editor is not None else ""
-        self._params.load(_meta.params)   # id_map 은 params 의 일반 데이터로 함께 표시
+        self._params.load(_meta.Bucket(_meta.PARAMS))   # id_map 도 params 의 일반 leaf 로 함께 표시
         self._stem_list.load(_meta, keep=keep)   # → selected 시그널이 본문을 맞춘다
 
     def clear(self) -> None:
