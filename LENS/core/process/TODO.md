@@ -6,23 +6,41 @@
 
 ---
 
-## ✅ 결론 난 논의 — `analysis/` 는 엔진으로 접히지 않는다 (2026-07-12)
+## ▶ 진행 중 — `analysis/` 해체 → 계산은 `func/`, 나머지는 flow
 
-**→ README 로 승격됨** ([`README.md`](README.md) "구성"). `carry`+`finalize` 가설은 절반만 맞았다 —
-chroma 진단은 누산기가 이미 params 로 영속이라 엔진이 필요 없고, shape 군집은 GUI 가 파라미터를 바꿔
-**재실행**하므로 finalize 로 접으면 기능 퇴행이다(파이프라인과 **수명이 다르다**). 죽은 `Analysis` 계약은
-삭제했다(구현자 0·등록 0·호출 0).
+**"엔진에 안 접힌다"던 판단은 철회됐다.** 근거였던 *"재군집하려면 파이프라인을 다시 돌려야 한다"* 는
+**feature 를 leaf 로 route 해 영속하면** 성립하지 않는다. flow 를 둘로 가르면 된다:
 
+| flow | per-unit | finalize | 비용 |
+|---|---|---|---|
+| **feature** | crop → `shape_feat` (array leaf 로 route) | — | 비싸다. 한 번만 |
+| **cluster** | 영속된 `shape_feat` 를 carry 에 누산 | umap/hdbscan → `params` | 싸다. **파라미터 바꿔 재실행** |
 
-## ✅ 합의됨 — `analysis/` 모듈 이사 (계약은 죽였고, 코드는 아직 제자리)
+지금보다 **낫다** — 현재 `shape/batch.py` 는 **export 산출물 폴더를 glob** 해서 내보내기를 해야만 분석이
+된다. flow 는 store 에서 바로 읽는다. (다중 범주 순회는 구현·검증 완료 — `carry` 가 split 경계를 넘는다.)
 
-- [ ] **계산 → [`func/`](func)** (`align`·`features`·`polar`·`stats`) — 배열만 아는 primitive.
-      `func/mask/polar.py` 가 이미 그렇게 옮겨왔다.
-- [ ] **chroma 진단** → `store.Param(…)` 으로 누산기를 읽는 **자유함수**.
-- [ ] **shape 군집(umap/hdbscan)** → **산출물 소비자**로 (stage 아님).
-- [ ] `Pipeline.Verify` 재설계 — "두 종류를 다 소비"라는 전제가 무너졌다.
+**이사 지도**
 
-> 소비처가 gui(`sample/_tab.py`)가 하위 모듈을 깊게 직접 import 하므로 **gui sweep 과 함께** 가는 게 안전하다.
+```text
+계산 → func/                       유닛 → stream/                  소멸
+  mask/align.py    (PCA 정렬)        mask/shape.py    feature        chroma/io.py     (누산기는 store.Param)
+  mask/shape.py    (Fourier)         mask/cluster.py  finalize       shape/batch.py   (폴더 glob → flow)
+  mask/embed.py    (umap/hdbscan)    chroma/diagnose.py finalize     shape/__main__.py
+  chroma/stats.py  (per_pixel·IQR)                                   sample_extractor · compare_misdetect
+```
+
+- [ ] 계산 모듈을 `func/` 로 (배열만 알게).
+- [ ] `stream/` 유닛 3개 + flow config.
+- [ ] **`report`·`figure` 는 계산이 아니다** — `matplotlib` 를 `func/` 에 들이지 마라. `process/__init__` 이
+      유닛을 eager import 하므로 **모든 process import 가 matplotlib 를 끌고 온다**(오늘 두 번 고친 그 병).
+      flow 는 **숫자 결과만 `params` 로 route** 하고, report/figure 는 그걸 읽는 **소비처(gui/CLI)** 로.
+- [ ] **`umap`/`hdbscan`/`sklearn` 도 같은 함정** — `func/mask/embed.py` 를 `func/mask/__init__` 이 eager
+      import 하면 동일하게 오염된다. `__init__` 이 안 건드리게 두거나 유닛이 지연 import 한다.
+- [ ] **vestigial `window` 제거** — `Robust_mean_std` 는 안 받는데 `stats`·`analyze`·`_result` 가 아직
+      인자로 나른다(지금은 **조용히 무시된다**). 이사하면서 걷어낸다.
+- [ ] `gui/meta_page/sample/_tab.py` 가 `core.process.analysis.mask.shape` 를 깊게 직접 import 한다 —
+      함께 손본다(gui sweep 중이라 부담은 적다).
+- [ ] `Pipeline.Verify` 재설계 — "stream/analysis 두 종류를 다 소비"라는 전제는 무너졌다(계약은 죽었다).
 
 ## ✅ 합의됨 — 빌드 `unit` ↔ 내보내기 task 의 짝을 config 가 검증하지 않는다
 

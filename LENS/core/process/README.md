@@ -17,6 +17,15 @@ Run(연산)과 Sample(파생 생성)은 겉보기에 다른 작업이지만, 둘
 |---|---|---|
 | **Run** (`Flow`) | `modified` 범주 | 같은 store 에 route |
 | **Sample** (`Sample_stage`) | `staged` 범주 | 파생 store 에 배치 |
+| **분석** (`Flow`) | 학습셋 **전 split** | 같은 store 에 route (결과는 `params`) |
+
+**`Flow` 는 store 를 안 가린다.** `category` 는 필드라 `Flow(category=["train","val","test"])` 를 `Sample_Set`
+위에서 돌릴 수 있다 — 분석이 별도 계층이 아니라 **flow 하나**인 이유다.
+
+**범주를 여럿 줄 수 있는 이유는 `carry` 다.** 순회가 범주 경계에서 끊기지 않아 `finalize` 가 전체를 **한
+덩어리로** 본다. 이게 없으면 split 마다 따로 군집이 돌아 **클러스터 id 가 서로 무의미해진다**(같은 형상이
+split 마다 다른 번호를 받는다). 그래서 범주는 stage 의 설정이 아니라 **unit 의 주소**다 — 라우팅 경로가
+거기서 나온다.
 
 > **양 끝을 클래스로 세우지 마라 — 그게 지난번 실패였다.** 옛 `source`/`sink` 계약은 traversal 기계를
 > 추상화했지만, 진짜 변주는 traversal 이 아니라 양 끝이었다. 그래서 추상이 stage 세 개 중 둘에만 맞았고

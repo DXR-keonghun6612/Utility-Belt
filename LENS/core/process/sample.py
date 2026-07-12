@@ -74,14 +74,14 @@ class Sample_stage(Stage):
         return bool(self.processes)
 
     # ── 입력 ──────────────────────────────────────────────────────────────────
-    def _block_ctx(self, store, stem: str, frame: Data_Ref) -> dict:
+    def _block_ctx(self, store, category: str, stem: str, frame: Data_Ref) -> dict:
         if not self._materialize:
             return {}
         _ctx: dict = {"stem": stem}                     # 프레임 leaf(base image·segment) 1회 resolve
-        _ctx.update(store.Resolve((self.category, stem), frame))
+        _ctx.update(store.Resolve((category, stem), frame))
         return _ctx
 
-    def _unit_ctx(self, store, stem: str, bctx: dict,
+    def _unit_ctx(self, store, category: str, stem: str, bctx: dict,
                   obj_id: str | None, obj: Data_Ref | None) -> dict:
         _ctx = {**bctx, "obj_id": obj_id, **(inline_ctx(obj) if obj is not None else {})}
         if self._materialize:

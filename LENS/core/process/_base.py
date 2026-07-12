@@ -96,14 +96,19 @@ def _extract_inputs(call_fn) -> tuple[str, ...]:
 class Unit:
     """한 처리 단위 — process 체인 입력 ctx + 출력을 꽂을 **주소**.
 
-    ``frame``/``obj_id``/``obj`` 가 주소다 (frame·obj 가 모두 ``None`` = 위치 없음 → dataset-wide params).
+    ``category``/``stem``/``obj_id`` 가 트리 주소이고 ``frame``/``obj`` 가 그 자리의 노드다
+    (frame·obj 가 모두 ``None`` = 위치 없음 → dataset-wide params).
+
+    **범주가 unit 에 사는 이유** — 한 stage 가 여러 범주를 순회할 수 있어(예: 학습셋 전 split 을 한 번에)
+    "어느 범주에서 왔나"는 stage 의 설정이 아니라 **이 unit 의 사실**이다. 라우팅 경로가 여기서 나온다.
     """
 
-    stem:   str
-    ctx:    dict[str, Any]
-    frame:  Data_Ref | None = None
-    obj_id: str | None      = None
-    obj:    Data_Ref | None = None
+    stem:     str
+    ctx:      dict[str, Any]
+    category: str            = ""
+    frame:    Data_Ref | None = None
+    obj_id:   str | None      = None
+    obj:      Data_Ref | None = None
 
 
 def inline_ctx(ref: Data_Ref) -> dict:
@@ -158,9 +163,11 @@ class Stage(Base_Config):
         metadata={"ui": {"label": "재실행 캐시 (cacheable)",
                          "tip": "stage의 출력이 이미 있으면 순회 건너뜀"}})
     # 순회할 store 범주 — Run=modified, Sample=staged. "무엇을 순회하나"는 클래스가 아니라 값이다.
-    category: str           = MODIFIED
+    # **여럿을 줄 수 있다** (예: 학습셋 전 split `[train, val, test]`) — 그러면 carry 가 범주 경계에서
+    # 안 끊겨 finalize 가 전체를 한 덩어리로 본다(split 별로 따로 돌면 군집 id 가 서로 무의미해진다).
+    category: str | list[str] = MODIFIED
     # 순회 단위 — "frame": 프레임당 1회 / "object": 프레임의 객체마다.
-    unit:     str           = "frame"
+    unit:     str             = "frame"
 
     __exclude_serialize__: ClassVar[set[str]] = {"config_type"}
 
@@ -175,11 +182,11 @@ class Stage(Base_Config):
         """순회 전 1회 resolve 하는 공통 ctx (예: params). 없으면 ``{}``."""
         return {}
 
-    def _block_ctx(self, store, stem: str, frame: Data_Ref) -> dict:
+    def _block_ctx(self, store, category: str, stem: str, frame: Data_Ref) -> dict:
         """배치(=stem 하나) ctx — unit 루프와 무관하게 1회. 여기서 푼 값은 객체마다 다시 안 읽는다."""
         return {}
 
-    def _unit_ctx(self, store, stem: str, bctx: dict,
+    def _unit_ctx(self, store, category: str, stem: str, bctx: dict,
                   obj_id: str | None, obj: Data_Ref | None) -> dict:
         """한 unit(객체 / frame-단위의 프레임)의 ctx — 배치 ctx 위에 unit 고유 값을 얹는다."""
         return dict(bctx)
@@ -256,7 +263,13 @@ class Stage(Base_Config):
         return _inners, _outputs
 
     # ── 순회 골격 ─────────────────────────────────────────────────────────────
-    def _units(self, store, stem: str, frame: Data_Ref, bctx: dict) -> Iterator[Unit]:
+    def _categories(self) -> tuple[str, ...]:
+        """순회할 범주들 — 문자열 하나든 목록이든 한 모양으로."""
+        return ((self.category,) if isinstance(self.category, str)
+                else tuple(self.category))
+
+    def _units(self, store, category: str, stem: str, frame: Data_Ref,
+               bctx: dict) -> Iterator[Unit]:
         """이 배치의 처리 단위들 — object=자식 obj 마다, frame=``_frame_unit``.
 
         **resolve 는 불변인 가장 넓은 스코프에서 1회** — 프레임 leaf 를 ``_block_ctx`` 에서 한 번 풀고
@@ -264,33 +277,36 @@ class Stage(Base_Config):
         """
         if self.unit == "object":
             for _oid, _obj in frame.Branches().items():
-                yield Unit(stem=stem, ctx=self._unit_ctx(store, stem, bctx, _oid, _obj),
+                yield Unit(stem=stem, category=category,
+                           ctx=self._unit_ctx(store, category, stem, bctx, _oid, _obj),
                            frame=frame, obj_id=_oid, obj=_obj)
         else:
-            yield from self._frame_unit(store, stem, frame, bctx)
+            yield from self._frame_unit(store, category, stem, frame, bctx)
 
-    def _frame_unit(self, store, stem: str, frame: Data_Ref, bctx: dict) -> Iterator[Unit]:
+    def _frame_unit(self, store, category: str, stem: str, frame: Data_Ref,
+                    bctx: dict) -> Iterator[Unit]:
         """frame-단위 기본 — 프레임 자신을 한 unit 으로 (obj = frame)."""
-        yield Unit(stem=stem, ctx=self._unit_ctx(store, stem, bctx, None, frame),
+        yield Unit(stem=stem, category=category,
+                   ctx=self._unit_ctx(store, category, stem, bctx, None, frame),
                    frame=frame, obj_id=None, obj=frame)
 
     def __call__(self, store, progress: Callable[[str, int, int], None] | None = None) -> None:
         _label = self._label()
+        _blocks = [(_c, _s, _it) for _c in self._categories()
+                   for _s, _it in store.Bucket(_c).items()]
         if self.cacheable and self._param_keys and self._cached(store):
             if progress is not None:                       # 이전 실행 결과가 그대로 → 건너뜀
-                _n = len(store.Bucket(self.category))
-                progress(_label, _n, _n)
+                progress(_label, len(_blocks), len(_blocks))
             return
 
         _params_ctx = self._prelude(store)                 # 순회 전 1회 (params 등)
         _carry: dict = {}                                  # cross-block reduce (이 호출에만 사는 transient)
-        _blocks = list(store.Bucket(self.category).items())
-        _total = len(_blocks)
-        for _i, (_stem, _frame) in enumerate(_blocks, start=1):
-            _bctx = {**_params_ctx, **self._block_ctx(store, _stem, _frame)}
+        _total = len(_blocks)                              # carry 는 범주 경계에서도 안 끊긴다
+        for _i, (_cat, _stem, _frame) in enumerate(_blocks, start=1):
+            _bctx = {**_params_ctx, **self._block_ctx(store, _cat, _stem, _frame)}
             _bctx.update(_carry)                           # 직전 배치 누산 상태 되먹임
             _last = _bctx
-            for _unit in self._units(store, _stem, _frame, _bctx):
+            for _unit in self._units(store, _cat, _stem, _frame, _bctx):
                 _ctx, _gated = _unit.ctx, False
                 for _idx, _inner in enumerate(self._inners):
                     _out = _inner(**_ctx)
@@ -347,40 +363,40 @@ class Flow(Stage):
     def _prelude(self, store) -> dict:
         return store.Resolve((store.PARAMS,), store.tree.Get(store.PARAMS))
 
-    def _block_ctx(self, store, stem: str, frame: Data_Ref) -> dict:
+    def _block_ctx(self, store, category: str, stem: str, frame: Data_Ref) -> dict:
         """프레임 leaf resolve + **객체 목록**을 ctx 로.
 
         ``object`` 는 store 에서 seed 하고, 체인의 ``split_objects`` 등이 같은 키로 덮어쓴다 — 입력과
         출력이 같은 이름이라 대칭이다. 유닛이 store 핸들을 받아 직접 뒤지지 않게 하는 자리.
         """
         _ctx: dict = {"stem": stem, "object": list(frame.Branches().values())}
-        _ctx.update(store.Resolve((self.category, stem), frame))
+        _ctx.update(store.Resolve((category, stem), frame))
         return _ctx
 
-    def _unit_ctx(self, store, stem: str, bctx: dict,
+    def _unit_ctx(self, store, category: str, stem: str, bctx: dict,
                   obj_id: str | None, obj: Data_Ref | None) -> dict:
         _ctx = dict(bctx)
         _ctx["obj_id"] = obj_id                             # gate·select 가 obj_id 로 거를 수 있게
         if obj is not None:
-            _path = ((self.category, stem, obj_id) if obj_id is not None else
-                     (self.category, stem))                 # frame-단위: 프레임 자신이 obj
+            _path = ((category, stem, obj_id) if obj_id is not None else
+                     (category, stem))                      # frame-단위: 프레임 자신이 obj
             _ctx.update(store.Resolve(_path, obj))
         return _ctx
 
-    def _frame_unit(self, store, stem: str, frame: Data_Ref, bctx: dict) -> Iterator[Unit]:
+    def _frame_unit(self, store, category: str, stem: str, frame: Data_Ref,
+                    bctx: dict) -> Iterator[Unit]:
         """unit=frame: 첫 객체 1회(obj_id 바인딩). 객체가 없으면 프레임만."""
         _objs = frame.Branches()
-        if _objs:
-            _k = next(iter(_objs))
-            yield Unit(stem=stem, ctx=self._unit_ctx(store, stem, bctx, _k, _objs[_k]),
-                       frame=frame, obj_id=_k, obj=_objs[_k])
-        else:
-            yield Unit(stem=stem, ctx=self._unit_ctx(store, stem, bctx, None, None),
-                       frame=frame, obj_id=None, obj=None)
+        _k = next(iter(_objs)) if _objs else None
+        _obj = _objs[_k] if _k is not None else None
+        yield Unit(stem=stem, category=category,
+                   ctx=self._unit_ctx(store, category, stem, bctx, _k, _obj),
+                   frame=frame, obj_id=_k, obj=_obj)
 
     # ── 출력: store 에 앉혀달라고 요청한다 (port 는 store 가 부른다) ──────────────
     def _route(self, store, unit: Unit, spec_map: dict, out: dict) -> None:
         _frame, _obj, _stem, _obj_id = unit.frame, unit.obj, unit.stem, unit.obj_id
+        _cat = unit.category                               # 범주는 stage 설정이 아니라 unit 의 주소다
         for _key, _spec in spec_map.items():
             _val = out.get(_key)
             if _val is None:
@@ -393,8 +409,8 @@ class Flow(Stage):
             if _is_obj and _obj is None:                   # 객체 위치 없음
                 continue
             _target = _obj if _is_obj else _frame
-            _path = ((self.category, _stem, _obj_id) if _is_obj and _obj_id is not None else
-                     (self.category, _stem))
+            _path = ((_cat, _stem, _obj_id) if _is_obj and _obj_id is not None else
+                     (_cat, _stem))
             _target.Push(_key, store.Route(_path, _key, _spec, _val))
 
         _objs = out.get("object")
