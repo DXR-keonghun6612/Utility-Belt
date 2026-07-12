@@ -6,7 +6,7 @@ BRANCH(비었음 — ``info`` = 자식 dict) / LEAF(``(handler, detail)`` — pa
 
 이 모듈은 **저장·정책을 모른다** — ``handler`` 를 import 하지 않아(단방향) 데이터모델만 필요한 소비자가
 cv2·registry 없이 이 파일 하나만 들일 수 있다(cv2-free 코어). 범주·영속·컬렉션은 forest 파사드
-``Bucket_Store`` ([`bucket_store.py`](bucket_store.py)) 소유 — 경계는 "한 노드의 자기 범위 vs 컬렉션·정책 범위".
+``Bucket_Store`` ([`store/`](store)) 소유 — 경계는 "한 노드의 자기 범위 vs 컬렉션·정책 범위".
 """
 
 from __future__ import annotations

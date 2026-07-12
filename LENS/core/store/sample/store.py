@@ -1,7 +1,7 @@
 """파생 스테이지 store — thin ``Sample_Set``(``Bucket_Store``, 범주 = split train/val/test).
 
 정본(staged ``Dataset_Meta``)에서 파생된 학습셋의 구조·영속만 소유한다 — 정본→파생 빌드는
-[`../../sampler`](../../sampler)가 짓는다(meta store↔converter 대칭). split 은 build 때 frame stem 해시로
+[`../../process/sample.py`](../../process/sample.py)가 짓는다. split 은 build 때 frame stem 해시로
 배정되는 **데이터셋 정체성**이다(같은 이미지의 객체는 한 split → leakage 방지). class_id 와 split 은
 독립이라 class 재배정이 split 을 안 건드린다.
 
@@ -65,10 +65,10 @@ class Sample_Set(Bucket_Store):
               split: str, crop=None) -> None:
         """sample 하나를 ``split`` 범주에 넣는다 — ``crop`` 이 있으면 payload 로 저장하고 leaf 를 단다.
 
-        경로는 handler 가 트리 위치에서 파생한다 — ``{root}/{split}/crop/{sample_id}.png``(kind-major).
+        경로는 port 가 트리 위치에서 파생한다 — ``{root}/{split}/crop/{sample_id}.png``(kind-major).
         **class 는 경로에 안 들어간다**(attr 이므로) → 재분류가 파일을 안 건드린다.
 
-        split **배정**(어느 split 이냐)은 빌드 정책이라 여기 없다 — 호출 측(sampler)이 정해 넘긴다.
+        split **배정**(어느 split 이냐)은 빌드 정책이라 여기 없다 — 호출 측(빌드)이 정해 넘긴다.
         여기가 소유하는 건 그 배정을 **앉히는 일**(payload write + 범주 등록)이다.
 
         Args:

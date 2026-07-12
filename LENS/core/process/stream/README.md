@@ -55,11 +55,13 @@ stream/
 - **측정은 Run(정본), 선택은 Sample(파생).** task 가 바뀌어도 쓰는 값(기하 측정)은 정본에 남기고,
   task 특화 선별은 파생에서 솎아낸다 — 정본은 손실 없이.
 
+## 유닛은 store 를 모른다
+
+객체 목록이 필요하면 ctx 의 **`object`** 를 읽는다 — 엔진이 store 에서 seed 하고 `split_objects` 가 같은
+키로 덮어쓰므로, **입력과 출력이 같은 이름으로 대칭**이다. (예전엔 `meta.Find(stem)` 으로 store 를 직접
+뒤졌는데, 그건 유닛의 일탈이 아니라 엔진이 ctx 에 store 핸들을 넣어줬기 때문이었다. 안 넣으니 사라졌다.)
+
 ## 아직 지켜지지 않는 것
 
-- `mask/order.py` 와 `model/segment/_base.py` 가 `meta.Find(stem)` 으로 **store 를 직접 뒤진다.**
-  유닛의 일탈이라기보다 `Meta_block.context` 가 ctx 에 store 핸들을 넣어주기 때문이다 — 객체 목록을
-  ctx 로 resolve 하도록 source 계약을 바꿔야 사라진다.
-- `model/_sam3.py` 는 상태를 든 **런타임**이라 유닛도 자유함수도 아니다. 이 층에 있을 것이 아니다.
-
-둘 다 [`../../TODO.md`](../../TODO.md).
+- `model/_sam3.py` 는 상태를 든 **런타임**이라 유닛도 자유함수도 아니다. 이 층에 있을 것이 아니다
+  ([`../TODO.md`](../TODO.md)).

@@ -1,7 +1,7 @@
 """정본 스테이지 — thin ``Dataset_Meta``(``Bucket_Store`` 서브클래스, 범주 = staging 상태).
 
 조회·쓰기 게이트도 영속·전이도 [`../bucket_store.py`](../bucket_store.py)의 ``Bucket_Store`` 메서드가
-소유한다(순수 트리 코어는 [`../data_ref.py`](../data_ref.py)). 여기 남는 건 **설정**(범주 목록·진입 범주)
+소유한다(순수 트리 코어는 [`../../schema.py`](../../schema.py)). 여기 남는 건 **설정**(범주 목록·진입 범주)
 + 그 범주를 이름으로 노출하는 **named accessor**뿐 — 타입이 곧 트리 모양 보장이라 병합이 같은 타입끼리만.
 """
 

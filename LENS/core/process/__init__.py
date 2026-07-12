@@ -1,9 +1,9 @@
 """process 패키지 — process 유닛 레지스트리 + flow 조립.
 
 ``__init__`` 이 레지스트리(``PROCESS_REGISTRY``)와 조립 팩토리(``Build_process``/``Build_flow``)를
-소유한다. 기본 구조(``Flow``/``Base_Process``)는 ``_base.py``, process 구현은 하위 패키지
-(preprocess/mask/edge/chroma/model/utils)에 있다. flow 종류는 코드 preset이 아니라 **config가 직접 기술**한다
-(복붙용 템플릿: ``presets.example.yaml``).
+소유한다. 기본 구조(``Base_Process``/``Stage``/``Flow``)는 ``_base.py``, 유닛 구현은 ``stream/`` 하위
+(preprocess·filter·mask·chroma·model·select)에 있다. flow 종류는 코드 preset 이 아니라
+**config 가 직접 기술**한다 — 종류마다 클래스를 만들면 종류가 늘 때마다 코드가 는다.
 """
 
 from __future__ import annotations
@@ -47,8 +47,7 @@ def Build_flow(cfg: dict) -> Flow:
 
     ``object_type`` 은 진행 표시 라벨로만 쓰고 나머지 키는 ``Flow`` 필드(``processes``/
     ``finalize_processes``/``unit``/``shared``/``carry``/``cacheable`` …)로 그대로 넘긴다.
-    flow 종류는 코드 preset이 아니라 **config가 직접 기술**한다 — 복붙용 템플릿은
-    ``presets.example.yaml`` 참조.
+    flow 종류는 코드 preset 이 아니라 **config 가 직접 기술**한다 (설계는 ``README.md``).
     """
     _name = cfg.get("object_type")
     return Flow(object_type=_name or "flow",

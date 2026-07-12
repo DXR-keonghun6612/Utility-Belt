@@ -1,34 +1,33 @@
-# model — 모델
+# model — 무거운 모델에 기대는 유닛
 
-무거운 prediction 모델(backend)에 기대는 process 들. backend 는 process 가 소유하지 않고
-**pipeline 이 config 의 `model: {type: sam3, …}` 스펙을 빌드해 주입**한다(같은 스펙은 세션당 1회
-빌드·공유). 모델 type→빌더는 `core/_base.py` 의 `MODEL_BUILDERS`, 런타임 구현은 이 폴더의
-`_sam3.py`(`Sam3_runner`).
+각 유닛의 인자·동작은 그 유닛의 docstring 에 있다. 이 문서는 **backend 와 정책이 왜 갈렸는지**만 다룬다.
+
+---
 
 ## backend / 정책 분리
 
-- **backend (`_sam3.py::Sam3_runner`)** — 모델 고유 저수준 프리미티브만: `infer_ctx`(autocast
-  엔벨로프), `encode`(프레임→state, 이미지 backbone 1회 + text concept), `run`(state + box/points
-  → mask·score·low-res 를 numpy 로 정규화). best mask 선택·이진화·box 배치·구멍 보존 같은 **정책은
-  여기 없다.** 다른 promptable segmenter 로 교체하려면 이 계약(`infer_ctx`/`encode`/`run`)만 구현.
-- **정책 (`segment/`)** — backend 위에서 조립하는 **모델-무관** 층. process 가 backend 종류를
-  모른다. `model:` 한 줄로 backend 교체, 정책은 그대로.
+- **backend** (`_sam3.py::Sam3_runner`) — 모델 고유 저수준 프리미티브만: `infer_ctx`(autocast 엔벨로프) ·
+  `encode`(프레임 → state) · `run`(state + box → mask·score 를 numpy 로 정규화). **정책은 여기 없다** —
+  best mask 선택·이진화·구멍 보존 같은 판단이 들어오는 순간 backend 교체가 불가능해진다.
+- **정책** (`segment/`) — backend 위에서 조립하는 **모델-무관** 층. 유닛이 backend 종류를 모른다.
+  config 의 `model:` 한 줄로 backend 를 갈아끼우고 정책은 그대로 둔다.
 
-## 분할 (`segment/`)
+다른 promptable segmenter 로 옮기려면 `infer_ctx`/`encode`/`run` **이 계약만** 구현하면 된다.
 
-프레임의 객체 bbox 들을 backend 로 분할해 인스턴스 `segment` 를 만든다. 여기서 backend 는
-**검출·분류기가 아니라 promptable segmenter** — 이미 찾아둔 영역(`Split_objects` 가 만든
-frame `info` 의 객체 bbox)을 box 프롬프트로 줘 깨끗한 segmentation mask(학습용 실루엣)를 얻는 게
-목적이다. `class_id` 는 backend 가 정하지 않고 기존 객체 값을 **그대로 유지**한다.
+**backend 는 검출·분류기가 아니라 promptable segmenter 다** — 이미 찾아둔 영역(`Split_objects` 가 만든
+객체 bbox)을 box 프롬프트로 줘 깨끗한 실루엣을 얻는 게 목적이다. 그래서 `class_id` 는 backend 가 정하지
+않고 **기존 객체 값을 그대로 유지**한다.
 
-- **`_base.py::Segment`** — 등록되는 유일한 분할 프로세스(모델 무관, plain box→best mask).
-  `unit: frame` 으로 `meta`/`stem` 을 통해 frame `info` 의 객체(stem) 전체를 읽어, backend 이미지
-  인코딩을 **프레임당 1회**(`encode`)만 돌리고 객체 box 마다 가벼운 `run` 디코드로 분할한다(비싼
-  인코딩 1회 = batch 이득; 객체 수만큼 인코딩 반복 안 함). best mask 로 (1) 인스턴스 라벨맵
-  `segment`(픽셀=obj_id+1) 재칠 (2) bbox 를 mask 기준 재계산. best mask 그대로 채택(`conf=0`;
-  우리가 지목한 영역이라 점수로 거르지 않음), `min_area` 미만만 버린다.
-  - 출력 `segment` 는 config outputs(`{to: storage, level: frame, type: segmap}`)로 저장, `object`
-    는 flow 가 frame `info` 의 객체(stem) entry 를 교체(leaf 는 보존).
-  - **영역 제거(구멍/슬릿 carve)는 여기 넣지 않는다** — SAM3 는 순수 분할만 하고, carve 는
-    downstream process(edge·fill·combine)로 flow 에서 조합한다. 예: `segment` → `carve_color_holes`
-    → `split_objects` (`config/run/extract_sam_hole_by_fill_flows.yaml`).
+**비싼 인코딩은 프레임당 1회** — 이미지 backbone 을 한 번 돌리고 객체 box 마다 가벼운 디코드만 한다
+(객체 수만큼 인코딩을 반복하지 않는다). 이게 `unit: frame` 인 이유다.
+
+**영역 제거(구멍·슬릿 carve)는 여기 넣지 않는다** — backend 는 순수 분할만 하고, carve 는 downstream
+유닛(edge·fill·combine)으로 **flow 에서 조합**한다. 여러 도메인을 엮는 일은 유닛이 아니라 config 의 몫이다.
+
+---
+
+무거운 모델은 유닛이 **소유하지 않는다** — pipeline 이 스펙당 1회 빌드해 주입하고 유닛은 핸들만 든다.
+모델 type→빌더는 `core/_base.py` 의 `MODEL_BUILDERS`.
+
+> `_sam3.py` 는 **상태를 든 런타임**이라 스트리밍 유닛도 자유함수도 아니다 — 이 층에 있을 것이 아니라는
+> 신호다. 열린 논의는 [`../../TODO.md`](../../TODO.md).

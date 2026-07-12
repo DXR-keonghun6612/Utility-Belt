@@ -44,24 +44,23 @@ import 하면 실패 ② `core.schema` 만 들였을 때 cv2·numpy 가 안 딸�
 
 ---
 
-## ▶ 문서 패스 (구현 끝난 뒤 별도로)
+## 문서 소유권 (누가 무엇을 적는가)
 
-**문서화는 기능 구현과 섞지 않는다.** 리팩토링 3단계가 끝난 뒤 한 번에 돈다.
+**같은 사실을 두 곳에 쓰지 않는다.** `core/README.md` 가 data 내부를 중복 서술한 것이 지난번 문서가 썩은
+원인이었다 — 사본만 조용히 거짓이 됐다. 지금 경계는 이렇다:
 
-- [ ] **[`README.md`](README.md)** — 구조 전체가 옛것이다: `data/` 트리, 죽은 심볼(`Gather`·`Iter_refs`·
-      `Data_Ref(type=)`·`Is_inline`), "flat 스키마"(지금은 nested). **값만 고치면 또 썩는다** — data 내부를
-      중복 서술하는 게 원인이므로 **중복 절을 지우고 각 폴더 README 를 가리키게** 다시 쓴다.
-- [ ] **[`process/README.md`](process/README.md)** — stage 표가 없어진 `converter`/`sampler` 를 가리킨다.
-      **존재하지 않는 `presets.example.yaml`** 을 4곳에서 참조한다(`README:25`·`_base.py`·`__init__.py`×2).
-      "연산은 두 종류다"(stream/analysis)는 `Analysis` 계약이 죽어 **근거가 없다**.
-- [ ] **[`store/README.md`](store/README.md)**·[`port/README.md`](port/README.md) — 옮겨왔지만 죽은 링크
-      (`../data_ref.py`·`../../converter`)와 옛 경로. port 는 평탄화도 반영해야 한다(하위 `handler/` 없음).
-- [ ] **결론 난 논의 → README 승격** — 각 TODO 의 "결론 난 논의" 블록(cv2-free 경계 · source/sink 해체 ·
-      pkgutil eager). 지우면 **왜 그렇게 정했는지가 증발한다.**
-- [ ] `stream/{chroma,model,select}/README.md` 재검토 — 심볼 안에서 닫히는 것(각 process 설명·사용 예
-      yaml)은 docstring 으로 내리고, 심볼 사이에 걸친 근거만 남긴다(model 의 backend/정책 분리,
-      chroma 의 "왜 median+IQR").
-- [ ] docstring 잔여 — `store/meta/store.py`·`process/_base.py`(`core.converter.Ingest`) 옛 경로, gui 주석 2곳.
+| 무엇 | 어디 |
+|---|---|
+| 트리 모델(BRANCH/LEAF, `bool(format)` 이 곧 kind) | [`schema.py`](schema.py) docstring — **한 심볼 안에서 닫힌다** |
+| payload 경로 규칙(kind-major) · handler 계약 · `Route` | [`port/README.md`](port/README.md) |
+| 범주 = 구조 key · item 주소 · 사이드카 · 라이프사이클 | [`store/README.md`](store/README.md) |
+| 엔진 · ctx 스코프 · port↔slot · carry/finalize · stream↔func 경계 | [`process/README.md`](process/README.md) |
+| 계층 지도 · 의존 방향 · 바인더 | [`README.md`](README.md) — **내부는 안 적고 가리킨다** |
+
+- **워크플로는 README 가 아니다** — 여러 단계에 걸친 흐름은 문서에 적으면 썩는다. `select/README.md` 의
+  yaml 예시를 지운 이유다(내용은 이미 `gate.py`·`center.py` docstring 에 있었다).
+- **결론 난 논의는 README 로 승격**했고 각 TODO 엔 포인터만 남겼다 — 지우면 **왜 그렇게 정했는지가
+  증발한다.**
 
 ---
 

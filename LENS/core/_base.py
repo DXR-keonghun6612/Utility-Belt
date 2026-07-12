@@ -5,9 +5,9 @@
 dict 풀**(``Pipeline._RESOURCE_POOL``)로 공유한다(프로세스 수명, 인스턴스 간 공유 — GUI 가 실행마다 새
 바인더를 만들어도 재사용).
 
-staging 전이·병합·내보내기(Move/Delete/Merge/Gather) 같은 **데이터 라이프사이클**은 바인더가 아니라
-``data`` 계층 ``Bucket_Store`` **메서드**가 소유한다 — 호출 측(GUI 등)이 ``meta.Move(…)`` 등을
-직접 부른다. Verify(품질 검수)는 Sampling 이후로 미룬다.
+전이·삭제·병합·들이기·내보내기 같은 **데이터 라이프사이클**은 바인더가 아니라 [`store`](store) 의
+``Bucket_Store`` **메서드**가 소유한다 — 호출 측(GUI 등)이 ``meta.Move(…)`` 를 직접 부른다.
+바인더는 계산 단계만 잇는다. Verify(품질 검수)는 미구현.
 
 진입점·경로 resolve 는 [`__init__.py`](__init__.py).
 """

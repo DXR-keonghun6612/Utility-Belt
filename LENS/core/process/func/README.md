@@ -54,4 +54,4 @@ func/
 - **비싼 값은 인자로 받는다.** 프레임당 1회면 충분한 것(예: LoG 벽)을 루프 안에서 다시 구하지 않는다
   (`Carve_holes_by_label(..., walls=...)`).
 - `_space.py`·`_core.py` 의 밑줄은 **모듈이 사설이라는 뜻이 아니다** — 지금은 소비자가 깊게 직접 import
-  한다. 공개 facade 재설계는 [`../../TODO.md`](../../TODO.md).
+  한다. 공개 facade 재설계는 [`../TODO.md`](../TODO.md).

@@ -9,7 +9,7 @@
 **source/sink 계약은 없다** — 순회는 ``store.Bucket(범주)`` 한 줄, resolve 는 자유함수(:func:`resolve`),
 route 는 ``handler`` 직접 호출이라 클래스로 세울 것이 없었다. 세 stage 의 진짜 변주는 traversal 기계가
 아니라 양 끝이고, 그건 **파라미터와 두어 개의 훅**이다. Convert 는 체인을 아예 안 써서 엔진을 떠났다
-(→ ``core.converter.Ingest``). 근거·계획은 [`../TODO.md`](../TODO.md) "★ core 4분할".
+(→ ``store.Import``). 설계 근거는 [`README.md`](README.md).
 
 라우팅 규칙(``outputs`` spec 스키마)은 :meth:`Stage._route`, 설계는 [`README.md`](README.md).
 """

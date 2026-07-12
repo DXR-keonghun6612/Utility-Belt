@@ -8,15 +8,11 @@
 
 ## ✅ 결론 난 논의 — `analysis/` 는 엔진으로 접히지 않는다 (2026-07-12)
 
-> README 승격 대기 (문서 패스).
+**→ README 로 승격됨** ([`README.md`](README.md) "구성"). `carry`+`finalize` 가설은 절반만 맞았다 —
+chroma 진단은 누산기가 이미 params 로 영속이라 엔진이 필요 없고, shape 군집은 GUI 가 파라미터를 바꿔
+**재실행**하므로 finalize 로 접으면 기능 퇴행이다(파이프라인과 **수명이 다르다**). 죽은 `Analysis` 계약은
+삭제했다(구현자 0·등록 0·호출 0).
 
-`carry`+`finalize` 로 접힌다는 가설은 **절반만 맞았다.** chroma 진단은 누산기를 받는 finalize 모양이지만
-누산기가 이미 params 로 영속이라 **엔진이 필요 없고**, `mask/shape` 군집은 sample export 폴더를 훑어
-전 샘플 feature 를 쌓고 GUI 가 파라미터를 바꿔 **재실행**한다 — finalize 로 접으면 "재군집하려면
-파이프라인을 다시 돌려야" 하는 **기능 퇴행**이다. **파이프라인과 수명이 다르다.**
-
-`Analysis` 계약·`ANALYSIS_REGISTRY`·`present` 는 **삭제했다** (서브클래스 0·등록 0·호출 0 — 아무도
-구현하지 않는 추상이었다). → **`README.md` 의 "연산은 두 종류다"(stream/analysis)는 근거가 없다.**
 
 ## ✅ 합의됨 — `analysis/` 모듈 이사 (계약은 죽였고, 코드는 아직 제자리)
 

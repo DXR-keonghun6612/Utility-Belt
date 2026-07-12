@@ -9,7 +9,7 @@ store 가 bare key 로 주소지정하지 않는다 — 그건 ``Data_Ref`` 몫�
 **한 item = 한 사이드카**이고, 그래서 save/restore/delete 가 서로 어긋나지 않는다.
 
 영속 경로는 트리 위치에서 파생 — 사이드카 ``{root}/.meta/{범주}/{key}.json``, payload 는 handler 가
-kind-major 로(``{root}/{범주}/{종류}/{stem}.{ext}`` — [`handler/_base.py`](handler/_base.py) ``_path``).
+kind-major 로(``{root}/{범주}/{종류}/{stem}.{ext}`` — 경로 규칙은 [`../port/README.md`](../port/README.md)).
 """
 
 from __future__ import annotations
