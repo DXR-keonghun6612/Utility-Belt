@@ -12,9 +12,8 @@ from typing import ClassVar, Mapping
 
 from ...constant import META_STATES, MODIFIED, SKIPPED, STAGED
 from ..bucket_store import Bucket_Store
-from ..data_ref import Data_Ref
+from ...schema import Data_Ref
 
-ANNOTATION_FILE = "annotation.json"   # 내보내기 — staged 를 뭉친 자기완결 본
 
 
 @dataclass

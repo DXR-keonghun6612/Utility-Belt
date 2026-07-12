@@ -22,12 +22,9 @@ from typing import Any, Callable, ClassVar
 from python_toolbox.project.config import Base_Config
 
 from .constant import MODIFIED
-from .data import handler
-from .data.meta import Dataset_Meta
-from .data.sample import SAMPLE_DIR, Sample_Set
-from .converter import Ingest
-from .sampler import EXPORTERS, Load_taskers, Sample_stage, Save_taskers
-from .process import Build_flow
+from .process import Build_flow, Sample_stage
+from .store import SAMPLE_DIR, Dataset_Meta, Sample_Set
+from .tasker import Load_taskers, Save_taskers
 from .process.stream.model._sam3 import Sam3_runner
 
 
@@ -114,18 +111,17 @@ class Pipeline:
     def Convert(self, progress: Callable[[str, int, int], None] | None = None) -> int:
         """raw 파일을 탐색해 modified 버킷에 컨테이너 ``Data_Ref`` 를 등록하고 저장한다.
 
-        Convert 는 **stage 가 아니다** — 체인이 비어 엔진을 안 쓰므로 ingest 게이트(``converter.Ingest``)를
-        직접 부른다. 이미 들인 stem 은 건드리지 않는다(검수 이력 보존).
+        Convert 는 **stage 가 아니다** — 체인이 비어 엔진을 안 쓴다. 들이는 일은 라이프사이클이라
+        **store 가 소유한다**(``meta.Import``) — 바인더는 config 를 넘길 뿐이다.
 
         Returns:
             modified 버킷의 총 frame 수. 0이면 sources/globs 가 어떤 파일도 매칭하지 못한 것.
         """
         _cfg = self._converter_cfg
-        Ingest(self.meta,
-               sources=_cfg.get("sources", []),
-               globs=_cfg.get("globs", {}),
-               params=_cfg.get("params", {}),
-               progress=progress)
+        self.meta.Import(sources=_cfg.get("sources", []),
+                         globs=_cfg.get("globs", {}),
+                         params=_cfg.get("params", {}),
+                         progress=progress)
         # class→id 매핑(id_map)은 파생(sample) 소유 — 정본은 class 이름만 든다.
         self.meta.Save()
         return len(self.meta.Bucket(MODIFIED))
@@ -210,10 +206,9 @@ class Pipeline:
     def Export_tasker(self, name: str, dest: str | Path) -> Path:
         """빌드된 tasker 를 학습 프레임워크 레이아웃으로 외부 경로에 실체화한다.
 
-        **split 재배정은 없다** — store 가 이미 split 범주로 갈려 있다(빌드가 배정). 여기서 정하는 건
-        레이아웃뿐이고, 그게 task 다: classification=ImageFolder(`{split}/{class}/…`), detection=COCO
-        (`{split}/images/` + `instances_{split}.json`). 원본(작업 store)은 비파괴. 데이터 라이프사이클
-        (내보내기)은 binder 소유 — GUI 가 이 메서드를 직접 부른다.
+        **내보내기는 store 가 한다** (``Sample_Set.Export`` — 라이프사이클은 store 소유). 바인더가 여기서
+        하는 일은 **레시피에서 task 를 읽어 넘기는 것**뿐이다: 어떤 tasker 인지 아는 건 레시피이고,
+        그 레시피는 바인더가 든다.
 
         Args:
             name: 내보낼 tasker 이름.
@@ -224,34 +219,25 @@ class Pipeline:
 
         Raises:
             FileNotFoundError: tasker 폴더가 없으면 (아직 빌드 안 됨).
-            ValueError: 레시피의 task 에 맞는 exporter 가 없으면.
+            ValueError: 레시피의 task 에 맞는 exporter 가 없으면 (store 가 판정).
         """
-        _src = self._sample_root / name
-        if not _src.exists():
+        if not (self._sample_root / name).exists():
             raise FileNotFoundError(f"빌드된 tasker 가 없습니다: {name!r} (먼저 Sample 실행)")
-        _cfg  = self.Taskers().get(name, {})
-        _task = _cfg.get("task", _cfg.get("object_type", "classification"))
-        _exporter_cls = EXPORTERS.get(_task)
-        if _exporter_cls is None:
-            raise ValueError(f"알 수 없는 sample task: {_task!r} "
-                             f"(가능: {', '.join(EXPORTERS)})")
-        _out = Path(dest) / name
-        _exporter_cls(source=self.Load_sample(name), meta=self.meta,
-                      id_map=self._meta_id_map()).Export(_out)
-        return _out
+        _cfg = self.Taskers().get(name, {})
+        return self.Load_sample(name).Export(
+            Path(dest) / name,
+            task=_cfg.get("task", _cfg.get("object_type", "classification")),
+            meta=self.meta,
+            id_map=self._meta_id_map())
 
     def Id_map(self) -> dict:
         """정본 ``meta.params`` 의 id_map 을 원본 dict 로 돌려준다 (없으면 ``{}``).
 
-        params leaf 는 인라인(attr)일 수도 파일(doc yaml/json)일 수도 있어 ``handler.Load`` 로 통합해
-        읽는다. 값 구조(``{class:{class_id,category_id}}`` 등)는 그대로 — 재배정 class 후보(키 = class
-        이름) 소스로 GUI 가 쓴다. index 로 평탄화한 건 ``_meta_id_map``(내보내기용).
+        params leaf 는 인라인(attr)일 수도 파일(doc yaml/json)일 수도 있는데, ``meta.Param`` 이 그걸
+        통합해 푼다 — 바인더는 포맷을 모른다. 값 구조(``{class:{class_id,category_id}}`` 등)는 그대로:
+        재배정 class 후보(키 = class 이름) 소스로 GUI 가 쓴다. index 로 평탄화한 건 ``_meta_id_map``.
         """
-        _ref = (self.meta.Bucket(self.meta.PARAMS).get("id_map")
-                if self.meta is not None else None)
-        if _ref is None:
-            return {}
-        _val = handler.Load(self.meta.root, (self.meta.PARAMS,), "id_map", _ref)
+        _val = self.meta.Param("id_map") if self.meta is not None else None
         return _val if isinstance(_val, dict) else {}
 
     def _meta_id_map(self) -> dict[str, int] | None:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ....data.handler import Data_Ref
+from ....schema import Data_Ref
 from ...func.mask.instance import Order_by_center
 from .. import PROCESS_REGISTRY, Base_Process, GRAY_IMAGE
 

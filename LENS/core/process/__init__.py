@@ -39,6 +39,9 @@ from .stream.model      import Segment  # noqa: E402
 from .stream.select     import Center_distance, Attr_gate  # noqa: E402
 
 
+from .sample import Sample_stage  # noqa: E402  (Stage 서브클래스 — _base 이후)
+
+
 def Build_flow(cfg: dict) -> Flow:
     """flow config(dict)로 ``Flow`` 를 구성한다.
 
@@ -54,7 +57,7 @@ def Build_flow(cfg: dict) -> Flow:
 
 __all__ = [
     # 기본 구조
-    "Flow", "Stage", "Base_Process", "UI", "BBOX", "GRAY_IMAGE",
+    "Flow", "Stage", "Sample_stage", "Base_Process", "UI", "BBOX", "GRAY_IMAGE",
     # 레지스트리·조립
     "PROCESS_REGISTRY", "Build_process", "Build_flow",
     # process 유닛

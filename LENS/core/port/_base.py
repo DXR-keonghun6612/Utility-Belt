@@ -9,8 +9,8 @@
 ``File_Handler`` 의 공통 로직이 구체 서브클래스의 ``_Read``/``_Write`` 로 정상 디스패치된다.
 
 경로 파생에 필요한 건 ``root`` + ``path``(store 가 넘기는 key 시퀀스)뿐이다 (attr/rle 는 파일이 없어
-둘 다 안 쓴다). 서술자 ``Data_Ref`` 는 [`../data_ref.py`](../data_ref.py) 소유 — 데이터모델이 I/O 계층을
-모르도록 단방향(handler → data_ref). 여기서는 편의로 재노출한다.
+둘 다 안 쓴다). 서술자 ``Data_Ref`` 는 [`core.schema`](../../schema.py) 소유 — 데이터모델이 I/O 계층을
+모르도록 단방향(``schema ← port``)이다. **재노출하지 않는다** (소비처는 ``core.schema`` 에서 직접).
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, ClassVar
 
-from ..data_ref import Data_Ref
+from ..schema import Data_Ref
 
 __all__ = ["Data_Ref", "Handler", "File_Handler"]
 

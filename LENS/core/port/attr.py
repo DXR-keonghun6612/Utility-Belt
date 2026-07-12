@@ -10,7 +10,8 @@ from pathlib import Path
 from typing import Any
 
 from . import HANDLER_REGISTRY
-from ._base import Data_Ref, Handler
+from ..schema import Data_Ref
+from ._base import Handler
 
 
 @HANDLER_REGISTRY.Register_module("attr")

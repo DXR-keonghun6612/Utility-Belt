@@ -1,16 +1,34 @@
 """core — LENS 계산/데이터 계층 (``core`` 자체가 pipeline binder). 설계는 README.
 
 ``__init__`` 은 config 진입점(경로 resolve + 로드)과 노출만 한다.
+
+**바인더는 지연 노출한다** (PEP 562 ``__getattr__``). `from core import Pipeline` 은 그대로 되지만,
+import 자체는 무거운 것(cv2·sam3)을 안 끌고 온다 — 안 그러면 ``import core.schema`` 만 하려는 소비자도
+부모 패키지 실행에 걸려 전부를 들이게 되고, 순수 트리 코어를 따로 뺀 의미가 사라진다. 이 성질은
+[`test_layering.py`](test_layering.py) 가 검사한다.
 """
 
 from __future__ import annotations
 
-import dataclasses
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from python_toolbox.file import Make_dict_from
+if TYPE_CHECKING:                       # 타입 전용 — 런타임엔 안 들인다
+    from ._base import Pipeline, Pipeline_config
 
-from ._base import MODEL_BUILDERS, Pipeline, Pipeline_config
+_LAZY = ("Pipeline", "Pipeline_config", "MODEL_BUILDERS")
+
+
+def __getattr__(name: str):
+    """바인더 심볼을 처음 쓸 때 들인다 (import 시점이 아니라)."""
+    if name in _LAZY:
+        from . import _base
+        return getattr(_base, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    return sorted(__all__)
 
 
 # ── config 파일 기준 경로 resolve ─────────────────────────────────────────────
@@ -45,8 +63,14 @@ def _resolve_config_paths(config_path: Path, d: dict) -> dict:
     return d
 
 
-def Load_pipeline(config_path: str | Path) -> Pipeline:
+def Load_pipeline(config_path: str | Path) -> "Pipeline":
     """config 파일을 로드하고 경로를 resolve 해 ``Pipeline`` 을 생성한다."""
+    import dataclasses
+
+    from python_toolbox.file import Make_dict_from
+
+    from ._base import Pipeline, Pipeline_config
+
     _path   = Path(config_path)
     _ok, _d = Make_dict_from(_path)
     if not _ok or not isinstance(_d, dict):

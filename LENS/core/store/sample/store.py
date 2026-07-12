@@ -13,11 +13,13 @@ export 산출물이지 store 구조가 아니다. 그래서 파생 store 는 이
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import ClassVar, Mapping
 
 from ...constant import SPLITS, TEST, TRAIN, VAL
 from ..bucket_store import Bucket_Store
-from ..data_ref import Data_Ref
+from ... import port
+from ...schema import Data_Ref
 
 SAMPLE_DIR = "sample"                                # 정본 root 아래 파생 서브트리 ({dataset_root}/sample/{tasker})
 
@@ -31,7 +33,32 @@ class Sample_Set(Bucket_Store):
     """
 
     CATEGORIES:       ClassVar[tuple[str, ...]] = SPLITS
-    DEFAULT_CATEGORY: ClassVar[str]             = TRAIN   # placeholder — split 배정은 sampler(frame 해시) 몫
+    DEFAULT_CATEGORY: ClassVar[str]             = TRAIN   # placeholder — split 배정은 빌드(frame 해시) 몫
+
+    # ── 내보내기 — 학습 프레임워크 레이아웃으로 (라이프사이클이라 store 소유) ──────────
+    def Export(self, dest: str | Path, *, task: str,
+               meta=None, id_map: dict[str, int] | None = None) -> Path:
+        """이 학습셋을 ``task`` 레이아웃으로 ``dest`` 아래에 실체화한다 (원본 비파괴).
+
+        **split 은 재배정하지 않는다** — 이미 split 범주로 갈려 있다(빌드가 배정). 여기서 정하는 건
+        레이아웃뿐이고, 그게 task 다: classification=ImageFolder(class-major) / detection=COCO(kind-major).
+
+        Args:
+            dest: 산출물 루트.
+            task: ``EXPORTERS`` 의 key (classification/detection).
+            meta: 정본 store — detection 은 픽셀이 sample 이 아니라 정본에 있어 필요하다.
+            id_map: class→정수. None 이면 class 정렬로 생성.
+
+        Raises:
+            ValueError: 그 task 의 exporter 가 없을 때.
+        """
+        from .export import EXPORTERS
+        _cls = EXPORTERS.get(task)
+        if _cls is None:
+            raise ValueError(f"알 수 없는 sample task: {task!r} (가능: {', '.join(EXPORTERS)})")
+        _out = Path(dest)
+        _cls(source=self, meta=meta, id_map=id_map).Export(_out)
+        return _out
 
     # ── 배치 — sample 하나를 split 범주에 앉힌다 (payload write 포함) ────────────────
     def Place(self, sample_id: str, ref: Data_Ref, *,
@@ -50,9 +77,8 @@ class Sample_Set(Bucket_Store):
             split: 배치할 split 범주.
             crop: 실체화된 crop 이미지 (없으면 payload 없이 역참조만).
         """
-        from .. import handler
         if crop is not None:
-            ref.Push("crop", handler.Route(
+            ref.Push("crop", port.Route(
                 self.root, (split, sample_id), "crop", {"to": "storage"}, crop))
         self.Set(sample_id, ref, category=split)
 

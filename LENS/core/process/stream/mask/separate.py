@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Annotated
 
-from ....data.handler import Data_Ref
+from ....schema import Data_Ref
 from ...func.cv.geom import Roi_to_mask
 from ...func.mask.instance import Split_components
 from .. import PROCESS_REGISTRY, Base_Process, UI, GRAY_IMAGE, BBOX

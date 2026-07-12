@@ -15,7 +15,8 @@ import numpy as np
 from pycocotools import mask as coco_mask
 
 from . import HANDLER_REGISTRY
-from ._base import Data_Ref, Handler
+from ..schema import Data_Ref
+from ._base import Handler
 
 
 def _decode(rle: dict) -> np.ndarray:

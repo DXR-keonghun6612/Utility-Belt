@@ -17,12 +17,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
-from typing import ClassVar, Iterable, Iterator, Mapping
+from typing import Any, Callable, ClassVar, Iterable, Iterator, Mapping
 
 from python_toolbox.data_schema import Data_Schema
-from python_toolbox.file import Write_to
 
-from .data_ref import Data_Ref
+from .. import port
+from ..port import Structure
+from ..schema import Data_Ref
 
 SKIP, OVERWRITE, MERGE = "skip", "overwrite", "merge"
 MERGE_MODES = (SKIP, OVERWRITE, MERGE)
@@ -61,14 +62,6 @@ class Bucket_Store(Data_Schema):
         """범주 무관 root leaf 를 ``params`` 에 넣는다."""
         self.tree.Get(self.PARAMS).Push(name, ref)
 
-    def Get_or_add(self, key: str, ref: Data_Ref, *, category: str | None = None) -> Data_Ref:
-        """있으면 그대로(현재 범주 유지), 없으면 심어 넣고 돌려준다 — 재-ingest 가 이력을 안 덮게."""
-        _cur = self.Find(key)
-        if _cur is not None:
-            return _cur
-        self.Set(key, ref, category=category)
-        return ref
-
     # ── 조회 — item(범주 직속 자식)만 ────────────────────────────────────────────
     def _item_path(self, key: str) -> tuple[str, str] | None:
         """item 의 트리 경로 ``(범주, key)`` — 범주 직속에서만 찾는다 (없으면 None).
@@ -92,7 +85,7 @@ class Bucket_Store(Data_Schema):
 
     def Conflicts(self, other: "Bucket_Store") -> list[str]:
         """``other`` 를 들일 때 겹치는 key 목록 (범주 무관). 병합 전 질의용."""
-        return [_k for _c, _k, _it in other.Iter() if self.Has(_k)]
+        return [_k for _c, _k, _it in other._iter() if self.Has(_k)]
 
     # ── 순회 — 범주 정책(CATEGORIES; params 제외) ────────────────────────────────
     def Bucket(self, category: str) -> Mapping[str, Data_Ref]:
@@ -100,13 +93,99 @@ class Bucket_Store(Data_Schema):
         _b = self.tree.Get(category)
         return MappingProxyType(_b.info if _b is not None else {})
 
-    def Iter(self, cats: Iterable[str] | None = None) -> Iterator[tuple[str, str, Data_Ref]]:
-        """전 범주(``cats`` 주면 그것만) 항목을 ``(category, key, item)`` 로 순회 (params 제외)."""
+    def _iter(self, cats: Iterable[str] | None = None) -> Iterator[tuple[str, str, Data_Ref]]:
+        """전 범주(``cats`` 주면 그것만) 항목을 ``(category, key, item)`` 로 순회 (params 제외).
+
+        **내부용** — 밖에서는 범주를 알고 ``Bucket(cat)`` 을 부른다("어느 범주냐"를 안 정한 채 전부를
+        훑는 건 store 자신의 일뿐이다: ``Conflicts``·``Merge``).
+        """
         for _c in (self.CATEGORIES if cats is None else cats):
             _b = self.tree.Get(_c)
             if _b is not None:
                 for _k, _it in _b.Items():
                     yield _c, _k, _it
+
+    # ── 읽기/쓰기 요청 창구 — 위 계층(process)이 port 를 직접 부르지 않게 ──────────
+    # 계층 규정: 읽기/쓰기는 store 가 소유하고 process 는 **요청**한다. 그래서 store 가 port 를 아는
+    # 유일한 자리고, process 는 파일 포맷·경로 파생을 아예 모른다.
+    def Resolve(self, path: tuple[str, ...], node: Data_Ref) -> dict:
+        """``node`` 의 **직속 LEAF** 를 payload 로 풀어 ``{이름: 값}`` 으로 (BRANCH 자식=객체는 안 판다).
+
+        대상이 없으면(None) 건너뛴다 — 호출 측은 ``Data_Ref`` 가 아니라 ready-to-use 값만 본다.
+
+        Args:
+            path: 이 노드의 트리 key 경로 (예 ``(MODIFIED, stem)`` / ``(MODIFIED, stem, obj_id)``).
+            node: 풀어낼 컨테이너 (프레임 / 객체 / params).
+        """
+        _out: dict = {}
+        for _name, _ref in node.Leaves().items():
+            _val = port.Load(self.root, path, _name, _ref)
+            if _val is not None:
+                _out[_name] = _val
+        return _out
+
+    def Route(self, path: tuple[str, ...], name: str, spec: dict, value: Any,
+              *, params: bool = False) -> Data_Ref:
+        """값을 spec 대로 저장하고 그 ``Data_Ref`` 서술자를 돌려준다 (호출 측이 트리에 꽂는다).
+
+        **경로는 spec 이 안 정한다** — 트리 위치(``path``)와 leaf 이름에서 port 가 파생한다(kind-major).
+        spec 의 ``level``(위치)은 호출 측이 이미 ``path`` 로 풀어 넘기므로, 여기 오는 건 담을 그릇을
+        정하는 키(``to``/``type``/``format``)뿐이다.
+        """
+        return port.Route(self.root, path, name, spec, value, params=params)
+
+    def Param(self, name: str):
+        """``params`` 의 root leaf 하나를 payload 로 풀어 돌려준다 (없으면 None)."""
+        _ref = self.tree.Get(self.PARAMS).Get(name)
+        return None if _ref is None else port.Load(self.root, (self.PARAMS,), name, _ref)
+
+    def Path_of(self, path: tuple[str, ...], name: str, ref: Data_Ref):
+        """이 leaf 를 받치는 파일 경로 (인라인이면 None) — store 밖 레이아웃으로 내보낼 때."""
+        return port.Path_of(self.root, path, name, ref)
+
+    # ── 들이기 — 외부 raw → 트리 (Restore·Merge 의 형제) ─────────────────────────
+    def Import(self, sources: list[str], globs: dict[str, Any],
+               params: dict[str, Any] | None = None,
+               progress: Callable[[str, int, int], None] | None = None) -> int:
+        """외부 raw 를 발견해 payload 를 저장하고 진입 범주에 item 으로 등록한다.
+
+        **발견은 port, 등록은 store.** ``port.Scan`` 이 "어떤 파일이 있나"만 답하고, "어느 범주에 어떻게
+        넣나"는 여기가 정한다 — 그래서 store 는 glob 패턴을 모르고 port 는 범주를 모른다.
+
+        같은 축의 형제들 — ``Restore``(자기 레이아웃) · ``Merge``(다른 store) · ``Import``(외부 raw).
+
+        **이미 있는 stem 은 건드리지 않는다** — 범주도 내용도 그대로 둔다. ingest 는 raw 를 들이는 일이라
+        이미 들인 것에 할 일이 없고, 재수집이 검수 이력(staged/skipped)을 덮어써서는 안 된다. 그래서 존재
+        검사가 payload write **앞**에 온다(파일도 안 쓴다).
+
+        Args:
+            sources: 탐색할 raw 디렉터리들.
+            globs: ``{종류: {pattern, type?, format?}}`` — key 가 곧 종류 폴더(kind-major).
+            params: 범주 무관 dataset-wide 파일 ``{종류: {pattern, …}}`` (stem 축이 없다).
+            progress: 진행 콜백 ``(label, i, total)``.
+
+        Returns:
+            **새로** 등록한 item 수 (이미 있던 건 안 센다).
+        """
+        _groups = port.Scan(sources, globs)
+        _total, _added = len(_groups), 0
+        for _i, (_stem, _files) in enumerate(_groups.items(), start=1):
+            if not self.Has(_stem):                        # 이미 들인 stem → 범주·내용 보존
+                _path = (self.DEFAULT_CATEGORY, _stem)
+                _info = {_name: port.Save(self.root, _path, _name,
+                                          port.Template_for_file(globs[_name]), _src)
+                         for _name, _src in _files.items()}
+                self.Set(_stem, Data_Ref(info=_info))
+                _added += 1
+            if progress is not None:
+                progress("import", _i, _total)
+
+        for _name, _spec in (params or {}).items():        # dataset-wide root leaf
+            _src = Path(port.Pattern_of(_spec))
+            if _src.exists():
+                self.Set_param(_name, port.Save(
+                    self.root, (self.PARAMS,), _name, port.Template_for_file(_spec), _src))
+        return _added
 
     # ── 영속 — 사이드카 = item 하나 (경로 = 트리 위치) ────────────────────────────
     @classmethod
@@ -117,7 +196,6 @@ class Bucket_Store(Data_Schema):
             ValueError: 사이드카 경로가 ``{범주|params}/{key}.json`` 모양이 아닐 때 (모르는 최상위 key
                 또는 깊이 불일치). 조용히 버리지 않는다 — 옛 레이아웃이면 마이그레이션이 필요하다.
         """
-        from .handler import Structure
         _store = cls(root=str(root))
         _tops = (cls.PARAMS, *cls.CATEGORIES)
         for _keys, _d in Structure.Walk(str(root)):
@@ -135,7 +213,6 @@ class Bucket_Store(Data_Schema):
         Raises:
             KeyError: ``key`` 가 item 이 아닐 때 (item 안쪽 노드는 store 의 저장 단위가 아니다).
         """
-        from .handler import Structure
         if key is None:
             for _top, _b in list(self.tree.Items()):
                 for _item_key, _item in list(_b.Items()):
@@ -146,23 +223,11 @@ class Bucket_Store(Data_Schema):
             raise KeyError(f"저장할 item 이 없음: {key}")
         Structure.Write(self.root, _p, self.tree.Get(_p[0]).Get(_p[1]).Serialize())
 
-    def Export(self, categories: list[str] | None = None,
-               out_file: str = "bundle.json") -> str:
-        """선택 범주(기본 전체) 서브트리를 params 와 함께 한 파일로 serialize (경로 반환)."""
-        _tops = (self.PARAMS, *(self.CATEGORIES if categories is None else categories))
-        _d = {_t: {_k: _it.Serialize() for _k, _it in _b.Items()}
-              for _t in _tops if (_b := self.tree.Get(_t)) is not None}
-        _out = Path(self.root) / out_file
-        Write_to(_out, _d)
-        return str(_out)
-
     # ── 전이 — 범주 key 사이 pop→push (payload 도 재귀로 함께 이동) ────────────────
     def _relocate(self, item: Data_Ref, src: tuple[str, ...], dst: tuple[str, ...]) -> None:
         """item 의 payload leaf 들을 ``src`` prefix → ``dst`` prefix 로 옮기고 옛 사이드카를 지운다."""
-        from . import handler
-        from .handler import Structure
         for _lp, _name, _leaf in item.Iter_leaves():
-            handler.Move(self.root, src + _lp, self.root, dst + _lp, _name, _leaf)
+            port.Move(self.root, src + _lp, self.root, dst + _lp, _name, _leaf)
         Structure.Delete(self.root, src)
 
     def Move(self, key: str, to_category: str) -> None:
@@ -178,14 +243,12 @@ class Bucket_Store(Data_Schema):
 
     def Delete(self, key: str) -> None:
         """item 을 완전히 제거 — payload·사이드카·tree (없으면 no-op)."""
-        from . import handler
-        from .handler import Structure
         _p = self._item_path(key)
         if _p is None:
             return
         _item = self.tree.Get(_p[0]).Pop(key)
         for _lp, _name, _leaf in _item.Iter_leaves():
-            handler.Delete(self.root, _p + _lp, _name, _leaf)
+            port.Delete(self.root, _p + _lp, _name, _leaf)
         Structure.Delete(self.root, _p)
 
     def Merge(self, other: "Bucket_Store", *, mode: str = SKIP) -> None:
@@ -193,13 +256,12 @@ class Bucket_Store(Data_Schema):
 
         overwrite/merge 는 내용이 바뀌므로 ``DEFAULT_CATEGORY`` 로 되돌린다. 들이는 노드는 ``Clone``.
         """
-        from . import handler
         if type(self) is not type(other):
             raise TypeError(f"병합은 같은 타입끼리만: {type(self).__name__} ← {type(other).__name__}")
         if mode not in MERGE_MODES:
             raise ValueError(f"알 수 없는 mode {mode!r} ({' / '.join(MERGE_MODES)})")
 
-        for _src_cat, _key, _item in other.Iter():
+        for _src_cat, _key, _item in other._iter():
             _exists = self.Has(_key)
             if _exists and mode == SKIP:
                 continue
@@ -225,13 +287,13 @@ class Bucket_Store(Data_Schema):
                 self.tree.Get(_dst_cat).Push(_key, _new)
 
             for _lp, _n, _lf in _leaves:                          # payload: other → self
-                handler.Copy(other.root, (_src_cat, _key) + _lp,
+                port.Copy(other.root, (_src_cat, _key) + _lp,
                              self.root, (_dst_cat, _key) + _lp, _n, _lf)
             self.Save(_key)
 
         _po, _ps = other.tree.Get(other.PARAMS), self.tree.Get(self.PARAMS)   # params
         for _name, _ref in list(_po.Items()):
             if not _ps.Has(_name) or mode == OVERWRITE:
-                handler.Copy(other.root, (other.PARAMS,), self.root, (self.PARAMS,), _name, _ref)
+                port.Copy(other.root, (other.PARAMS,), self.root, (self.PARAMS,), _name, _ref)
                 _ps.Push(_name, _ref.Clone())
         self.Save()

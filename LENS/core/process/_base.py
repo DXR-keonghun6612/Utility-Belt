@@ -23,8 +23,7 @@ from typing import Any, Callable, ClassVar, Iterator
 from python_toolbox.project.config import Base_Config
 
 from ..constant import MODIFIED
-from ..data import handler
-from ..data.handler import Data_Ref
+from ..schema import Data_Ref
 from ..typing import Arg_Info as UI, BBOX, GRAY_IMAGE
 
 
@@ -105,25 +104,6 @@ class Unit:
     frame:  Data_Ref | None = None
     obj_id: str | None      = None
     obj:    Data_Ref | None = None
-
-
-def resolve(root: str, path: tuple[str, ...], node: Data_Ref) -> dict:
-    """``node`` 의 직속 LEAF 를 핸들러로 풀어 ctx dict 로 만든다 (BRANCH 자식=객체는 안 파고든다).
-
-    각 leaf 를 ``handler.Load`` 로 payload(이미지·배열·값·디코드 마스크)로 해제한다. 대상이 없으면(None)
-    건너뛴다 — process 는 ``Data_Ref`` 가 아니라 ready-to-use 값만 본다.
-
-    Args:
-        root: store fs 루트.
-        path: 이 노드의 트리 key 경로 (예 ``(MODIFIED, stem)`` / ``(MODIFIED, stem, obj_id)``).
-        node: 풀어낼 컨테이너 (프레임 / 객체 / params).
-    """
-    _out: dict = {}
-    for _name, _ref in node.Leaves().items():
-        _val = handler.Load(root, path, _name, _ref)
-        if _val is not None:
-            _out[_name] = _val
-    return _out
 
 
 def inline_ctx(ref: Data_Ref) -> dict:
@@ -215,7 +195,7 @@ class Stage(Base_Config):
         ``to`` = 보관 방식(인라인 / 파일), ``level`` = 위치(기본 ``"object"``), ``format`` = 확장자
         override. **파일 경로는 spec 이 안 정한다** — 트리 위치(범주·stem·obj_id)와 출력키에서 handler 가
         파생한다(kind-major). 값 → ``Data_Ref`` 타입 결정도 spec 이 아니라
-        :func:`core.data.handler.Template` 가 값·맥락으로 정한다.
+        :func:`core.port.Template` 가 값·맥락으로 정한다.
 
         Example:
             체인의 mask 출력을 객체 info 에 rle 인라인으로, score 를 png 파일로::
@@ -365,7 +345,7 @@ class Flow(Stage):
 
     # ── 입력: params 1회 + 프레임 leaf 1회 + 객체 leaf ──────────────────────────
     def _prelude(self, store) -> dict:
-        return resolve(store.root, (store.PARAMS,), store.tree.Get(store.PARAMS))
+        return store.Resolve((store.PARAMS,), store.tree.Get(store.PARAMS))
 
     def _block_ctx(self, store, stem: str, frame: Data_Ref) -> dict:
         """프레임 leaf resolve + **객체 목록**을 ctx 로.
@@ -374,7 +354,7 @@ class Flow(Stage):
         출력이 같은 이름이라 대칭이다. 유닛이 store 핸들을 받아 직접 뒤지지 않게 하는 자리.
         """
         _ctx: dict = {"stem": stem, "object": list(frame.Branches().values())}
-        _ctx.update(resolve(store.root, (self.category, stem), frame))
+        _ctx.update(store.Resolve((self.category, stem), frame))
         return _ctx
 
     def _unit_ctx(self, store, stem: str, bctx: dict,
@@ -384,7 +364,7 @@ class Flow(Stage):
         if obj is not None:
             _path = ((self.category, stem, obj_id) if obj_id is not None else
                      (self.category, stem))                 # frame-단위: 프레임 자신이 obj
-            _ctx.update(resolve(store.root, _path, obj))
+            _ctx.update(store.Resolve(_path, obj))
         return _ctx
 
     def _frame_unit(self, store, stem: str, frame: Data_Ref, bctx: dict) -> Iterator[Unit]:
@@ -398,7 +378,7 @@ class Flow(Stage):
             yield Unit(stem=stem, ctx=self._unit_ctx(store, stem, bctx, None, None),
                        frame=frame, obj_id=None, obj=None)
 
-    # ── 출력: handler 로 meta 에 앉힌다 ────────────────────────────────────────
+    # ── 출력: store 에 앉혀달라고 요청한다 (port 는 store 가 부른다) ──────────────
     def _route(self, store, unit: Unit, spec_map: dict, out: dict) -> None:
         _frame, _obj, _stem, _obj_id = unit.frame, unit.obj, unit.stem, unit.obj_id
         for _key, _spec in spec_map.items():
@@ -406,8 +386,8 @@ class Flow(Stage):
             if _val is None:
                 continue
             if _frame is None and _obj is None:            # 위치 없음(finalize) — params
-                store.Set_param(_key, handler.Route(
-                    store.root, (store.PARAMS,), _key, _spec, _val, params=True))
+                store.Set_param(_key, store.Route(
+                    (store.PARAMS,), _key, _spec, _val, params=True))
                 continue
             _is_obj = _spec.get("level", "object") == "object"
             if _is_obj and _obj is None:                   # 객체 위치 없음
@@ -415,7 +395,7 @@ class Flow(Stage):
             _target = _obj if _is_obj else _frame
             _path = ((self.category, _stem, _obj_id) if _is_obj and _obj_id is not None else
                      (self.category, _stem))
-            _target.Push(_key, handler.Route(store.root, _path, _key, _spec, _val))
+            _target.Push(_key, store.Route(_path, _key, _spec, _val))
 
         _objs = out.get("object")
         if isinstance(_objs, list) and _frame is not None:  # 구조 교체 — 순번=obj_id; leaf 보존

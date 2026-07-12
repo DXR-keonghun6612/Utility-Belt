@@ -13,7 +13,7 @@ from typing import Annotated, Any
 
 import numpy as np
 
-from core.data.handler import Data_Ref
+from core.schema import Data_Ref
 from ....func.cv.geom import Mask_to_box
 from ... import PROCESS_REGISTRY, Base_Process, GRAY_IMAGE, UI
 

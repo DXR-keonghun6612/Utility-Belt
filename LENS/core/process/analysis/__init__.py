@@ -1,12 +1,16 @@
-"""analysis — 종류2 연산: 데이터셋/집계 레벨 분석 (``Analysis`` 계약: analyze/report/figure).
+"""analysis — **아직 흡수되지 않은 덩어리** (계층이 아니다).
 
-스트리밍 ``Base_Process``(→ ``stream``)와 달리 store/배열을 통째로 받아 순수 계산 → report·figure 를
-낸다. Verify 스테이지가 소비한다. 도메인 수학은 ``stream``·``func`` 과 공유(chroma stats·polar 등).
+옛 ``Analysis`` 계약(analyze/report/figure + 레지스트리 + ``present``)은 **구현자 0·등록 0·호출 0** 이라
+삭제했다. 아무도 구현하지 않는 추상이었고, 실제 소비처(``gui/…/sample/_tab.py``)는 계약을 무시하고 모듈
+함수를 직접 import 했다. 그래서 "연산은 stream/analysis 두 종류"라는 서술은 **근거가 없다 — 하나뿐이다.**
 
-무거운 하위 패키지(chroma=matplotlib, mask.shape=umap/hdbscan)는 지연 import 로 격리 — 여기선
-가벼운 계약/레지스트리만 재노출하고, 도메인 패키지는 소비 시점에 직접 import 한다.
+남은 모듈은 자유함수 묶음이고, 갈 곳이 정해져 있다 ([`../TODO.md`](../TODO.md)):
+
+- **계산**(align·features·polar·stats) → [`../func/`](../func) — 배열만 아는 primitive.
+- **chroma 진단** → params(누산기)를 읽는 자유함수. 누산기는 이미 영속이라 엔진이 필요 없다.
+- **shape 군집**(umap/hdbscan) → **산출물 소비자**로 남는다. sample export 폴더를 훑어 군집하고 GUI 가
+  파라미터를 바꿔 **재실행**한다 — finalize 로 접으면 "재군집하려면 파이프라인을 다시 돌려야" 하는
+  기능 퇴행이다. 파이프라인과 **수명이 다르다.**
+
+그때까지는 소비처가 하위 모듈을 직접 import 한다 (지금도 그렇다).
 """
-
-from ._base import Analysis, ANALYSIS_REGISTRY, Get, Available, Run, present
-
-__all__ = ["Analysis", "ANALYSIS_REGISTRY", "Get", "Available", "Run", "present"]
