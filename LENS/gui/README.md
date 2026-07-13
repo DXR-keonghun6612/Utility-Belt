@@ -86,7 +86,8 @@ flow 한 장(카드) = `flows:` 리스트의 1 엔트리 — `object_type`·`uni
 | `meta_page/convert/` | Converter 패널 + 다이얼로그 — raw 소스 탐색 설정 (`Pipeline.Convert`) |
 | `meta_page/run/` | flow 시퀀스 빌더(`Flow_card`/`Flow_sequence`) + 빌더 다이얼로그 |
 | `meta_page/sample/` | 파생 tasker 빌더 창 + tasker별 sample 뷰어(트리+crop+class write-back) (`Pipeline.Sample`) |
-| `viewer/` | **LEAF type 별 표현·편집 레지스트리** — core `HANDLER_REGISTRY` 와 짝. 새 handler → 뷰어 하나 더하면 UI 가 따라온다. 단일 `Mask_editor` 소유 |
+| `viewer/` | **LEAF type 별 표현 레지스트리** — core `HANDLER_REGISTRY` 와 짝. 새 handler → 뷰어 하나 더하면 UI 가 따라온다 (편집기는 안 든다) |
+| `editor/` | **편집기 계층** — 골격(`Editor_base`: 도구·이력·잠금·조준) + 대상별(`image/`). 3d·시퀀스가 들어올 자리 |
 | `steps/` | process-chain 편집 (`Process_step` + `Step_list`) — run·sample 공유 |
 | `form/` | process/모델 파라미터 폼 자동 생성 (`Annotated[UI]` 기반) |
 | `widgets/` | 공통 저수준 위젯 (core 의존 0) — `image`/`rows`/`list_editor` 하위 + `Collapsible` |

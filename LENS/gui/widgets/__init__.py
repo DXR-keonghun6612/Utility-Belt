@@ -8,7 +8,7 @@ from ._layout import drop, move_buttons, reorder
 from ._tree import make_tree, set_bold
 from .image import Image_label
 from .list_editor import List_editor, List_row, Pair_list_editor
-from .rows import Float_slider_row, Int_slider_row, Path_row
+from .rows import Float_slider_row, Int_slider_row, Path_row, Snap_slider_row
 
 __all__ = [
     "Collapsible",
@@ -16,6 +16,7 @@ __all__ = [
     "Path_row",
     "Float_slider_row",
     "Int_slider_row",
+    "Snap_slider_row",
     "drop",
     "reorder",
     "move_buttons",

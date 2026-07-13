@@ -21,7 +21,15 @@ stem 을 바꿔도 params 는 그대로 있고, 그 raster(예: `roi`)는 어느
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QHBoxLayout, QPushButton, QSplitter, QVBoxLayout, QWidget
+from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QMessageBox,
+    QPushButton,
+    QSplitter,
+    QVBoxLayout,
+    QWidget,
+)
 
 from gui.meta_page.view._data_view import Data_view
 from gui.meta_page.view._node_panel import Node_panel
@@ -60,10 +68,17 @@ class Meta_view(QWidget):
 
         _top = QHBoxLayout()
         self._save_btn = QPushButton("저장")
-        self._save_btn.setToolTip("이 stem 의 편집을 저장하고 객체를 재정렬한다 (obj_id 구멍 압축)")
+        self._save_btn.setToolTip("이 stem 의 편집을 저장하고 객체를 재정렬한다 (obj_id 구멍 압축)  [Ctrl+S]")
         self._save_btn.setEnabled(False)
         self._save_btn.clicked.connect(self._on_save)
         _top.addWidget(self._save_btn)
+
+        # 편집은 전부 메모리라, **취소 = 되돌리기 스택이 아니라 다시 읽기**다 (한 번에 마지막 저장 시점으로).
+        self._revert_btn = QPushButton("되돌리기")
+        self._revert_btn.setToolTip("저장 안 한 편집을 버리고 디스크에서 다시 읽는다  [Ctrl+R]")
+        self._revert_btn.setEnabled(False)
+        self._revert_btn.clicked.connect(self._on_revert)
+        _top.addWidget(self._revert_btn)
         _top.addStretch(1)
         _lay.addLayout(_top)
 
@@ -84,11 +99,14 @@ class Meta_view(QWidget):
         self._leaf_tree.layers_changed.connect(self._redraw)
         self._leaf_panel.changed.connect(self._on_nodes_changed)
 
-        self._obj_panel = Node_panel("objects", self._meta, lambda: self._key)
+        # 객체 삭제·병합은 라벨맵을 고친다 — **캔버스에 뜬 그 배열**을 넘긴다(디스크 사본이 아니라).
+        self._obj_panel = Node_panel("objects", self._meta, lambda: self._key,
+                                     lambda: self._data.segment_node())
         self._obj_tree = self._obj_panel.tree
         self._obj_tree.selected.connect(self._on_node)
         self._obj_tree.layers_changed.connect(self._redraw)
         self._obj_panel.changed.connect(self._on_nodes_changed)
+        self._obj_panel.raster_edited.connect(self._on_raster_edited)
 
         _mid = QSplitter(Qt.Orientation.Vertical)
         _mid.addWidget(Collapsible("params  (dataset-wide)", self._params, expanded=False))
@@ -101,6 +119,7 @@ class Meta_view(QWidget):
         self._data = Data_view()
         self._data.edited.connect(self._on_edited)
         self._data.raster_edited.connect(self._on_raster_edited)
+        self._data.object_picked.connect(self._obj_tree.select_node)   # 캔버스 클릭 → 트리 선택 (Shift=더하기)
 
         _split = QSplitter(Qt.Orientation.Horizontal)
         _split.addWidget(self._stem_list)
@@ -109,6 +128,31 @@ class Meta_view(QWidget):
         _split.setStretchFactor(2, 1)
         _split.setSizes([240, 320, 700])
         _lay.addWidget(_split, stretch=1)
+        self._install_shortcuts()
+
+    def _install_shortcuts(self) -> None:
+        """**store 를 아는 단축키는 여기 산다** — 편집기가 아니라.
+
+        도구·이력 단축키(`V/R/D/E`·`B/P/C/F`·`Ctrl+Z/Y`·`[`·`]`)는 편집기가 자기 도구 선언에서 만든다.
+        여기 있는 것들은 저장·객체 추가/삭제라 store 를 불러야 하고, 그걸 편집기에 들려주면 편집기가
+        다시 store 에 묶여 재사용이 안 된다(옛 `Stem_editor` 가 그랬다).
+
+        * ``0``–``9``  : 그 순번 객체 선택 (라벨링 중 손이 트리로 안 가게)
+        * ``A``        : 객체 추가 · ``Delete`` : 선택 노드 삭제 · ``M`` : 고른 객체 병합
+        * ``Ctrl+S``   : 저장 (+ 객체 재정렬) · ``Ctrl+R`` : 저장 안 한 편집 버리고 다시 읽기
+        """
+        def _bind(seq: str, slot) -> None:
+            _sc = QShortcut(QKeySequence(seq), self)
+            _sc.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+            _sc.activated.connect(slot)
+
+        for _i in range(10):
+            _bind(str(_i), lambda i=_i: self._obj_tree.select_index(i))
+        _bind("A", self._obj_panel.add_object)
+        _bind("Delete", self._obj_panel.delete_selected)
+        _bind("M", self._obj_panel.merge_selected)
+        _bind("Ctrl+S", self._on_save)
+        _bind("Ctrl+R", self._on_revert)
 
     # ── Public API ────────────────────────────────────────────────────────────
     def set_pipeline(self, pipeline) -> None:
@@ -130,6 +174,7 @@ class Meta_view(QWidget):
         self._obj_panel.set_editable(editable)
         self._data.set_editable(editable)
         self._save_btn.setEnabled(editable and self._dirty)
+        self._revert_btn.setEnabled(editable and self._dirty)
 
     def refresh(self, keep: str | None = None) -> None:
         """현재 ``pipeline.meta`` 로 목록을 다시 채운다 (선택은 트리·뷰어를 따라 갱신된다)."""
@@ -199,7 +244,13 @@ class Meta_view(QWidget):
                                + self._leaf_tree.checked_layers())
 
     def _on_nodes_changed(self) -> None:
-        """노드가 추가/삭제됨 — 캔버스를 다시 합성하고 상위에 알린다."""
+        """노드가 추가/삭제됨 — 캔버스를 다시 합성하고 **저장 대기**로 표시한다.
+
+        객체 추가·삭제·병합은 메모리에서만 일어난다(payload-free) — 그래서 값 편집과 똑같이 저장을
+        기다린다. 데이터 leaf 추가·삭제는 파일을 이미 건드렸지만, 트리에 생긴/사라진 서술자는 사이드카에
+        적혀야 하므로 여기서도 dirty 다.
+        """
+        self._mark_dirty(None)
         self._redraw()
         self.meta_changed.emit()
 
@@ -228,14 +279,42 @@ class Meta_view(QWidget):
 
     # ── 명시적 저장 (auto-save 대신) — 저장 = flush + obj_id 압축(Order) ───────────
     def _on_save(self) -> None:
-        """이 stem 의 편집을 디스크에 flush 하고 객체를 재정렬한다 (obj_id 구멍 압축)."""
+        """이 stem 의 편집을 flush 하고 객체를 재정렬한다 — obj_id 구멍 압축 + **유령 객체 제거**.
+
+        제거는 데이터가 사라지는 일이라 **말해준다**. 라벨맵에 자리가 없는 객체(mask 가 비었거나 bbox 를
+        안 그린 것)는 객체로 성립하지 않아 여기서 떨어져 나간다 — 조용히 없어지면 사용자는 자기가 만든
+        객체가 왜 사라졌는지 알 수 없다.
+        """
         if self._pipeline is None or not self._editable or not self._dirty:
             return
         _key = self._key
         self._flush()                                   # 대기 라스터 Route + 사이드카 Save
-        if _key:
-            self._pipeline.Order(stems=[_key])          # obj_id·segment 라벨 압축 (한 stem)
+        _dropped = self._pipeline.Order(stems=[_key]) if _key else 0
         self.refresh(keep=_key)                         # 재정렬 결과를 다시 그린다
+        self.meta_changed.emit()
+        if _dropped:
+            QMessageBox.information(
+                self, "저장",
+                f"라벨이 없는 객체 {_dropped}개를 제거했습니다 — 객체로 남으려면 mask 를 칠하고 "
+                f"bbox 를 그려야 합니다.")
+
+    def _on_revert(self) -> None:
+        """저장 안 한 편집을 **버리고 디스크에서 다시 읽는다** — 편집의 취소는 되돌리기가 아니다.
+
+        붓질·상자·객체 추가/삭제/병합이 전부 메모리에 쌓이므로, 마지막 저장 시점으로 한 번에 돌아가는
+        길이 있으면 개별 undo 를 겹겹이 쌓을 필요가 없다(그게 사용자가 실제로 원하는 "취소"다).
+        """
+        if self._pipeline is None or not self._editable or not self._dirty:
+            return
+        if QMessageBox.question(
+                self, "되돌리기",
+                "저장하지 않은 편집을 모두 버리고 디스크에서 다시 읽습니다. 계속할까요?") \
+                != QMessageBox.StandardButton.Yes:
+            return
+        _key = self._key
+        self._pipeline.Reload()                         # 정본을 디스크 기준으로 다시 (메모리 편집 폐기)
+        self._reset_dirty()
+        self.refresh(keep=_key)
         self.meta_changed.emit()
 
     def _flush(self) -> None:
@@ -267,9 +346,11 @@ class Meta_view(QWidget):
         if _meta is not None and node is not None and node.path and node.path[0] == _meta.PARAMS:
             self._dirty_params = True
         self._save_btn.setEnabled(self._editable)
+        self._revert_btn.setEnabled(self._editable)      # 취소 = 다시 읽기 (같은 dirty 를 탄다)
 
     def _reset_dirty(self) -> None:
         self._dirty = False
         self._dirty_params = False
         self._pending_rasters = []
         self._save_btn.setEnabled(False)
+        self._revert_btn.setEnabled(False)

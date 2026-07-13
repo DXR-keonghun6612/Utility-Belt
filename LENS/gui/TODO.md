@@ -33,14 +33,17 @@ gui/
   app/                           # 연결: Pipeline 소유 + page 창·다이얼로그 배선·주입
   viewer/                        # LEAF type 별 표현·편집 레지스트리 (core HANDLER_REGISTRY 와 짝)
   meta_page/                     # 구성: 정본 편집 창 하나 (주입 수신, 싱글턴)
-    view/ · convert/ · run/      # view 안에 데이터/객체 트리 + Data_view(단일 편집기)
+    view/ · convert/ · run/      # view 안에 데이터/객체 트리 + Data_view(편집기 조준)
     sample/                      # 파생 갈래 (meta 입력 → 1:N tasker)
+  editor/                        # 편집기 계층 — 골격(Editor_base) + 대상별(image/); 3d·시퀀스 자리
 ```
 
 - **converter·run 은 "빌더 3형제"가 아니라 정본 생성·enrich 연산** → `meta_page` 소속. sampler 는
   파생 → `meta_page/sample/`. 셋의 recipe-dialog 유사성은 표현 축 착시(W2 베이스는 위젯 레벨만).
 - **깊은 편집은 별도 surface 가 아니다** — 옛 `edit/`(Stem_editor)는 은퇴하고, 편집은 `view/` 의
-  `Data_view` 가 든 **단일 `Mask_editor`**(`viewer/`)가 구조적으로 조준한다(타입별 편집기 없음).
+  `Data_view` 가 **앱에 하나뿐인 편집기**(`editor/image`)를 구조적으로 조준한다(타입별 편집기 없음).
+  편집기는 다시 **골격 ↔ 대상**으로 갈렸다(`editor/README.md`) — 도구·이력·잠금·조준은 좌표계를 모르는
+  `Editor_base` 가 들고, 픽셀은 `Image_editor` 가 든다. 3d points·시퀀스는 Base 를 상속해 들어온다.
 - **1:1(meta, 싱글턴) vs 1:N(sample, 컬렉션 매니저) 비대칭**은 구조로 드러낸다.
 
 ### steps 미래 — card(1D) → block/node-graph (Simulink 형)
@@ -51,14 +54,24 @@ run/sample 소비처는 무변경. steps/ 를 지금 중립 패키지로 떼는 
 
 ---
 
-## ✅ 합의됨 — obj_id ↔ segment 라벨 규약(obj_id+1)이 흩어져 있다
+## ✅ 합의됨 — stem 팝아웃이 죽어 있다
 
-`label = obj_id + 1` 과 "item 의 segmap leaf 찾기"가 여러 곳에 복제됐다 — `viewer/obj.label_of` ·
-`process/sample._obj_mask` · `store/meta.Remove_object._clear_label` · `core/_base.Pipeline._order_stem`.
-schema 가 경고하는 *"같은 필터 흩어짐"* 이다(계층① "최소 추상화").
+`Stem_list` 는 더블클릭에 `popout_requested` 를 쏘지만 **받는 데가 없다**(옛 `Stem_edit_dialog` 와 함께
+사라졌다). 새 구조에서 팝아웃은 옛 편집기 부활이 아니라 **(데이터·객체 트리 + `Data_view`) 묶음을 stem
+하나로 띄우는 것**이라, 그 묶음을 `Meta_view` 에서 떼어내야 한다(stem 목록·저장 버튼은 안 따라간다).
 
-- [ ] 규약을 한 곳으로 승격 — core 에 "item 의 segmap leaf" + "obj_id→라벨" 헬퍼 하나. 다음에 라벨
-      규칙이 바뀌면 한 곳만 고치게 (core 파급이라 core 와 함께).
+- [ ] `Meta_view` 에서 stem 편집 surface 를 분리 → 본문 임베드 / 팝아웃 창이 같은 위젯을 쓴다.
+      떼기 전까지 `popout_requested` 는 연결 없이 남는다(지우지 않는다 — 요구는 살아 있다).
+
+## ❓ 논의 대상 — 데이터 leaf 삭제만 되돌릴 수 없다
+
+편집은 전부 메모리고 취소 = 다시 읽기인데(`view/README.md`), **데이터 leaf 추가·삭제만 파일을 즉시**
+낳거나 지운다. 그래서 leaf 를 지운 뒤 "저장 안 하고 되돌리기"를 해도 payload 는 안 돌아온다(사이드카는
+그 자리에서 맞춰 두므로 정합은 깨지지 않는다 — 되돌아갈 수 없을 뿐이다).
+
+- 미룰 수 있나 — store 에 **지연 삭제 큐**(저장 때 파일 제거)를 두면 leaf 도 같은 계약이 된다. 대신
+  "지웠는데 파일이 아직 있다"는 중간 상태가 생긴다.
+- 아니면 지금대로 두고 **확인 다이얼로그가 비대칭을 말한다**(현재 선택). 답이 나오면 README 로 승격.
 
 ## ✅ 합의됨 — flow 카드가 `Stage` 필드를 손으로 복제한다 (드리프트)
 
@@ -103,8 +116,9 @@ schema 가 경고하는 *"같은 필터 흩어짐"* 이다(계층① "최소 추
 - [x] store_io 표기 정정 + 이동 반영 문서(README 헤더·상대링크·gui 구조표) — 완료.
 - [ ] `app/_main.py`: meta 가져오기·비우기(`_on_import_meta`·`_on_clear_all`)는 아직 셸에 남음 —
       필요 시 `_session` helper 로 추가 분리(당장은 응집 OK).
-- [x] 옛 `edit/`(Stem_editor·주석 패널·draw/overlay) 은퇴 — 편집은 `view/Data_view` + 단일 `Mask_editor`
-      (`viewer/`)로 대체. 공용 헬퍼(`magic_wand`→`viewer/_fill`, base 로드→`sample` 인라인)만 이관하고 삭제.
+- [x] 옛 `edit/`(Stem_editor·주석 패널·draw/overlay) 은퇴 → `editor/`(Base + image)로 재구성하고 사라졌던
+      인터랙션(단축키·bbox 핸들·캔버스 선택·미리보기·밝기·조작×모양 2축)을 그 위에 복원. 편집기는
+      `viewer/` 를 떠났다(뷰어 = 표현 레지스트리, 편집 = `editor/`).
 
 > **W4 보류 근거.** 진짜 공유분(`Pop_dialog`·`save_dict`/`load_dict`)은 이미 `widgets`·`_io` 로 팩터됨.
 > 남는 공통은 save/load 버튼 배선(~4줄)뿐인데 본문·수명이 이질적(Run=edit-only · Converter=임베드 패널

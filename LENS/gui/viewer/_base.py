@@ -12,7 +12,7 @@ UI 가 따라온다.** 예전엔 새 종류가 생겨도 붙일 자리가 없었
 
 **편집기는 여기 없다.** 한때 뷰어가 편집 툴바(``tools()``)를 만들어 냈는데, 그건 편집이 타입마다 다른
 일인 척한 것이다. 실제로 편집 대상은 언제나 **라스터**고 객체는 그 안의 **라벨**이다 — 즉 편집은
-타입별이 아니라 **구조적**이다. 그래서 편집기는 [`_raster_edit.Mask_editor`](_raster_edit.py) 하나뿐이고
+타입별이 아니라 **구조적**이다. 그래서 편집기는 [`gui/editor`](../editor/README.md) 가 소유하고
 **앱에 하나만 산다**(`Data_view` 가 소유). 뷰어는 ``EDITABLE`` 로 "이 노드를 조준할 수 있다"만 말한다.
 """
 from __future__ import annotations
@@ -58,7 +58,7 @@ class Node_viewer:
 
     #: 캔버스에 그릴 수 있나 — 노드 트리가 **체크박스를 붙일지** 이걸로 정한다.
     RASTER: ClassVar[bool] = False
-    #: 캔버스 편집기가 **조준할 수 있나** — 선택하면 `Mask_editor` 가 이 노드를 겨눈다.
+    #: 캔버스 편집기가 **조준할 수 있나** — 선택하면 `Image_editor` 가 이 노드를 겨눈다.
     #: 무엇을 겨누는지는 구조가 정한다: 객체(BRANCH)면 프레임의 라벨맵 + 그 객체의 라벨,
     #: 이진 mask leaf 면 그 라스터 자체.
     EDITABLE: ClassVar[bool] = False
@@ -78,7 +78,7 @@ class Node_viewer:
 
         Args:
             value: 디코드된 payload (store 가 풀어 준 것).
-            ref: 그 LEAF 의 서술자 — ``format[1]``(detail)이 위젯을 가른다(attr 의 str vs xyxy).
+            ref: 그 LEAF 의 서술자 — 인라인은 ``format`` 이 위젯을 가른다 (개념 → 없으면 파이썬 타입).
             ctx: 표시에 필요한 주변 정보 (예: ``{"candidates": [...]}`` — id_map 의 class 후보).
             on_change: 값이 편집되면 부를 콜백 ``(새 값) -> None``.
         """

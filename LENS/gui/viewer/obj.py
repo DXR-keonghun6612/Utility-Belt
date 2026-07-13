@@ -4,7 +4,8 @@
 
 - **mask** — 칠하면 프레임의 ``segment`` 에 **그 객체의 라벨**(= obj_id + 1)이 찍힌다. 라벨을 손으로
   고를 일이 없다(객체가 곧 라벨이다).
-- **bbox** — 캔버스에서 드래그해 그린다. 그 객체의 ``bbox`` attr(``xyxy``)이 진실이다.
+- **bbox** — 캔버스에서 드래그해 그린다. 그 객체의 ``bbox``(``("bbox","list")`` = 코너 4개)가 진실이다.
+  **안 그리면 그 객체는 저장 때 사라진다** — 라벨맵에서 자기 자리를 bbox 로 찾기 때문이다(`Order_objects`).
 
 그래서 "대상 라벨 스핀박스" 같은 게 없다 — 예전 편집기가 객체별 mask 를 따로 들고 저장 때 합치던 것도,
 라벨을 손으로 고르던 것도, **객체가 편집 단위**임을 UI 가 몰라서 생긴 우회였다.
@@ -21,14 +22,6 @@ from PySide6.QtWidgets import QLabel, QWidget
 from core.schema import Data_Ref
 
 from ._base import BRANCH, Node_viewer, Register
-
-
-def label_of(obj_id: str) -> int | None:
-    """객체 id → segment 라벨 (= obj_id + 1). 정수가 아니면 None (라벨맵에 자리가 없다)."""
-    try:
-        return int(obj_id) + 1
-    except (TypeError, ValueError):
-        return None
 
 
 @Register(BRANCH)

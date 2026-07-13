@@ -1,8 +1,12 @@
-"""attr 뷰어 — 인라인 값. **detail 이 위젯을 가른다** (`str` → 콤보/입력, `xyxy` → 스핀 4개).
+"""attr 뷰어 — 인라인 값. **개념 → 없으면 파이썬 타입**이 위젯을 가른다.
 
-예전엔 class_id·obj_id·bbox 가 객체 폼에 **하드코딩**돼 있었다(`_Ann_edit_form`). 그런데 그것들은
-특별한 종류가 아니라 그냥 `("attr", …)` LEAF 다 — 데이터모델이 그렇게 말한다. 여기서 detail 로 갈라주면
-새 attr(예: `("attr","float")`)이 생겨도 UI 를 손댈 필요가 없다.
+LEAF format 은 `(개념, 파이썬 타입)` 이다(core `schema.Build`). 위젯도 같은 순서로 고른다: 개념이 있으면
+그 개념 전용 위젯(`bbox` → 스핀 4개), 없으면 파이썬 타입대로(`int`·`float` → 스핀, `str`·`list` →
+콤보/한 줄 입력).
+
+예전엔 class_id·obj_id·bbox 가 객체 폼에 **하드코딩**돼 있었고(`_Ann_edit_form`), 그 다음엔 `("attr","xyxy")`
+처럼 **타입 자리에 타입이 아닌 것**이 적혀 있었다. 이제 데이터모델이 스스로 말하므로 새 개념이 생겨도
+여기 분기 하나만 늘고 **핸들러는 안 는다** — port 는 등록 안 된 개념을 전부 인라인으로 흘려보낸다.
 """
 from __future__ import annotations
 
@@ -10,6 +14,7 @@ from typing import Any
 
 from PySide6.QtWidgets import (
     QComboBox,
+    QDoubleSpinBox,
     QHBoxLayout,
     QLineEdit,
     QSpinBox,
@@ -21,13 +26,17 @@ from core.schema import Data_Ref
 
 from ._base import Node_viewer, Register
 
+#: 개념 없는 인라인 값의 등록 key — format 첫 칸이 비어 있다 (``("", "str")``).
+PLAIN = ""
+BBOX = "bbox"
 
-def _detail(ref: Data_Ref) -> str:
+
+def _python_type(ref: Data_Ref) -> str:
     return ref.format[1] if len(ref.format) > 1 else ""
 
 
 class _Bbox_row(QWidget):
-    """``xyxy`` 값을 스핀 4개로 편집한다 (그림 편집과 양방향)."""
+    """``bbox`` 개념 — 스핀 4개로 편집한다 (캔버스 드래그와 양방향)."""
 
     def __init__(self, value, on_change, parent=None) -> None:
         super().__init__(parent)
@@ -57,9 +66,26 @@ class _Bbox_row(QWidget):
             _sp.blockSignals(False)
 
 
-@Register("attr")
+class _Number_row(QWidget):
+    """``int``/``float`` — **타입 그대로** 돌려주는 스핀 (문자열로 돌려주면 저장 때 타입이 갈린다)."""
+
+    def __init__(self, value, type: str, on_change, parent=None) -> None:
+        super().__init__(parent)
+        _lay = QVBoxLayout(self)
+        _lay.setContentsMargins(0, 0, 0, 0)
+        _sp = QSpinBox() if type == "int" else QDoubleSpinBox()
+        _sp.setRange(-10 ** 9, 10 ** 9)
+        if isinstance(_sp, QDoubleSpinBox):
+            _sp.setDecimals(4)
+        _sp.setValue((int if type == "int" else float)(value or 0))
+        if on_change is not None:
+            _sp.valueChanged.connect(on_change)
+        _lay.addWidget(_sp)
+
+
+@Register(PLAIN, BBOX)
 class Attr_viewer(Node_viewer):
-    """인라인 값 — detail 로 위젯을 고른다."""
+    """인라인 값 — 개념(``bbox``) → 없으면 파이썬 타입으로 위젯을 고른다."""
 
     @classmethod
     def summary(cls, value: Any, ref: Data_Ref) -> str:
@@ -68,14 +94,21 @@ class Attr_viewer(Node_viewer):
     @classmethod
     def panel(cls, value: Any, ref: Data_Ref, *, ctx: dict | None = None,
               on_change=None) -> QWidget | None:
-        """detail 로 위젯을 고른다 — ``xyxy`` = 스핀 4개, 그 외 = 한 줄 입력.
+        """개념 → 파이썬 타입 순으로 위젯을 고른다.
+
+        **편집한 값은 그 타입 그대로 돌려준다** — ``int`` 를 문자열로 돌려주면 다음 저장에서 detail 이
+        ``str`` 이 된다(값이 곧 타입이므로). 타입이 조용히 갈리는 자리다.
 
         ``ctx["candidates"]`` 가 있으면 **자유 입력 가능한 콤보**가 된다. **어느 노드에 후보를 줄지는
         호출 측이 정한다** — 뷰어는 "후보가 있으면 고르게 한다"만 안다(class_id 를 여기서 알면 도메인
         지식이 뷰어로 샌다).
         """
-        if _detail(ref) == "xyxy":
+        if ref.format[:1] == (BBOX,):
             return _Bbox_row(value, on_change)
+
+        _type = _python_type(ref)
+        if _type in ("int", "float"):
+            return _Number_row(value, _type, on_change)
 
         _cands = (ctx or {}).get("candidates")
         _w = QWidget()

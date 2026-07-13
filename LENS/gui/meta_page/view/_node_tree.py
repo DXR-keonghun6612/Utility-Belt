@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QItemSelectionModel, Qt, Signal
 from PySide6.QtWidgets import QHeaderView, QTreeWidget, QTreeWidgetItem
 
 from core.schema import Data_Ref
@@ -71,6 +71,8 @@ class Node_tree(QTreeWidget):
         self.header().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.header().setSectionResizeMode(1, QHeaderView.Stretch)
         self.setAlternatingRowColors(True)
+        if scope == "objects":                       # 여럿을 골라 **병합**한다 (데이터는 하나씩 다룬다)
+            self.setSelectionMode(QTreeWidget.SelectionMode.ExtendedSelection)
         self._editable = True
         self.currentItemChanged.connect(self._on_current)
         self.itemChanged.connect(self._on_check)
@@ -142,9 +144,14 @@ class Node_tree(QTreeWidget):
         return _out
 
     def current_node(self) -> Node | None:
-        """현재 선택된 노드 (없으면 None)."""
+        """현재 선택된 노드 (없으면 None) — 다중선택이어도 **조준은 current 하나**다."""
         _it = self.currentItem()
         return _it.data(0, _ROLE) if _it is not None else None
+
+    def selected_nodes(self) -> list[Node]:
+        """선택된 노드들 (``objects`` scope 에서만 여럿일 수 있다 — 병합의 단위)."""
+        _out = [_it.data(0, _ROLE) for _it in self.selectedItems()]
+        return [_n for _n in _out if _n is not None]
 
     def top_nodes(self) -> list[Node]:
         """루트 직속 노드들 — ``objects`` scope 에선 곧 객체 목록이다 (bbox·조준의 단위)."""
@@ -155,6 +162,40 @@ class Node_tree(QTreeWidget):
             if _n is not None:
                 _out.append(_n)
         return _out
+
+    def select_node(self, node: Node, additive: bool = False) -> bool:
+        """그 노드의 항목을 선택한다 (캔버스에서 고른 객체를 트리에 반영). 찾으면 True.
+
+        ``additive`` 면 기존 선택을 지우지 않고 **토글**한다 — 안 골랐으면 더하고, **이미 골랐으면 뺀다**.
+        캔버스에서 Shift+클릭으로 병합할 것들을 모으는 길이라, 잘못 집은 것을 빼려고 처음부터 다시
+        고르게 하면 안 된다. 뺄 때 조준(current)은 남은 선택 중 하나로 옮긴다 — 방금 뺀 것을 계속
+        겨누고 있으면 그게 아직 선택된 줄 안다.
+        """
+        _root = self.invisibleRootItem()
+        for _i in range(_root.childCount()):
+            _item = _root.child(_i)
+            if _item.data(0, _ROLE) is not node:
+                continue
+            if not additive:
+                self.setCurrentItem(_item)
+            elif _item.isSelected():
+                _item.setSelected(False)                        # 이미 고른 것 → 선택에서 뺀다
+                _rest = self.selectedItems()
+                if _rest:
+                    self.setCurrentItem(_rest[-1], 0,
+                                        QItemSelectionModel.SelectionFlag.NoUpdate)
+            else:
+                self.setCurrentItem(_item, 0, QItemSelectionModel.SelectionFlag.Select)
+            return True
+        return False
+
+    def select_index(self, idx: int) -> bool:
+        """루트 직속 ``idx`` 번째 항목을 선택한다 (숫자키 단축키 — 객체 트리에서 쓴다). 있으면 True."""
+        _root = self.invisibleRootItem()
+        if not 0 <= idx < _root.childCount():
+            return False
+        self.setCurrentItem(_root.child(idx))
+        return True
 
     def set_editable(self, editable: bool) -> None:
         """편집 잠금 — 체크(표시 토글)는 보기라 막지 않는다."""

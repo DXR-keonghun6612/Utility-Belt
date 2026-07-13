@@ -3,6 +3,6 @@
 from __future__ import annotations
 
 from ._path import Path_row
-from ._slider import Float_slider_row, Int_slider_row
+from ._slider import Float_slider_row, Int_slider_row, Snap_slider_row
 
-__all__ = ["Path_row", "Float_slider_row", "Int_slider_row"]
+__all__ = ["Path_row", "Float_slider_row", "Int_slider_row", "Snap_slider_row"]

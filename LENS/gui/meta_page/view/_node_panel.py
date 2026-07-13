@@ -11,6 +11,11 @@
 
 추가·삭제는 라이프사이클이라 store 메서드(``Add_leaf``/``Add_branch``/``Delete_node``)를 직접 부른다 —
 gui 는 파일이 어디 앉는지 모른다.
+
+**언제 디스크에 쓰나는 payload 가 가른다.** 객체는 payload-free 라 더하고 지우고 합치는 게 전부 메모리
+안에서 끝나므로 **명시적 저장까지 미룬다**(취소 = 저장 없이 다시 읽기). 데이터 leaf 는 파일을 낳거나
+지우는 일이라 미룰 수 없고, 그래서 사이드카도 그 자리에서 맞춘다 — 안 그러면 없는 파일을 가리키는
+서술자가 남는다.
 """
 from __future__ import annotations
 
@@ -33,7 +38,6 @@ from PySide6.QtWidgets import (
 )
 
 from core import port
-from core.schema import Data_Ref
 
 from ._node_tree import Node, Node_tree
 
@@ -79,17 +83,29 @@ class Node_panel(QWidget):
     """노드 트리 + 추가/삭제 툴바 (``scope`` 로 데이터/객체 역할).
 
     Attributes:
-        changed: 노드가 추가/삭제됨 — 상위가 저장·재합성한다.
+        changed: 노드가 추가/삭제됨 — 상위가 재합성하고 저장 대기로 표시한다.
+        raster_edited: 라벨맵을 제자리에서 고쳤다 ``(Node, raster)`` — 객체 삭제·병합이 라벨을 옮긴 것.
+            디스크엔 아직 안 썼다(상위의 명시적 저장이 flush 한다) — `Data_view` 의 캔버스 편집과 같은 길.
     """
 
-    changed = Signal()
+    changed       = Signal()
+    raster_edited = Signal(object, object)
 
     def __init__(self, scope: str, get_store: Callable[[], object | None],
-                 get_key: Callable[[], str], parent=None) -> None:
+                 get_key: Callable[[], str],
+                 get_segment: Callable[[], Node | None] | None = None, parent=None) -> None:
+        """Args:
+        scope:       ``leaves`` (데이터) 또는 ``objects`` (객체).
+        get_store:   정본 store (없을 수 있다).
+        get_key:     지금 열린 item(stem) key.
+        get_segment: 지금 캔버스에 뜬 라벨맵 노드 — 객체 삭제·병합이 **그 배열을** 고친다
+            (디스크에서 다시 읽으면 저장 안 한 붓질을 덮어쓴다).
+        """
         super().__init__(parent)
         self._scope = scope
         self._get_store = get_store
         self._get_key = get_key
+        self._get_segment = get_segment or (lambda: None)
         self._editable = True
         self._buttons: list[QPushButton] = []
 
@@ -99,14 +115,17 @@ class Node_panel(QWidget):
 
         _tool = QHBoxLayout()
         if scope == "objects":
-            self._add_button(_tool, "+ 객체", "빈 객체를 더한다 (obj_id = 다음 순번)", self._add_branch)
+            self._add_button(_tool, "+ 객체", "빈 객체를 더한다 (obj_id = 다음 순번)", self.add_object)
             self._add_button(_tool, "+ 속성", "선택한 객체에 인라인 attr 을 더한다 (파일 아님)",
                              self._add_attr)
+            self._add_button(_tool, "⧉ 병합",
+                             "고른 객체들을 하나로 — 라벨을 합치고 bbox 는 합집합 "
+                             "(class 는 가장 작은 obj_id 것이 이긴다)  [M]", self.merge_selected)
         else:
             self._add_button(_tool, "+ 데이터",
                              "stem 레벨 데이터 leaf — segmap/image 는 **빈 mask** 로 나서 바로 그린다",
                              self._add_leaf)
-        self._add_button(_tool, "✕ 삭제", "선택한 노드를 지운다 (payload 파일까지)", self._delete)
+        self._add_button(_tool, "✕ 삭제", "선택한 노드를 지운다 (payload 파일까지)", self.delete_selected)
         _tool.addStretch(1)
         _lay.addLayout(_tool)
 
@@ -154,7 +173,7 @@ class Node_panel(QWidget):
         return None
 
     # ── 추가 / 삭제 ───────────────────────────────────────────────────────────
-    def _add_branch(self) -> None:
+    def add_object(self) -> None:
         """객체를 stem 직속에 더한다 — **빈 ``class_id`` attr 을 달고 나온다**(Split_objects 와 같은 모양).
 
         그래야 새 객체도 곧바로 인스펙터에서 id_map 콤보로 class 를 고를 수 있다(mask·bbox 는 캔버스에서).
@@ -166,13 +185,12 @@ class Node_panel(QWidget):
         _name = _store.Add_branch(_path)
         _obj = _store.tree.At(_path + (_name,))
         if _obj is not None:
-            _obj.Push("class_id", Data_Ref(format=("attr", "str"), info={"value": ""}))
-        _store.Save(self._get_key())
+            _obj.Set_attr("class_id", "")
         self.load(_store, self._get_key())
         self.changed.emit()
 
     def _add_attr(self) -> None:
-        """선택한 객체에 인라인 ``("attr","str")`` 을 더한다 — 값은 인스펙터에서 편집."""
+        """선택한 객체에 인라인 문자열 값을 더한다 — 값은 인스펙터에서 편집."""
         _store = self._get_store()
         _node: Node | None = self.tree.current_node()
         if _store is None or not self._editable:
@@ -187,8 +205,7 @@ class Node_panel(QWidget):
         _parent = _store.tree.At(_node.path + (_node.name,))
         if _parent is None:
             return
-        _parent.Push(_name, Data_Ref(format=("attr", "str"), info={"value": ""}))
-        _store.Save(self._get_key())
+        _parent.Set_attr(_name, "")
         self.load(_store, self._get_key())
         self.changed.emit()
 
@@ -218,34 +235,85 @@ class Node_panel(QWidget):
                 _store.Add_leaf(_path, _name,
                                 {"to": "storage", "type": _type, "format": "png"}, _blank)
             else:
-                _parent = _store.tree.At(_path)
-                _parent.Push(_name, Data_Ref(format=("attr", "str"), info={"value": _value}))
+                _store.tree.At(_path).Set_attr(_name, _value)
         except Exception as _e:                                 # 조용히 삼키지 않는다
             QMessageBox.critical(self, "데이터 추가", str(_e))
             return
 
-        _store.Save(self._get_key())
+        _store.Save(self._get_key())            # 파일이 생겼으니 서술자도 지금 맞춘다
         self.load(_store, self._get_key())
         self.changed.emit()
 
-    def _delete(self) -> None:
+    def delete_selected(self) -> None:
+        """선택 노드를 지운다 — **객체는 메모리에서만**(저장 전엔 디스크 그대로), leaf 는 파일까지.
+
+        이 비대칭은 payload 가 정한다: 객체는 payload-free 라 지워도 지울 파일이 없어 저장까지 미룰 수
+        있고(취소 = 다시 읽기), 데이터 leaf 는 파일을 지우는 일이라 미룰 수 없다 — 그래서 사이드카도
+        그 자리에서 맞춰 둔다(안 그러면 없는 파일을 가리키는 서술자가 남는다).
+        """
         _store = self._get_store()
         _node: Node | None = self.tree.current_node()
         if _store is None or _node is None or not self._editable:
             return
-        if QMessageBox.question(
-                self, "노드 삭제",
-                f"'{_node.name}' 을 지웁니다 (payload 파일까지). 계속할까요?") \
+        _object = self._is_object(_store, _node)
+        _warn = ("저장하기 전까지는 디스크에 그대로 있습니다 (되돌리려면 저장 없이 다시 읽기)."
+                 if _object else "payload 파일까지 지웁니다 — 되돌릴 수 없습니다.")
+        if QMessageBox.question(self, "노드 삭제", f"'{_node.name}' 을 지웁니다.\n{_warn} 계속할까요?") \
                 != QMessageBox.StandardButton.Yes:
             return
+
         _key = self._get_key()
-        if self._is_object(_store, _node):                     # 객체 = 컨테이너 + segment 라벨
-            _store.Remove_object(_key, _node.name)             # 라벨까지 원자적 (자체 Save)
+        if _object:                                            # 객체 = 컨테이너 + segment 라벨
+            _seg = self._get_segment()
+            _store.Remove_object(_key, _node.name, _seg.value if _seg is not None else None)
+            self._raster_touched(_seg)
         else:
             _store.Delete_node(_node.path, _node.name)         # leaf·객체 안 attr
-            _store.Save(_key)
+            _store.Save(_key)                                  # 파일이 사라졌으니 서술자도 지금 맞춘다
         self.load(_store, _key)
         self.changed.emit()
+
+    def merge_selected(self) -> None:
+        """고른 객체들을 하나로 — 생존자는 **가장 작은 obj_id**, 그 class 가 이긴다.
+
+        무엇이 살아남는지(=어느 class 로 합쳐지는지)를 확인 다이얼로그가 말한다 — 생존자를 store 가
+        조용히 고르면 사용자는 어느 class 가 이겼는지 모른 채 넘어간다. 결과는 **저장 전까지 메모리**다.
+        """
+        _store, _key = self._get_store(), self._get_key()
+        if _store is None or not _key or not self._editable:
+            return
+        _objs = [_n for _n in self.tree.selected_nodes() if self._is_object(_store, _n)]
+        if len(_objs) < 2:
+            QMessageBox.information(
+                self, "객체 병합",
+                "객체를 둘 이상 고르세요 — 트리에서 Ctrl/Shift, 또는 캔버스에서 Shift+클릭.")
+            return
+
+        _ids = sorted((_n.name for _n in _objs), key=int)
+        _into, _others = _ids[0], _ids[1:]
+        _cls = _store.Find(_key).Get(_into).Attr("class_id") or "미분류"
+        if QMessageBox.question(
+                self, "객체 병합",
+                f"객체 {', '.join(_others)} 을(를) '{_into}' 에 흡수합니다.\n"
+                f"class 는 '{_cls}' 로 남고, 흡수된 객체의 값은 버려집니다. 계속할까요?") \
+                != QMessageBox.StandardButton.Yes:
+            return
+
+        _seg = self._get_segment()
+        try:
+            _store.Merge_objects(_key, _into, _others,         # 라벨 재도색 + bbox 합집합 (메모리만)
+                                 _seg.value if _seg is not None else None)
+        except (KeyError, ValueError) as _e:                   # 조용히 삼키지 않는다
+            QMessageBox.critical(self, "객체 병합", str(_e))
+            return
+        self._raster_touched(_seg)
+        self.load(_store, _key)
+        self.changed.emit()
+
+    def _raster_touched(self, seg: Node | None) -> None:
+        """라벨맵을 제자리에서 고쳤다 — 저장 때 flush 하도록 상위에 알린다(디스크엔 아직 안 썼다)."""
+        if seg is not None:
+            self.raster_edited.emit(seg, seg.value)
 
     def _is_object(self, store, node: Node) -> bool:
         """이 노드가 stem 직속 객체(BRANCH)인가 — 그래야 segment 라벨을 함께 지운다(정본 전용)."""

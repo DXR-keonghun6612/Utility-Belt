@@ -166,8 +166,7 @@ class Params_panel(QWidget):
                     return
                 _store.Import_param(_name, _val, type=_type)      # payload 복사 + 등록
             else:
-                _store.Set_param(_name, Data_Ref(format=("attr", "str"),
-                                                 info={"value": _val}))
+                _store.Set_param(_name, Data_Ref(format=("", "str"), info={"value": _val}))
         except Exception as _e:                                   # 조용히 삼키지 않는다
             QMessageBox.critical(self, "params 추가", str(_e))
             return

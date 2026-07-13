@@ -94,6 +94,21 @@ def test_meta_view_refresh() -> None:
     _v.refresh()
 
 
+def _flush_segment(pipe, stem: str, segment) -> None:
+    """라벨맵을 디스크에 쓰고 사이드카를 저장한다 — **명시적 저장이 하는 일**(gui `_flush` 와 같은 길).
+
+    객체 편집(`Remove_object`·`Merge_objects`)은 메모리만 고치므로, 디스크를 보는 검증은 이걸 거쳐야
+    한다. 저장을 안 하면 디스크는 그대로다 — 그게 "다시 읽기로 되돌린다"가 성립하는 이유다.
+    """
+    _item = pipe.meta.Find(stem)
+    _ref = _item.Get("segment")
+    _spec = {"to": "storage", "type": _ref.format[0]}
+    if len(_ref.format) > 1 and _ref.format[1]:
+        _spec["format"] = _ref.format[1]
+    _item.Push("segment", pipe.meta.Route(pipe.meta.Item_path(stem), "segment", _spec, segment))
+    pipe.meta.Save(stem)
+
+
 def _object_items(tree):
     """트리 최상위 중 객체(BRANCH) 아이템들 — 라벨링 대상."""
     from PySide6.QtCore import Qt
@@ -124,19 +139,21 @@ def test_mask_editor_singleton() -> None:
 
     _data = _v._data
     _canvas = _data._canvas
-    _seg = _data._segment_node()
+    _editor = _data._editor
+    _seg = _data.segment_node()
     assert _seg is not None, "segment 가 체크돼 있어야 조준한다"
 
     # 첫 객체를 조준 → 그 라벨로만 칠한다.
     _item0, _node0 = _objs[0]
     _v._obj_tree.setCurrentItem(_item0)
-    _t = _data._editor.target()
+    _t = _editor.target()
     assert _t is not None and _t.paint == int(_node0.name) + 1, "조준 라벨 = obj_id+1"
 
     _label = _t.paint
     _other = _label + 1 if _label == 1 else _label - 1
     _before_other = int((_seg.value == _other).sum())
-    _data._editor._set_mode("paint")
+    _editor.set_tool("paint")
+    _editor.set_tool("brush")
     _canvas.mouse_pressed.emit(20, 20)
     _canvas.mouse_moved.emit(60, 60)
     _canvas.mouse_released.emit(60, 60)
@@ -145,20 +162,96 @@ def test_mask_editor_singleton() -> None:
 
     # undo 로 되돌아온다.
     _painted = int((_seg.value == _label).sum())
-    _data._editor.undo()
+    _editor.undo()
     assert int((_seg.value == _label).sum()) < _painted, "undo 가 안 먹었다"
 
     # bbox 드래그 → 그 객체의 attr 이 된다.
-    _data._editor._set_mode("bbox")
+    _editor.set_tool("bbox")
     _canvas.mouse_pressed.emit(10, 10)
     _canvas.mouse_moved.emit(70, 60)
     _canvas.mouse_released.emit(70, 60)
     assert _node0.ref.Get("bbox") is not None, "bbox 드래그가 attr 을 안 만들었다"
+    assert _editor.tool("mode") == "view", "상자를 그린 뒤엔 보기로 돌아와야 한다(핸들 조작)"
 
     # stem 을 넘어가면 조준이 풀린다.
     _stem2 = sorted(_p.meta.Bucket(STAGED))[1]
     _v._on_stem(_stem2)
-    assert _data._editor.target() is None, "stem 이 바뀌었는데 옛 라스터를 계속 겨눈다"
+    assert _editor.target() is None, "stem 이 바뀌었는데 옛 라스터를 계속 겨눈다"
+
+
+def test_editor_handles_and_pick() -> None:
+    """복원된 인터랙션 — **핸들로 상자를 고치고**, **캔버스 클릭으로 객체를 고른다**(+ undo 가 상자도 든다).
+
+    상자를 새로 그리지 않고 코너를 끌어 줄일 수 있어야 하고(옛 편집기의 기능), 그 변경은 되돌려져야 한다
+    — 픽셀만 이력에 담으면 상자 편집이 조용히 안 되돌아간다.
+    """
+    from gui.meta_page.view._view import Meta_view
+    _p = _pipe()
+    _v = Meta_view(lambda: _p)
+    _v.set_pipeline(_p)
+    _v._on_stem(sorted(_p.meta.Bucket(STAGED))[1])
+
+    _objs = _object_items(_v._obj_tree)
+    assert _objs, "조준할 객체가 없다"
+    _editor, _canvas = _v._data._editor, _v._data._canvas
+    _item0, _node0 = _objs[0]
+    _v._obj_tree.setCurrentItem(_item0)
+
+    # 상자를 그린다 → 그 코너를 끌어 줄인다 (보기 모드의 핸들).
+    _editor.set_tool("bbox")
+    _canvas.mouse_pressed.emit(20, 20)
+    _canvas.mouse_moved.emit(80, 70)
+    _canvas.mouse_released.emit(80, 70)
+    _drawn = list(_node0.ref.Get("bbox").info["value"])
+    assert _drawn == [20.0, 20.0, 80.0, 70.0]
+
+    _canvas.mouse_pressed.emit(20, 20)               # 좌상 코너를 잡고
+    _canvas.mouse_moved.emit(40, 35)                 # 안쪽으로 끈다 (반대 코너 고정)
+    _canvas.mouse_released.emit(40, 35)
+    assert list(_node0.ref.Get("bbox").info["value"]) == [40.0, 35.0, 80.0, 70.0], "코너 핸들이 안 먹었다"
+
+    _editor.undo()                                   # 상자 편집도 이력에 있다
+    assert list(_node0.ref.Get("bbox").info["value"]) == _drawn, "undo 가 상자를 안 되돌렸다"
+
+    # 캔버스 클릭 → 그 상자를 든 객체가 트리에서 선택된다 (편집기는 좌표만 주고 상위가 답한다).
+    _v._obj_tree.setCurrentItem(_v._obj_tree.invisibleRootItem().child(0))
+    _picked: list = []
+    _v._data.object_picked.connect(lambda _n, _add: _picked.append((_n, _add)))
+    _canvas.mouse_pressed.emit(60, 50)               # 상자 한가운데
+    _canvas.mouse_released.emit(60, 50)
+    assert _picked and _picked[0][0] is _node0, "캔버스에서 고른 객체가 안 잡혔다"
+    assert _editor.target().name == f"객체 {_node0.name}", "고른 객체로 조준이 안 옮겨졌다"
+
+    # 라벨 오버레이 — 상자에 obj_id 를 적는다 (끄면 안 적는다).
+    assert any(_text for _, _, _text in _v._data._boxes()), "라벨 표시가 켜졌는데 이름이 안 온다"
+    _editor._labels_btn.setChecked(False)
+    assert not any(_text for _, _, _text in _v._data._boxes()), "라벨 표시를 껐는데 이름이 온다"
+
+
+def test_canvas_multi_select_toggles() -> None:
+    """캔버스 Shift+클릭 = **선택 토글** — 모아서 바로 병합(`M`)하고, 잘못 집은 건 다시 눌러 뺀다.
+
+    트리로 손이 가지 않게 하는 게 요점이라, 빼는 길이 없으면 잘못 집었을 때 처음부터 다시 골라야 한다.
+    """
+    from gui.meta_page.view._view import Meta_view
+    _p = _pipe()
+    _v = Meta_view(lambda: _p)
+    _v.set_pipeline(_p)
+    _v._on_stem(sorted(_p.meta.Bucket(MODIFIED))[0])
+
+    _objs = _object_items(_v._obj_tree)
+    if len(_objs) < 2:
+        return
+    _tree = _v._obj_tree
+    (_i0, _n0), (_i1, _n1) = _objs[0], _objs[1]
+
+    _tree.select_node(_n0)                                   # 캔버스에서 하나 고른 상태
+    _tree.select_node(_n1, additive=True)                    # Shift+클릭 → 선택에 더한다
+    assert {_n.name for _n in _tree.selected_nodes()} == {_n0.name, _n1.name}, "Shift 가 안 더해졌다"
+
+    _tree.select_node(_n1, additive=True)                    # 같은 것을 다시 Shift+클릭 → 뺀다
+    assert {_n.name for _n in _tree.selected_nodes()} == {_n0.name}, "Shift 재클릭이 선택을 안 뺐다"
+    assert _tree.current_node().name == _n0.name, "뺀 객체를 계속 겨누고 있다 (선택이 아닌데)"
 
 
 def test_converter_panel_recipe_roundtrip() -> None:
@@ -207,6 +300,7 @@ def test_reassign_moves_no_file() -> None:
 def test_remove_object_clears_label() -> None:
     """객체 삭제 = 컨테이너 pop + **그 obj 의 segment 라벨 0** — 유령 mask 를 안 남긴다(obj_id↔라벨 정합).
 
+    그리고 **메모리에서만** 일어난다 — 디스크는 명시적 저장까지 그대로다(취소 = 저장 없이 다시 읽기).
     공유 pipeline 을 건드리므로 다른 테스트가 쓰지 않는 staged 마지막 stem 에서 태운다.
     """
     _p = _pipe()
@@ -220,12 +314,16 @@ def test_remove_object_clears_label() -> None:
     _seg = _p.meta.Load(_stem, "segment")
     assert _seg is not None and int((_seg == _label).sum()) > 0, "지우기 전 라벨이 있어야 한다"
 
-    _p.meta.Remove_object(_stem, _oid)
+    _p.meta.Remove_object(_stem, _oid, _seg)           # 호출 측이 든 라벨맵을 제자리에서 고친다
 
     assert not _p.meta.Find(_stem).Has(_oid), "객체 컨테이너가 안 지워졌다"
-    _seg2 = _p.meta.Load(_stem, "segment")
-    assert int((_seg2 == _label).sum()) == 0, "지운 객체의 라벨이 segment 에 유령으로 남았다"
-    assert int((_seg2 == _other).sum()) > 0, "남의 라벨(구멍 아님)을 건드렸다"
+    assert int((_seg == _label).sum()) == 0, "지운 객체의 라벨이 유령으로 남았다"
+    assert int((_seg == _other).sum()) > 0, "남의 라벨(구멍 아님)을 건드렸다"
+    assert int((_p.meta.Load(_stem, "segment") == _label).sum()) > 0, \
+        "저장도 안 했는데 디스크가 바뀌었다 — 그러면 '다시 읽기'로 되돌릴 수 없다"
+
+    _flush_segment(_p, _stem, _seg)                    # 명시적 저장
+    assert int((_p.meta.Load(_stem, "segment") == _label).sum()) == 0, "저장했는데 디스크가 그대로다"
 
 
 def test_explicit_save_cycle() -> None:
@@ -245,7 +343,7 @@ def test_explicit_save_cycle() -> None:
     assert _objs, "modified stem 에 객체가 없다 — 편집을 태울 대상이 없다"
     _v._obj_tree.setCurrentItem(_objs[0][0])          # 객체 조준
     _d = _v._data
-    _d._editor._set_mode("bbox")
+    _d._editor.set_tool("bbox")
     _d._canvas.mouse_pressed.emit(8, 8)
     _d._canvas.mouse_moved.emit(60, 50)
     _d._canvas.mouse_released.emit(60, 50)            # bbox 편집 → 대기
@@ -266,10 +364,61 @@ def test_new_object_has_class_id() -> None:
     _stem = sorted(_p.meta.Bucket(MODIFIED))[0]
     _v._on_stem(_stem)
     _before = set(_p.meta.Find(_stem).Branches())
-    _v._obj_panel._add_branch()
+    _v._obj_panel.add_object()
     _new = set(_p.meta.Find(_stem).Branches()) - _before
     assert len(_new) == 1, "객체가 안 생겼다"
     assert _p.meta.Find(_stem).Get(_new.pop()).Has("class_id"), "새 객체에 class_id 가 없다"
+
+
+def test_merge_objects() -> None:
+    """객체 병합 = 라벨 재도색(합집합) + bbox 합집합 + 나머지 pop — class 는 **생존자** 것이 이긴다.
+
+    staged 뒤에서 두 번째 stem 을 쓴다(다른 테스트와 안 겹치게).
+    """
+    _p = _pipe()
+    _stem = sorted(_p.meta.Bucket(STAGED))[-2]
+    _objs = sorted(_p.meta.Find(_stem).Branches(), key=int)
+    if len(_objs) < 2:
+        return
+    _into, _gone = _objs[0], _objs[1]
+    _p.meta.Find(_stem).Get(_into).Set_attr("class_id", "keep")
+    _p.meta.Find(_stem).Get(_gone).Set_attr("class_id", "drop")
+
+    _seg = _p.meta.Load(_stem, "segment")
+    _px = int((_seg == int(_into) + 1).sum()) + int((_seg == int(_gone) + 1).sum())
+
+    _p.meta.Merge_objects(_stem, _into, [_gone], _seg)   # 메모리만 — 라벨 재도색은 넘긴 배열에서
+
+    _item = _p.meta.Find(_stem)
+    assert not _item.Has(_gone), "흡수된 객체가 안 지워졌다"
+    assert _item.Get(_into).Attr("class_id") == "keep", "생존자의 class 가 안 이겼다"
+    assert int((_seg == int(_into) + 1).sum()) == _px, "라벨 합집합이 안 됐다(픽셀 수 불일치)"
+    assert int((_seg == int(_gone) + 1).sum()) == 0, "흡수된 라벨이 유령으로 남았다"
+
+    _flush_segment(_p, _stem, _seg)                      # 명시적 저장
+    _p.Order(stems=[_stem])                              # 저장 = 구멍 압축 (병합이 남긴 자리)
+    assert sorted(_p.meta.Find(_stem).Branches(), key=int) \
+        == [str(_i) for _i in range(len(_objs) - 1)], "병합 뒤 obj_id 가 안 압축됐다"
+
+
+def test_order_drops_unlabeled_object() -> None:
+    """라벨맵에 자리가 없는 객체(빈 mask·bbox 없음)는 저장(``Order``)에서 **제거**되고, 그 수를 돌려준다.
+
+    ``+ 객체`` 로 만든 빈 객체가 정확히 이것이다 — 칠하지도 그리지도 않으면 객체로 성립하지 않는다.
+    """
+    _p = _pipe()
+    _stem = sorted(_p.meta.Bucket(MODIFIED))[-1]
+    _new = _p.meta.Add_branch(_p.meta.Item_path(_stem))  # 빈 객체 (라벨도 bbox 도 없다)
+    _p.meta.Save(_stem)
+    assert _p.meta.Find(_stem).Has(_new)
+
+    _dropped = _p.Order(stems=[_stem])                   # 공유 pipeline — 남이 남긴 빈 객체도 같이 진다
+
+    assert _dropped >= 1, "빈 객체가 안 떨어졌다"
+    assert not _p.meta.Find(_stem).Has(_new), "라벨 없는 객체가 저장 후에도 남았다"
+    for _oid in _p.meta.Find(_stem).Branches():          # 남은 것은 전부 라벨이 있어야 한다
+        _seg = _p.meta.Load(_stem, "segment")
+        assert int((_seg == int(_oid) + 1).sum()) > 0, f"라벨 없는 객체가 남았다: {_oid}"
 
 
 def test_order_compacts_holes() -> None:
@@ -282,7 +431,9 @@ def test_order_compacts_holes() -> None:
     _n0 = len(_p.meta.Find(_stem).Branches())
     if _n0 < 2:
         return
-    _p.meta.Remove_object(_stem, sorted(_p.meta.Find(_stem).Branches(), key=int)[0])  # 구멍
+    _seg = _p.meta.Load(_stem, "segment")
+    _p.meta.Remove_object(_stem, sorted(_p.meta.Find(_stem).Branches(), key=int)[0], _seg)  # 구멍
+    _flush_segment(_p, _stem, _seg)                      # 저장해야 Order 가 그 라벨맵을 본다
     _p.Order(stems=[_stem])
 
     _objs = sorted(_p.meta.Find(_stem).Branches(), key=int)

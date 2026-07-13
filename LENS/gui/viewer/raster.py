@@ -3,7 +3,7 @@
 **체크박스가 표시 여부다** — 노드 트리에서 체크한 raster 들을 위에서부터 합성한다. 그래서 "base 이미지"
 라는 특별한 개념이 없다: BGR 로 디코드되는 leaf 는 배경이 되고, mask/라벨맵은 색을 입혀 겹친다.
 
-편집기는 여기 없다 — 앱에 하나뿐인 `Mask_editor` 가 이 노드들을 **조준**한다(계약은 `_base`).
+편집기는 여기 없다 — 앱에 하나뿐인 `Image_editor`(`gui/editor`)가 이 노드들을 **조준**한다(계약은 `_base`).
 """
 from __future__ import annotations
 
