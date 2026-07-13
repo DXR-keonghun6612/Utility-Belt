@@ -35,7 +35,6 @@ flows:
                 level: frame
                 type: segmap
                 format: png
-                dir: sam3_seg
 
     # 2. 라벨별 평균 특이치 + 국소 배경색 seed → LoG 벽 floodFill 로 구멍 carve
     -   object_type: carve_color_holes
@@ -54,4 +53,3 @@ flows:
                 level: frame
                 type: segmap
                 format: png
-                dir: hole_carved_seg

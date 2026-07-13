@@ -23,9 +23,9 @@ tree
 │   └─ frame0        # item = staged/frame0
 │       ├─ frame     : LEAF (image,png)               # 프레임 payload (base)
 │       ├─ segment   : LEAF (segmap,png)              # 모든 객체 mask 한 장 (픽셀 = obj_id+1)
-│       ├─ "0"       : BRANCH                         # 객체 0 — attr 만 (payload 없음)
-│       │   ├─ class_id : LEAF (attr,str) value=dog   # 인라인 라벨도 그냥 데이터
-│       │   └─ bbox     : LEAF (attr,xyxy)
+│       ├─ "0"       : BRANCH                         # 객체 0 — 인라인 값만 (payload 없음)
+│       │   ├─ class_id : LEAF ("",str)    value=dog  # 개념 없는 값 — detail = 파이썬 타입
+│       │   └─ bbox     : LEAF (bbox,list)            # 개념이 있으면 첫 칸이 찬다
 │       └─ "1"       : BRANCH …
 └─ skipped
 ```
@@ -34,9 +34,15 @@ tree
 - **한 item 은 한 범주에만** — 트리 key 유일성으로 자연히 성립(중복이 **구조적으로** 불가능하다).
 - **범주별 조회에 group-by 가 없다** — 라이브 트리가 이미 범주로 나뉘어 있다.
 - **객체는 payload-free** — geometry 는 frame-level `segment` 한 장(픽셀 = obj_id+1)이 소유하고, 객체
-  BRANCH 는 인라인 attr(class_id·bbox)만 든다. per-obj mask 는 segment 에서 파생한다(`process.sample._obj_mask`).
-  obj_id ↔ segment 라벨 정합은 삭제 때 `Dataset_Meta.Remove_object`(라벨 0, 구멍)가, 압축(재부여)은
-  `Pipeline.Order`(process)가 지킨다.
+  BRANCH 는 인라인 값(class_id·bbox)만 든다. per-obj mask 는 segment 에서 파생한다(`process.sample._obj_mask`).
+- **객체가 성립하는 조건 = 라벨맵의 자기 자리** — 그래서 **obj_id 는 정수만** 된다(`Add_branch` 가 막는다.
+  라벨 = id + 1 이라 정수가 아니면 앉을 자리가 없다). 편집(`Remove_object`·`Merge_objects`)은 컨테이너와
+  라벨을 함께 옮겨 정합만 지키고, **빈 자리는 구멍으로 둔다** — 구멍 압축과 **유령 객체
+  제거**(라벨 없는 객체)는 저장 시 `Pipeline.Order`(→ `Order_objects`)의 몫이다. 편집은 정합, 저장은 정돈.
+- **객체 편집은 메모리만 고친다** — 그 둘은 **라벨맵을 인자로 받고**(호출 측이 든 배열을 제자리에서 고친다)
+  디스크엔 안 쓴다. 객체는 payload-free 라 지울 파일이 없고, 라벨맵은 호출 측 쪽이 더 새롭기 때문이다
+  (편집 중인 붓질은 아직 저장 전이다 — store 가 디스크에서 다시 읽으면 그걸 덮어쓴다). **영속은 호출
+  측의 명시적 저장**이 한다(payload write + `Save`). 그래서 "취소"가 `Pipeline.Reload`(다시 읽기)로 성립한다.
 
 범주를 label(item 필드)이 아니라 구조로 둔 이유: 영속 경로가 **재귀 key 뭉치기**라 범주 key 가 그 경로에
 자연히 실린다(→ 3절). 즉 구조 하나가 조회·전이·경로를 동시에 만족시킨다.

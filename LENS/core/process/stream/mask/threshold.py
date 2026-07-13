@@ -5,9 +5,9 @@ from typing import Annotated
 
 import numpy as np
 
-from ...func.cv.filter import Threshold_signed
+from ...func.cv.filter import Band_threshold, Threshold_signed
 from ...func.cv.geom import Mask_within_roi
-from .. import PROCESS_REGISTRY, Base_Process, UI, BBOX, GRAY_IMAGE
+from .. import PROCESS_REGISTRY, Base_Process, UI, BBOX, IMAGE, GRAY_IMAGE
 
 
 @PROCESS_REGISTRY.Register_module()
@@ -39,3 +39,27 @@ class Threshold_score(Base_Process, outputs=("mask",), category="마스크/이�
                 return {}
 
         return {"mask": _obj} if _obj.any() else {}
+
+
+@PROCESS_REGISTRY.Register_module()
+@dataclass
+class Intensity_band(Base_Process, outputs=("mask",), category="마스크/이진화"):
+    """gray 값이 ``[low, high]`` 밴드 안인 픽셀만 골라 mask 를 만든다 — ``func.cv.filter.Band_threshold``.
+
+    ``Threshold_score`` 와 달리 스코어가 아니라 **절대 밝기 밴드**다: 아래로 어두운 배경, 위로 포화된
+    광원(255)을 함께 잘라 물체 반사 띠만 남긴다(무채색 씬). 입력은 채널 무관 ``IMAGE`` 라 gray·다채널을
+    함께 받고, 다채널은 gray 로 접는다. ROI 밖은 버린다. 결과가 비면 빈 dict("스킵").
+
+    잡티 제거(면적 하한·morphology)는 이 유닛의 일이 아니다 — 뒤에 ``morph_mask``(OPEN)를 잇는다.
+    """
+
+    low:  Annotated[int, UI(label="하단 임계 (이보다 어두우면 버림)", min=0, max=255)]   = 180
+    high: Annotated[int, UI(label="상단 임계 (이보다 밝으면=광원 버림)", min=0, max=255)] = 254
+
+    def Run(self, frame: IMAGE, roi: BBOX | GRAY_IMAGE | None = None, **kwargs) -> dict:
+        _m = Band_threshold(frame, low=self.low, high=self.high)
+        if roi is not None:
+            _m = Mask_within_roi(_m, roi)
+            if _m is None:
+                return {}
+        return {"mask": _m} if _m.any() else {}

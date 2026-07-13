@@ -13,7 +13,7 @@ from typing import Annotated, Any
 
 import numpy as np
 
-from core.schema import Data_Ref
+from core.schema import Build, Data_Ref
 from ....func.cv.geom import Mask_to_box
 from ... import PROCESS_REGISTRY, Base_Process, GRAY_IMAGE, UI
 
@@ -76,12 +76,12 @@ class Segment(Base_Process, outputs=("segment", "object"), category="모델/분�
             _box = Mask_to_box(_m)                             # 정제 mask 기준 bbox 재계산
             if _box is None:
                 continue
-            _data: dict = {"bbox": Data_Ref(format=("attr", "xyxy"),
-                                            info={"value": [float(_v) for _v in _box]})}
+            _data: dict = {"bbox": {"format": ("bbox", "list"),
+                                    "info": {"value": [float(_v) for _v in _box]}}}
             _cid = _o.Get("class_id")                          # 기존 class 유지 (SAM3 는 class 안 정함)
             if _cid is not None:
                 _data["class_id"] = _cid
-            _new.append(Data_Ref(info=_data))
+            _new.append(Data_Ref(info=Build(_data)))
 
         if not _new:
             return {}

@@ -36,7 +36,7 @@ class Data_Ref(Data_Schema):
         if isinstance(self.format, list):              # JSON 왕복 → list → tuple 정규화
             self.format = tuple(self.format)
         if not self.format:                            # BRANCH → 자식(info 값)을 Data_Ref 로 재구성(재귀)
-            self.info = self.As_refs(self.info)
+            self.info = Build(self.info)
 
     def Is_branch(self) -> bool:
         """컨테이너(BRANCH)인지 — ``format`` 이 비었으면 컨테이너, 있으면 payload(LEAF)."""
@@ -137,24 +137,50 @@ class Data_Ref(Data_Schema):
                 _inserted.append(((), _name, _clone))
         return _inserted
 
-    # ── 인라인 라벨(attr LEAF) — class_id·source_stem 등 ─────────────────────────
+    # ── 인라인 값 LEAF — class_id·bbox·source_stem 등 ────────────────────────────
     def Attr(self, name: str, default: str = "") -> str:
-        """이 컨테이너의 인라인 라벨 값 (``info[name].info["value"]``; 없으면 default)."""
+        """이 컨테이너의 인라인 값 (``info[name].info["value"]``; 없으면 default)."""
         _a = self.info.get(name)
         return _a.info.get("value", default) if isinstance(_a, Data_Ref) else default
 
-    def Set_attr(self, name: str, value) -> None:
-        """이 컨테이너의 인라인 라벨(``attr`` LEAF)을 설정한다 (있으면 값 갱신, 없으면 생성)."""
+    def Set_attr(self, name: str, value: str) -> None:
+        """이 컨테이너의 인라인 **문자열** 라벨을 설정한다 (있으면 값만 갱신, 없으면 ``("", "str")``).
+
+        class_id·source_stem 처럼 개념 없는 문자열 전용이다. 다른 타입·개념(``bbox`` 등)은 format 을
+        선언해 :func:`Build` 로 세운다 — 여기서 값의 타입을 알아맞히지 않는다.
+        """
         _a = self.info.get(name)
         if isinstance(_a, Data_Ref):
             _a.info["value"] = value
         else:
-            self.info[name] = Data_Ref(format=("attr", "str"), info={"value": value})
+            self.info[name] = Data_Ref(format=("", "str"), info={"value": value})
 
-    @classmethod
-    def As_refs(cls, data: dict) -> dict[str, "Data_Ref"]:
-        """dict 값을 모두 ``Data_Ref`` 로 변환한다 (kind 무관; branch 는 __post_init__ 이 자식 재구성).
 
-        역직렬화(``__post_init__``·store 복원)가 dict → ``Data_Ref`` 재구성에 쓴다.
-        """
-        return {_k: _v if isinstance(_v, cls) else cls(**_v) for _k, _v in data.items()}
+#: 인라인 LEAF 의 detail(둘째 칸)에 오는 **파이썬 타입** 이름 — 값이 파일이 아니라 ``info["value"]`` 에 산다.
+#: 값→이름 판정은 [`port/attr.py`](port/attr.py) 가 한다 (읽고 쓰는 쪽의 일이다).
+PYTHON_TYPES: tuple[str, ...] = ("str", "int", "float", "list")
+
+
+def Build(data: dict) -> dict[str, Data_Ref]:
+    """선언 dict → 자식 노드들 ``{이름: Data_Ref}``. BRANCH 자식은 ``__post_init__`` 이 재귀로 마저 세운다.
+
+    값이 이미 ``Data_Ref`` 면 그대로 두고, 선언 dict(``{format, info}``)면 노드로 세운다. **key 는 이름
+    (경로)일 뿐이고, 그 노드가 무엇인지는 언제나 ``format`` 이 말한다** — 이름에서 종류를 되짚지 않는다.
+
+    LEAF 의 ``format`` = ``(개념, detail)``:
+
+    - **파일** — ``("segmap", "png")`` · ``("image", "jpg")``. 첫 칸이 등록된 handler, detail 은 확장자.
+    - **인라인** — 값에 개념이 없으면 첫 칸이 비고 detail 이 파이썬 타입이다: ``("", "str")`` ·
+      ``("", "int")`` · ``("", "list")``. 개념이 있을 때만 첫 칸이 찬다 — ``("bbox", "list")``: 첫 칸이
+      원소 규약(int 4개)을 말하고 detail 은 그저 파이썬 타입이다. 원소 타입은 **검사하지 않는다**.
+
+    ``port`` 는 **등록된 handler 가 아닌 첫 칸을 전부 인라인**으로 보므로, 개념을 더해도 port 를 안 고친다.
+    (예전엔 인라인이 전부 ``("attr", <아무 문자열>)`` 이었다 — 값이 list 인데 detail 은 ``"str"`` 이라고
+    적혀 있었고, 소비처마다 그 문자열을 손으로 지어 복제했다.)
+
+    Example:
+        >>> Data_Ref(info=Build({
+        ...     "class_id": {"format": ("", "str"),      "info": {"value": "crack"}},
+        ...     "bbox":     {"format": ("bbox", "list"), "info": {"value": [3, 7, 40, 52]}}}))
+    """
+    return {_k: _v if isinstance(_v, Data_Ref) else Data_Ref(**_v) for _k, _v in data.items()}

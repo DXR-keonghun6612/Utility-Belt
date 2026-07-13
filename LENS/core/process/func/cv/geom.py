@@ -7,9 +7,52 @@
 
 from __future__ import annotations
 
+import cv2
 import numpy as np
 
-from ....typing import BBOX, GRAY_IMAGE
+from ....typing import BBOX, IMAGE, GRAY_IMAGE
+
+
+def Resize_within(image: IMAGE, max_side: int) -> IMAGE:
+    """최대 변이 ``max_side`` 를 넘으면 비율 유지로 그 이하까지 **축소**한다 (작으면 그대로).
+
+    큰 이미지에서 CV 를 돌리기 전 canonical 해상도로 줄이는 자리 — 고정 커널(canny·clahe·morphology)이
+    해상도에 안 휘둘리고, 속도도 는다. 축소 보간은 ``INTER_AREA``(다운샘플에 적합). 되돌리려면 원본
+    ``(H, W)`` 를 따로 들고 :func:`Resize_to` 로 (여긴 비율을 기억하지 않는다).
+
+    Args:
+        image: gray ``(H,W)`` 또는 다채널 ``(H,W,C)``.
+        max_side: 허용하는 최대 변(px).
+
+    Returns:
+        축소된 이미지(또는 이미 작으면 원본 그대로).
+    """
+    _h, _w = image.shape[:2]
+    _m = max(_h, _w)
+    if _m <= max_side:
+        return image
+    _s = max_side / _m
+    return cv2.resize(image, (max(1, int(_w * _s)), max(1, int(_h * _s))),
+                      interpolation=cv2.INTER_AREA)
+
+
+def Resize_to(image: IMAGE, size_hw: tuple[int, int], *, nearest: bool = True) -> IMAGE:
+    """이미지를 정확한 ``(H, W)`` 로 리사이즈한다 — 라벨맵 복원 기본은 **NEAREST**(값 보존).
+
+    :func:`Resize_within` 의 짝 — 작은 해상도에서 만든 결과를 원본 크기로 되돌린다. mask·라벨맵은
+    ``nearest`` 로 되돌려 값(obj_id+1)을 섞지 않는다. 연속값(이미지)이면 ``nearest=False``(LINEAR).
+
+    Args:
+        image: 되돌릴 이미지.
+        size_hw: 목표 크기 ``(H, W)``.
+        nearest: True면 NEAREST(라벨 보존), False면 LINEAR(연속값).
+
+    Returns:
+        ``(H, W)`` 로 리사이즈된 이미지.
+    """
+    _h, _w = size_hw
+    return cv2.resize(image, (int(_w), int(_h)),
+                      interpolation=cv2.INTER_NEAREST if nearest else cv2.INTER_LINEAR)
 
 
 def Mask_to_box(mask: GRAY_IMAGE) -> np.ndarray | None:

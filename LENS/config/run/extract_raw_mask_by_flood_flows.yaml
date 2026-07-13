@@ -31,7 +31,6 @@ flows:
                 to: storage
                 level: frame
                 format: png
-                dir: flood_mask
 
     # 2. mask 를 인스턴스로 분리 → 객체 bbox
     -   object_type: split_objects
@@ -46,7 +45,6 @@ flows:
                 level: frame
                 type: segmap
                 format: png
-                dir: raw_mask
 
     # 3. 객체 순서 정렬 (id 안정화)
     -   object_type: order_objects
@@ -57,4 +55,3 @@ flows:
                 level: frame
                 type: segmap
                 format: png
-                dir: raw_mask

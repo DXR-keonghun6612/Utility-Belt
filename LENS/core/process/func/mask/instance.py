@@ -155,13 +155,18 @@ def Order_by_center(
     현재 라벨로 본다. 그래서 순서와 라벨맵이 어긋난(예: 목록만 재정렬되고 라벨맵은 안 써진) desync
     상태도 한 번 돌리면 위치 기준으로 다시 맞는다(self-heal).
 
+    **라벨맵에 자리가 없는 인스턴스는 떨어져 나간다** — bbox 가 없거나(``None``), 그 bbox 안에 라벨이
+    하나도 없거나(빈 mask), 이미 더 가까운 인스턴스가 그 라벨을 가져갔으면 살아남지 못한다. 객체는
+    라벨맵 위에서만 성립하므로, 라벨을 못 받은 것은 **객체가 아니라 유령**이다 — 남겨두면 다음 편집·
+    crop 이 빈 mask 를 들고 돈다. **bbox 가 진실**이라, 칠하기만 하고 bbox 를 안 그린 객체도 여기서 진다.
+
     Args:
         segment: ``(H, W)`` 라벨맵 (픽셀 = 인덱스+1, 0 = 배경).
-        boxes: 인스턴스별 XYXY bbox. ``None`` 인 항목은 거리 ``inf`` 로 맨 뒤로 밀리고 라벨맵에서 빠진다.
+        boxes: 인스턴스별 XYXY bbox (``None`` 이면 라벨을 찾을 근거가 없다 → 드롭).
 
     Returns:
-        ``(segment, order)`` — 재라벨된 라벨맵과, 새 순서에 대응하는 **원본 인덱스 순열**.
-        ``order[k]`` 는 새 인덱스 ``k`` 가 된 원본 인스턴스의 인덱스다. 라벨 충돌 시 더 가까운 쪽이 이긴다.
+        ``(segment, order)`` — 재라벨된 라벨맵과, **살아남은** 원본 인덱스들(가까운 순). ``order[k]`` 는
+        새 인덱스 ``k`` 가 된 원본 인스턴스의 인덱스다 — 드롭이 있으면 순열이 아니라 부분열이다.
     """
     _h, _w   = segment.shape[:2]
     _cx, _cy = _w / 2.0, _h / 2.0
@@ -177,10 +182,11 @@ def Order_by_center(
         _info.append((_d, Label_in_box(segment, _b), _i))
     _info.sort(key=lambda _t: _t[0])
 
-    _lut = np.zeros(int(segment.max()) + 1, np.uint8)   # old 라벨 → 새 라벨(rank+1)
+    _lut = np.zeros(int(segment.max()) + 1, np.uint8)   # old 라벨 → 새 라벨(순위+1)
     _order: list[int] = []
-    for _rank, (_d, _old, _i) in enumerate(_info):
-        if _old > 0 and _lut[_old] == 0:
-            _lut[_old] = np.uint8(_rank + 1)
+    for _d, _old, _i in _info:
+        if _old <= 0 or _lut[_old]:                     # 라벨 자리가 없다(또는 이미 뺏겼다) → 드롭
+            continue
+        _lut[_old] = np.uint8(len(_order) + 1)          # 새 라벨은 **살아남은 것들**로만 매긴다
         _order.append(_i)
     return _lut[segment], _order

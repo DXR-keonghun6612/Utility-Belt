@@ -14,6 +14,7 @@ kind-major 로(``{root}/{범주}/{종류}/{stem}.{ext}`` — 경로 규칙은 [`
 
 from __future__ import annotations
 
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
@@ -22,6 +23,7 @@ from typing import Any, Callable, ClassVar, Iterable, Iterator, Mapping
 from python_toolbox.data_schema import Data_Schema
 
 from .. import port
+from ..constant import TRACE_DIR
 from ..port import Structure
 from ..schema import Data_Ref
 
@@ -83,6 +85,13 @@ class Bucket_Store(Data_Schema):
         """``path`` 컨테이너에 빈 BRANCH(객체)를 더한다 — 이름을 안 주면 **다음 순번** (반환).
 
         객체 id 는 부모 ``info`` 의 key 다(별도 필드가 아니다). 빈 자리를 찾아 채운다.
+
+        **id 는 정수만 된다.** 객체는 라벨맵의 한 라벨(= id + 1)로 사는데, 정수가 아니면 앉을 자리가
+        없다. 여기서 막아 그 사례를 없애므로, 소비처(``Remove_object``·``Merge_objects``·gui 의 조준)는
+        ``int(obj_id) + 1`` 을 **방어 없이** 쓴다.
+
+        Raises:
+            ValueError: ``name`` 이 정수 문자열이 아닐 때.
         """
         _parent = self.tree.At(path)
         if _parent is None or not _parent.Is_branch():
@@ -92,6 +101,8 @@ class Bucket_Store(Data_Schema):
             while str(_i) in _parent.info:
                 _i += 1
             name = str(_i)
+        elif not name.isdigit():
+            raise ValueError(f"객체 id 는 정수여야 한다 (라벨 = id + 1): {name!r}")
         _parent.Push(name, Data_Ref(info={}))
         return name
 
@@ -226,6 +237,34 @@ class Bucket_Store(Data_Schema):
         """
         return port.Route(self.root, path, name, spec, value, params=params)
 
+    def Trace(self, run: str, path: tuple[str, ...], name: str, spec: dict, value: Any,
+              *, params: bool = False) -> None:
+        """진단 payload 를 **트리 밖** ``{root}/.trace/{run}/{종류}/{stem}.{ext}`` 에 쓴다.
+
+        ``Route`` 의 형제이되 **``Data_Ref`` 를 안 돌려준다** — 꽂을 ref 가 없으니 트리에 앉힐 수단이
+        구조적으로 없다. 그래서 진단물은 사이드카에 안 실리고, 전이(``Move``)·삭제·병합·내보내기가
+        아예 못 본다. 라이프사이클이 없는 것이 이 sink 의 정의다 (지우려면 폴더째 → ``Clear_trace``).
+
+        범주가 경로에 없는 것도 같은 이유다 — 진단은 검수 상태를 따라 옮겨다니지 않는다. 대신 ``run``
+        이 앞머리라 같은 종류를 여러 번 내도 실행끼리 안 덮어쓴다.
+
+        Args:
+            run:   실행 id (호출 측이 실행 단위로 정한다 — 한 Run = 한 폴더).
+            path:  트리 위치에서 온 주소 꼬리 ``(stem[, obj_id])``. 비면 위치 없음(finalize).
+            name:  leaf 이름 = 종류(폴더).
+            spec:  라우팅 spec (``to: trace``).
+            value: 저장할 값.
+            params: 위치 없는 dataset-wide 출력인지 (핸들러 ``Claims`` 맥락).
+        """
+        port.Route(str(Path(self.root, TRACE_DIR)), (run, *path), name, spec, value,
+                   params=params)
+
+    def Clear_trace(self, run: str | None = None) -> None:
+        """진단 산출물을 지운다 — ``run`` 이면 그 실행 폴더만, 아니면 ``.trace`` 통째 (없으면 no-op)."""
+        _dir = Path(self.root, TRACE_DIR, run) if run else Path(self.root, TRACE_DIR)
+        if _dir.exists():
+            shutil.rmtree(_dir)
+
     def Load(self, key: str, name: str):
         """item 의 leaf 하나를 payload 로 푼다 (item·leaf 가 없으면 None).
 
@@ -354,6 +393,42 @@ class Bucket_Store(Data_Schema):
         for _lp, _name, _leaf in _item.Iter_leaves():
             port.Delete(self.root, _p + _lp, _name, _leaf)
         Structure.Delete(self.root, _p)
+
+    def Vacuum(self) -> int:
+        """트리가 참조하지 않는 payload 파일을 지운다 — **트리에서 떨어진 고아** 청소 (지운 파일 수 반환).
+
+        ``Replace_branches``·객체 편집이 서술자를 갈아끼우면 옛 파일은 트리에서 떨어지지만 디스크엔
+        남는다 — ``Move``/``Delete`` 는 ``Iter_leaves`` 로 트리를 따라가므로 이런 고아를 못 본다. 여기가
+        그 유일한 청소구다: 살아있는 경로 집합을 만들고 범주·params 폴더 아래 그 밖의 파일을 지운다.
+
+        **범주·``params`` 최상위만 훑는다** — ``.meta``(사이드카)·``.trace``(진단)·``sample``(파생)은
+        payload 레이아웃이 아니라 건드리지 않는다. 비워진 종류 폴더는 함께 걷는다.
+        """
+        _live: set[Path] = set()
+        for _cat, _key, _item in self._iter():
+            for _lp, _name, _leaf in _item.Iter_leaves():
+                _p = port.Path_of(self.root, (_cat, _key, *_lp), _name, _leaf)
+                if _p is not None:                          # 인라인은 파일이 없다
+                    _live.add(_p.resolve())
+        for _name, _leaf in self.tree.Get(self.PARAMS).Leaves().items():
+            _p = port.Path_of(self.root, (self.PARAMS,), _name, _leaf)
+            if _p is not None:
+                _live.add(_p.resolve())
+
+        _removed = 0
+        for _top in (self.PARAMS, *self.CATEGORIES):
+            _root = Path(self.root, _top)
+            if not _root.is_dir():
+                continue
+            for _f in _root.rglob("*"):
+                if _f.is_file() and _f.resolve() not in _live:
+                    _f.unlink()
+                    _removed += 1
+            for _d in sorted((_p for _p in _root.rglob("*") if _p.is_dir()),
+                             key=lambda _x: len(_x.parts), reverse=True):
+                if not any(_d.iterdir()):                    # 비워진 종류 폴더 걷기
+                    _d.rmdir()
+        return _removed
 
     def Merge(self, other: "Bucket_Store", *, mode: str = SKIP) -> None:
         """다른 store 를 항목 단위로 들인다 (같은 타입끼리만). 충돌은 ``mode`` (skip/overwrite/merge).

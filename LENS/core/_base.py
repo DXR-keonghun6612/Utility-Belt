@@ -79,6 +79,15 @@ class Pipeline:
         self.meta            = Dataset_Meta.Restore(self.root)   # 정본 (Dataset_Meta)
         self._sample_root    = self.root / SAMPLE_DIR            # 파생 root ({root}/sample/{tasker})
 
+    def Reload(self) -> None:
+        """정본을 디스크에서 다시 읽는다 — **저장 안 한 편집을 버린다.**
+
+        편집은 메모리에서 일어나고(`meta.Remove_object`·캔버스 편집 …) 영속은 명시적 저장이 한다.
+        그래서 "취소"는 되돌리기 스택이 아니라 **다시 읽기**다 — 디스크가 마지막 저장 시점이므로,
+        무엇을 얼마나 했든 한 번에 그 시점으로 돌아간다.
+        """
+        self.meta = Dataset_Meta.Restore(self.root)
+
     # ── config 섹션 갱신 (단일 Pipeline 에 섹션별 주입) ─────────────────────────
     def set_converter(self, cfg: dict) -> None:
         """converter 섹션을 갱신한다 (meta 재로드 없이 — ``Convert`` 가 이 값을 읽는다)."""
@@ -142,40 +151,49 @@ class Pipeline:
         self.meta.Save()
 
     def Order(self, stems: list[str] | None = None,
-              progress: Callable[[str, int, int], None] | None = None) -> None:
+              progress: Callable[[str, int, int], None] | None = None) -> int:
         """지정 stem 들의 객체를 중심-거리 순으로 재정렬 — obj_id 재부여 + segment 재라벨 + 저장.
 
-        편집(객체 삭제 등)이 남긴 obj_id **구멍을 압축**하는 자리다. 삭제(``meta.Remove_object``)는
-        정합만 지키고 순번을 안 매기므로(store 는 process 를 모른다), 압축은 여기(binder)가
-        ``Order_objects``(process)를 돌려 한다 — 저장·병합 직후 호출한다. ``stems=None`` 이면 전 범주.
+        편집이 남긴 **어긋남을 되찾는 자리**다. 편집(``meta.Remove_object``/``Merge_objects``)은 정합만
+        지키고 순번을 안 매기므로(store 는 process 를 모른다), 압축은 여기(binder)가 ``Order_objects``
+        (process)를 돌려 한다 — 저장·병합 직후 호출한다. ``stems=None`` 이면 전 범주.
+
+        되찾는 것은 둘이다: obj_id 의 **구멍 압축**, 그리고 라벨맵에 자리가 없는 **유령 객체 제거**
+        (빈 mask·bbox 없는 객체). 후자는 데이터가 사라지는 일이라 **몇 개였는지 돌려준다** — 호출 측이
+        사용자에게 알리라고.
 
         Args:
             stems: 재정렬할 item key 들 (None 이면 모든 범주의 전 stem).
             progress: 진행 콜백 ``(label, i, total)``.
+
+        Returns:
+            제거된 객체 수 (라벨맵에 자리가 없던 것들).
         """
         _keys = (list(stems) if stems is not None
                  else [_k for _c in self.meta.CATEGORIES for _k in self.meta.Bucket(_c)])
+        _dropped = 0
         for _i, _stem in enumerate(_keys, start=1):
-            self._order_stem(_stem)
+            _dropped += self._order_stem(_stem)
             if progress is not None:
                 progress("order", _i, len(_keys))
+        return _dropped
 
-    def _order_stem(self, stem: str) -> None:
-        """한 stem 의 segment + 객체를 ``Order_objects`` 로 재정렬해 되꽂고 저장한다 (대상 없으면 no-op)."""
+    def _order_stem(self, stem: str) -> int:
+        """한 stem 의 segment + 객체를 재정렬해 되꽂고 저장한다 — **제거된 객체 수** 반환 (대상 없으면 0)."""
         _item = self.meta.Find(stem)
         if _item is None:
-            return
+            return 0
         _name, _ref = next(((_n, _r) for _n, _r in _item.Leaves().items()
                             if _r.format[:1] == ("segmap",)), (None, None))
         _objs = list(_item.Branches().values())
         if _ref is None or not _objs:
-            return
+            return 0
         _seg = self.meta.Load(stem, _name)
         if _seg is None:
-            return
+            return 0
         _out = Order_objects().Run(segment=_seg, object=_objs)
         if not _out:
-            return
+            return 0
         _path = self.meta.Item_path(stem)
         _spec = {"to": "storage", "type": _ref.format[0]}
         if len(_ref.format) > 1 and _ref.format[1]:
@@ -183,6 +201,7 @@ class Pipeline:
         _item.Push(_name, self.meta.Route(_path, _name, _spec, _out["segment"]))
         _item.Replace_branches(_out["object"])
         self.meta.Save(stem)
+        return len(_objs) - len(_out["object"])          # 라벨 자리가 없어 떨어져 나간 객체들
 
     # ── 파생(Sample) — 이름 붙은 tasker ({root}/sample/{name} + taskers.yaml) ────
     def Taskers(self) -> dict[str, dict]:

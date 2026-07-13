@@ -10,12 +10,32 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-from ....typing import GRAY_IMAGE
+from ....typing import IMAGE, GRAY_IMAGE
 
 
 def Make_morph_kernel(size: int = 3) -> np.ndarray:
     """사각형 morphology 커널을 생성한다."""
     return cv2.getStructuringElement(cv2.MORPH_RECT, (size, size))
+
+
+def Band_threshold(image: IMAGE, low: int = 0, high: int = 255) -> GRAY_IMAGE:
+    """gray 값이 ``[low, high]`` 안인 픽셀만 ``255`` 인 이진 mask (uint8, 양방향 clip).
+
+    아래로 어두운 배경, 위로 포화된 광원(정확히 ``255`` 로 clip 되는 직광)을 함께 잘라 **그 사이 밴드**만
+    남긴다 — 무채색 씬에서 물체에 반사된 밝은 띠를 광원 자체와 분리하는 자리. 다채널이 들어오면 gray 로
+    접는다(무채색 전제라 채널 선택이 무의미하므로 ``BGR2GRAY``; 4ch 는 alpha 를 버린다).
+
+    Args:
+        image: gray ``(H,W)`` 또는 다채널 ``(H,W,C)`` uint8.
+        low: 하단 임계(포함) — 이보다 어두우면 버림.
+        high: 상단 임계(포함) — 이보다 밝으면(광원) 버림.
+
+    Returns:
+        밴드 안이 ``255``, 밖이 ``0`` 인 ``GRAY_IMAGE``.
+    """
+    if image.ndim == 3:
+        image = cv2.cvtColor(image[..., :3], cv2.COLOR_BGR2GRAY)
+    return (((image >= low) & (image <= high)).astype(np.uint8) * 255)
 
 
 def Close_gaps(mask: GRAY_IMAGE, size: int = 5) -> GRAY_IMAGE:

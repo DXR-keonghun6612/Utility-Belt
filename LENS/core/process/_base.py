@@ -22,9 +22,9 @@ from typing import Any, Callable, ClassVar, Iterator
 
 from python_toolbox.project.config import Base_Config
 
-from ..constant import MODIFIED
-from ..schema import Data_Ref
-from ..typing import Arg_Info as UI, BBOX, GRAY_IMAGE
+from ..constant import MODIFIED, TO_TRACE
+from ..schema import PYTHON_TYPES, Data_Ref
+from ..typing import Arg_Info as UI, BBOX, IMAGE, GRAY_IMAGE
 
 
 # ── process 유닛: 베이스 ───────────────────────────────────────────────────────
@@ -112,14 +112,17 @@ class Unit:
 
 
 def inline_ctx(ref: Data_Ref) -> dict:
-    """ref 의 **인라인 attr leaf** 값만 ctx dict 로 (파일 payload 는 건너뜀 — 경량 역참조).
+    """ref 의 **인라인 값 leaf** 만 ctx dict 로 (파일 payload 는 건너뜀 — 경량 역참조).
 
-    gate·select process 가 정본에 기록된 attr(``class_id``·``center_dist`` 등)로 거를 수 있게 한다 —
-    payload(image/array/rle)는 로드하지 않으므로 파일 I/O 가 없다.
+    gate·select process 가 정본에 기록된 값(``class_id``·``center_dist``·``bbox`` 등)으로 거를 수 있게
+    한다 — payload(image/array/rle)는 로드하지 않으므로 파일 I/O 가 없다.
+
+    **detail 이 파이썬 타입인 것**이 인라인 값이다(``("", "str")``·``("bbox", "list")``). 압축이지만
+    파일 격인 ``rle``(detail=``"rle"``)이나 파일 leaf(detail=확장자)는 그래서 자연히 빠진다.
     """
     return {_k: _v.info.get("value")
             for _k, _v in ref.Leaves().items()
-            if _v.format[:1] == ("attr",)}
+            if _v.format[1:2] and _v.format[1] in PYTHON_TYPES}
 
 
 # ── Stage: 순회·체인·라우팅 엔진 ───────────────────────────────────────────────
@@ -197,12 +200,18 @@ class Stage(Base_Config):
         ``spec_map`` = ``{출력키: spec}``. 미선언 키는 저장되지 않는다 — 그래서 "이 값이 저장되나?"는
         값이 아니라 config 를 봐야 안다(의도된 성질). spec 스키마::
 
-            {to: "meta"|"storage", level?: "frame"|"object", type?: str, format?: str}
+            {to: "meta"|"storage", level?: "frame"|"object", type?: str, format?: str, as?: str}
 
         ``to`` = 보관 방식(인라인 / 파일), ``level`` = 위치(기본 ``"object"``), ``format`` = 확장자
         override. **파일 경로는 spec 이 안 정한다** — 트리 위치(범주·stem·obj_id)와 출력키에서 handler 가
         파생한다(kind-major). 값 → ``Data_Ref`` 타입 결정도 spec 이 아니라
         :func:`core.port.Template` 가 값·맥락으로 정한다.
+
+        **``as`` = 저장 leaf 별칭** (기본 = 출력키). ctx wire 이름은 그대로 두고 **디스크에 앉는
+        leaf 이름만** 바꾼다 — 폴더가 곧 leaf 이름이라(kind-major) 별칭이 곧 저장 폴더고, leaf 이름에서
+        경로가 파생되므로 복원도 일관된다. 원본을 안 덮고 변종·디버그 산출물을 딴 폴더에 남기는 자리
+        (예: ``norm_frame`` 을 ``as: norm_clahe`` 로). **정본 leaf 이름(``segment`` 등)에는 쓰지 마라**
+        — 그 이름을 읽는 소비처(sample·export·gui)가 못 찾는다. 별칭은 아무도 안 읽는 출력에만.
 
         Example:
             체인의 mask 출력을 객체 info 에 rle 인라인으로, score 를 png 파일로::
@@ -214,6 +223,33 @@ class Stage(Base_Config):
 
     def _emit(self, store, unit: Unit, ctx: dict) -> None:
         """체인 후 unit 당 1회 — 구조 생성/배치 (기본 no-op). gate 로 걸러진 unit 은 호출되지 않는다."""
+
+    # ── 출력 분배 — 진단(trace)은 트리 밖, 나머지는 서브클래스 훅(_route) ───────────
+    def _dispatch(self, store, unit: Unit, spec_map: dict, out: dict) -> None:
+        """step 출력을 목적지별로 가른다 — ``to: trace`` 는 트리 밖 sink, 나머지는 ``_route``.
+
+        trace 를 서브클래스가 아니라 여기서 처리하는 이유: 진단물의 자리는 Run 이든 Sample 이든 **같다**
+        (트리 밖). 양 끝이 다른 건 정본을 어디에 앉히느냐지 진단을 어디 두느냐가 아니다.
+        """
+        _trace = {_k: _s for _k, _s in spec_map.items() if _s.get("to") == TO_TRACE}
+        if _trace:
+            self._route_trace(store, unit, _trace, out)
+        _rest = {_k: _s for _k, _s in spec_map.items() if _s.get("to") != TO_TRACE}
+        if _rest:
+            self._route(store, unit, _rest, out)
+
+    def _route_trace(self, store, unit: Unit, spec_map: dict, out: dict) -> None:
+        """진단 출력을 ``store.Trace`` 로 — leaf 를 안 만든다(트리에 안 앉는다).
+
+        실행 폴더는 이 stage 의 ``_label()`` — UI 가 flow 이름으로 곧장 ``.trace/{label}/`` 을 가리킬 수
+        있고, 같은 flow 를 다시 돌리면 그 폴더를 덮어써 **항상 최신 중간결과**가 같은 자리에 있다.
+        """
+        _path = tuple(_p for _p in (unit.stem, unit.obj_id) if _p)   # 비면 위치 없음(finalize)
+        for _key, _spec in spec_map.items():
+            _val = out.get(_key)
+            if _val is not None:
+                _as = _spec.get("as", _key)                          # 저장 종류(폴더) 별칭 — storage 와 동일
+                store.Trace(self._label(), _path, _as, _spec, _val, params=not _path)
 
     def _cached(self, store) -> bool:
         """재실행 캐시 적중 — 이 stage 의 params 출력 키가 store 에 모두 있으면 True."""
@@ -314,7 +350,7 @@ class Stage(Base_Config):
                         _gated = True
                         break
                     _ctx = {**_ctx, **_out}
-                    self._route(store, _unit, self._outputs[_idx], _out)
+                    self._dispatch(store, _unit, self._outputs[_idx], _out)
                 if not _gated:                             # gate 로 걸러진 unit 은 구조 생성도 스킵
                     self._emit(store, _unit, _ctx)
                 _last = _ctx
@@ -339,7 +375,7 @@ class Stage(Base_Config):
             if not _out:
                 break
             _ctx = {**_ctx, **_out}
-            self._route(store, _unit, self._fin_outputs[_idx], _out)
+            self._dispatch(store, _unit, self._fin_outputs[_idx], _out)
 
 
 # ── Flow: Run 구성 (modified 순회 → meta 로 route) ─────────────────────────────
@@ -401,9 +437,10 @@ class Flow(Stage):
             _val = out.get(_key)
             if _val is None:
                 continue
+            _as = _spec.get("as", _key)                    # 저장 leaf 별칭 (= 폴더). ctx wire 는 _key 그대로
             if _frame is None and _obj is None:            # 위치 없음(finalize) — params
-                store.Set_param(_key, store.Route(
-                    (store.PARAMS,), _key, _spec, _val, params=True))
+                store.Set_param(_as, store.Route(
+                    (store.PARAMS,), _as, _spec, _val, params=True))
                 continue
             _is_obj = _spec.get("level", "object") == "object"
             if _is_obj and _obj is None:                   # 객체 위치 없음
@@ -411,7 +448,7 @@ class Flow(Stage):
             _target = _obj if _is_obj else _frame
             _path = ((_cat, _stem, _obj_id) if _is_obj and _obj_id is not None else
                      (_cat, _stem))
-            _target.Push(_key, store.Route(_path, _key, _spec, _val))
+            _target.Push(_as, store.Route(_path, _as, _spec, _val))
 
         _objs = out.get("object")
         if isinstance(_objs, list) and _frame is not None:  # 구조 교체 — 순번=obj_id; leaf 보존

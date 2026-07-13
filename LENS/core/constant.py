@@ -22,3 +22,16 @@ VAL   = "val"
 TEST  = "test"
 SPLITS: tuple[str, ...] = (TRAIN, VAL, TEST)
 UNCLASSIFIED = "__unclassified__"     # 미분류 class 이름 — 정본 class_id 미지정 값 = classification fallback
+
+# ── 라우팅 목적지 어휘 (outputs spec `to`) ──────────────────────────────────────
+#
+# **값이 어디로 가나** — 하나의 축, 세 개의 배타적 값. process(spec 을 쓴다)와 port(그릇을 짓는다)가
+# 같이 읽으므로 여기 산다. 인라인은 사이드카 안에 사는 것이라 "트리 밖 진단"이 될 수 없다 — 그래서
+# 셋이 한 축에서 갈린다(TRACE 는 항상 파일).
+
+TO_META    = "meta"        # 사이드카 인라인 — 값이 Data_Ref.info 에 그대로 (attr·rle)
+TO_STORAGE = "storage"     # 정본 파일 — 트리 leaf + {범주}/{종류}/{stem}.{ext} (전이·내보내기 대상)
+TO_TRACE   = "trace"       # 진단 파일 — 트리 밖 .trace/{run}/{종류}/ (leaf 없음 = 라이프사이클 없음)
+ROUTE_TARGETS: tuple[str, ...] = (TO_META, TO_STORAGE, TO_TRACE)
+
+TRACE_DIR = ".trace"       # 진단 산출물 루트 ({root}/.trace/{run}/…) — 트리 밖이라 `.` 로 숨긴다

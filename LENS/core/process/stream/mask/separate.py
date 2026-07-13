@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Annotated
 
-from ....schema import Data_Ref
+from ....schema import Build, Data_Ref
 from ...func.cv.geom import Roi_to_mask
 from ...func.mask.instance import Split_components
 from .. import PROCESS_REGISTRY, Base_Process, UI, GRAY_IMAGE, BBOX
@@ -46,10 +46,10 @@ class Split_objects(Base_Process, outputs=("segment", "object"), category="마�
             return {}
 
         _objs = [                               # obj_id = 리스트 순번 (sink 가 info key 로 씀)
-            Data_Ref(info={
-                "class_id": Data_Ref(format=("attr", "str"),  info={"value": _cls}),
-                "bbox":     Data_Ref(format=("attr", "xyxy"), info={"value": _box}),
-            })
+            Data_Ref(info=Build({
+                "class_id": {"format": ("", "str"),      "info": {"value": _cls}},
+                "bbox":     {"format": ("bbox", "list"), "info": {"value": _box}},
+            }))
             for _box in _boxes
         ]
         return {"segment": _seg, "object": _objs}

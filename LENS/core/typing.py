@@ -2,7 +2,7 @@
 
 두 종류를 담는다:
 
-- **타입 별칭** (``BBOX``·``GRAY_IMAGE``) — 여러 단계가 공유하는 도메인 타입.
+- **타입 별칭** (``BBOX``·``IMAGE``·``GRAY_IMAGE``) — 여러 단계가 공유하는 도메인 타입.
 - **인자 표시 메타** (``Arg_Info`` + 축약 생성자 ``Arg``) — ``__init__`` 파라미터/dataclass 필드에
   ``Annotated[type, Arg_Info(...)]`` 로 부착하는 표시 힌트. GUI(``gui/form``)가 읽어 위젯을 만든다.
   계산 계층은 이 값을 쓰지 않는다 — 순수 데이터(Qt 비의존)일 뿐이다.
@@ -21,6 +21,10 @@ from numpy import dtype, ndarray, uint8
 # ── 타입 별칭 ──────────────────────────────────────────────────────────────────
 
 BBOX       = tuple[int, int, int, int]
+#: **채널 무관** 이미지 배열 — gray ``(H,W)`` · 3ch ``(H,W,3)`` · 4ch ``(H,W,4)`` 를 한 타입으로 담는다.
+#: 채널 수는 **런타임에** 구분한다(``func`` 가 배열 shape 를 본다) — 타입을 채널별로 쪼개지 않는 게
+#: 제일 깔끔하다는 판단. 단일채널이 계약인 자리(mask·edge·segmap)만 ``GRAY_IMAGE`` 로 좁힌다.
+IMAGE      = ndarray
 GRAY_IMAGE = ndarray[tuple[int, int], dtype[uint8]]
 
 

@@ -62,17 +62,18 @@ class Coco_exporter(Exporter):
 
     @staticmethod
     def _coco_bbox(obj: Data_Ref) -> list[float]:
-        """객체의 bbox attr → COCO 규약 ``[x, y, w, h]`` (없으면 ``[]``).
+        """객체의 bbox → COCO 규약 ``[x, y, w, h]`` (없으면 ``[]``).
 
-        정본은 코너 ``xyxy`` 로 든다(``format=("attr","xyxy")``) — COCO 는 **좌상단+폭높이**라 여기서
-        변환한다. 산출물 규약을 정본 규약에 맞추면 학습 측이 조용히 틀린 박스를 먹는다.
+        정본은 코너 ``xyxy`` 로 든다(``format=("bbox","list")`` — ``bbox`` 개념이 "int 4개 = 코너"를
+        말한다). COCO 는 **좌상단+폭높이**라 여기서 변환한다. 산출물 규약을 정본 규약에 맞추면 학습
+        측이 조용히 틀린 박스를 먹는다.
         """
         _box = obj.Get("bbox")
         if _box is None:
             return []
         _v = _box.info.get("value") or []
-        if _box.format[1:] != ("xyxy",) or len(_v) != 4:
-            raise ValueError(f"COCO 내보내기: bbox 가 xyxy 4-값이 아니다 — format={_box.format} value={_v}")
+        if _box.format[:1] != ("bbox",) or len(_v) != 4:
+            raise ValueError(f"COCO 내보내기: bbox 가 4-값 코너가 아니다 — format={_box.format} value={_v}")
         _x0, _y0, _x1, _y1 = (float(_c) for _c in _v)
         return [_x0, _y0, _x1 - _x0, _y1 - _y0]
 
