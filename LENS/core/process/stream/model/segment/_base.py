@@ -15,6 +15,7 @@ import numpy as np
 
 from core.schema import Build, Data_Ref
 from ....func.cv.geom import Mask_to_box
+from ....func.mask.instance import Paint
 from ... import PROCESS_REGISTRY, Base_Process, GRAY_IMAGE, UI
 
 
@@ -72,7 +73,7 @@ class Segment(Base_Process, outputs=("segment", "object"), category="모델/분�
             if _m is None or int((_m > 0).sum()) < self.min_area:
                 continue
             _oid = len(_new)                                   # 정제 후 재부여한 0-based obj_id
-            _seg[_m > 0] = np.uint8(_oid + 1)
+            Paint(_seg, _oid, _m)                              # 라벨맵에 그 객체 라벨로 도색 (규약은 func)
             _box = Mask_to_box(_m)                             # 정제 mask 기준 bbox 재계산
             if _box is None:
                 continue

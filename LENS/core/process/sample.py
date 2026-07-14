@@ -24,24 +24,21 @@ import numpy as np
 from ..constant import STAGED, UNCLASSIFIED
 from ..schema import Data_Ref
 from ..store import SPLITS, Sample_Set
+from .func.mask.instance import Mask_of
 from ._base import Stage, Unit, inline_ctx
 
 UNLABELED = UNCLASSIFIED   # class_id 가 없는 unit 의 fallback class (정본 미분류 값과 통일)
 
 
 def _obj_mask(segment: np.ndarray | None, obj_id: str | None) -> np.ndarray | None:
-    """``segment`` 인스턴스 라벨맵(픽셀=obj_id+1)에서 한 obj 의 이진 mask 를 뽑는다 (없으면 None).
+    """``segment`` 인스턴스 라벨맵에서 한 obj 의 이진 mask 를 뽑는다 (frame-unit 이라 obj 가 없으면 None).
 
-    정본은 per-obj mask 를 따로 저장하지 않고 frame-level ``segment`` 한 장에서 파생한다(core 규약 —
-    ``mask/separate``·``mask/order`` 가 생산). crop 은 이 mask 의 bbox 로 프레임을 자른다.
+    라벨↔id 규약과 gather 는 ``func.mask.instance`` 가 소유한다 — 여기선 obj 부재(frame 단위)만 거르고
+    ``Mask_of`` 에 위임한다. crop 은 이 mask 의 bbox 로 프레임을 자른다.
     """
     if segment is None or obj_id is None:
         return None
-    try:
-        _lbl = int(obj_id) + 1
-    except (TypeError, ValueError):
-        return None
-    return (segment == _lbl).astype(np.uint8)
+    return Mask_of(segment, obj_id)
 
 
 @dataclass

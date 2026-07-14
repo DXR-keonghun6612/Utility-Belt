@@ -18,6 +18,59 @@ from ..cv.geom import Box_center
 BOX = list[float]
 
 
+# ── 객체 id ↔ 라벨맵 픽셀값 규약 + 합성 (이 파일이 단일 소유) ─────────────────────
+# 정본은 per-obj mask 를 안 들고 frame-level 라벨맵 **한 장**에 담으며, 그 픽셀값이 곧 ``id + 1`` 이다
+# (0 = 배경). 즉 id 는 트리 key 이자 라벨맵 픽셀값이라 트리와 payload 가 공동소유한다. 이 변환과 그 위의
+# 합성(gather/scatter)을 소비처마다 손으로 쓰면(``int(id)+1``) 흩어지므로 전부 여기서 소유한다 —
+# gui·process·export(해체 후)가 이 함수들만 부르고, 라벨 산수를 다시 짓지 않는다.
+
+def Obj_label(obj_id: str | int) -> int:
+    """객체 id → 라벨맵 픽셀값 (``id + 1``; 0 은 배경). id 가 정수가 아니면 실패한다.
+
+    id 가 정수인 것은 store(``Add_branch``)가 강제한다 — 라벨맵에 앉을 자리가 그 정수라, 정수가
+    아니면 규약이 이미 깨진 것이다. 여기서 방어하지 않고 ``int`` 이 터지게 둔다(조용한 기본값 없음).
+    """
+    return int(obj_id) + 1
+
+
+def Obj_id_of(label: int) -> str:
+    """라벨맵 픽셀값 → 객체 id (``Obj_label`` 의 역). 배경(0) 여부는 호출 측이 거른다."""
+    return str(int(label) - 1)
+
+
+def Mask_of(segment: np.ndarray, obj_id: str | int) -> np.ndarray:
+    """라벨맵에서 한 객체의 이진 mask ``(H, W) uint8`` 을 뽑는다 (gather 한 조각).
+
+    정본은 per-obj mask 를 저장하지 않고 이 라벨맵 한 장에서 파생한다 — 픽셀값이 ``Obj_label(obj_id)``
+    인 영역이 그 객체다. crop·export 가 이걸로 객체 픽셀을 얻는다.
+    """
+    return (segment == Obj_label(obj_id)).astype(np.uint8)
+
+
+def Paint(segment: np.ndarray, obj_id: str | int, mask: np.ndarray) -> None:
+    """객체의 mask 영역을 라벨맵에 그 객체의 라벨로 **제자리 도색**한다 (scatter 한 조각).
+
+    호출 측이 든 배열을 그대로 고친다 — 편집 중 붓질처럼 디스크보다 새 상태라, 여기서 저장하지 않는다.
+    """
+    segment[mask > 0] = np.uint8(Obj_label(obj_id))
+
+
+def Erase(segment: np.ndarray, obj_id: str | int) -> None:
+    """라벨맵에서 한 객체의 라벨을 배경(0)으로 지운다 (제자리). 없는 라벨이면 무연산."""
+    segment[segment == Obj_label(obj_id)] = 0
+
+
+def Compose(shape: tuple[int, int], objects: dict[str, np.ndarray]) -> np.ndarray:
+    """객체별 mask ``{id: mask}`` 를 인스턴스 라벨맵 한 장으로 합친다 (scatter 전체).
+
+    ``shape`` = (H, W). 라벨맵은 픽셀당 라벨 하나라 배타적이므로 겹치면 나중 id 가 이긴다. 빈 dict 면 영배열.
+    """
+    _seg = np.zeros(shape, np.uint8)
+    for _id, _m in objects.items():
+        Paint(_seg, _id, _m)
+    return _seg
+
+
 def Box_center_distance(a: BOX, b: BOX) -> float:
     """두 bbox(XYXY) 중심점 사이 유클리드 거리."""
     _ax, _ay = Box_center(a)
@@ -121,7 +174,7 @@ def Split_components(
     for _grp in Cluster_by_center([_b for _, _b in _comps], merge_gap):
         _idx    = len(_boxes)
         _labels = [_comps[_j][0] for _j in _grp]
-        _seg[np.isin(_lbl, _labels)] = np.uint8(_idx + 1)   # 묶인 조각 모두 같은 id
+        _seg[np.isin(_lbl, _labels)] = np.uint8(Obj_label(_idx))   # 묶인 조각 모두 같은 id
         _grouped = [_comps[_j][1] for _j in _grp]
         _boxes.append(Scale_box(
             [min(_b[0] for _b in _grouped), min(_b[1] for _b in _grouped),
@@ -187,6 +240,6 @@ def Order_by_center(
     for _d, _old, _i in _info:
         if _old <= 0 or _lut[_old]:                     # 라벨 자리가 없다(또는 이미 뺏겼다) → 드롭
             continue
-        _lut[_old] = np.uint8(len(_order) + 1)          # 새 라벨은 **살아남은 것들**로만 매긴다
+        _lut[_old] = np.uint8(Obj_label(len(_order)))   # 새 라벨은 **살아남은 것들**로만 매긴다
         _order.append(_i)
     return _lut[segment], _order

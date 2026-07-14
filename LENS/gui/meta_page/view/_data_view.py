@@ -23,6 +23,7 @@ import numpy as np
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QLabel, QSplitter, QVBoxLayout, QWidget
 
+from core.process.func.mask.instance import Obj_label
 from core.schema import Data_Ref
 from gui.editor.image import Image_editor, Target
 from gui.editor.image._geom import area, inside
@@ -204,7 +205,7 @@ class Data_view(QWidget):
         _obj = self._object_of(node)                     # 객체이거나, 그 안의 값을 고른 것이거나
         if _obj is None:
             return None, "객체를 고르면 그 mask 를 칠할 수 있습니다"
-        _label = int(_obj.name) + 1                      # 규약: 라벨 = obj_id + 1 (id 는 store 가 정수로 강제)
+        _label = Obj_label(_obj.name)                    # 라벨 = obj_id + 1 (규약은 func.mask 가 소유)
         _seg = self.segment_node()
         if _seg is None:
             return None, "segment 가 없습니다 — '+ 데이터'로 만들고 트리에서 체크하세요"
