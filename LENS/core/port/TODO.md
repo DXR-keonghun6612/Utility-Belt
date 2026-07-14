@@ -14,18 +14,22 @@
 
 ---
 
-## ✅ 합의됨 — port 를 domain × format 로 재조직 (→ [`../TODO.md`](../TODO.md) "★ port 전면 재구성")
+## ✅ 완료 — port 를 domain × format 로 재조직 (2026-07-14)
 
-**경계 확정** — port 의 인터페이스는 `Data_Ref` 다(밖에선 `Data_Ref` 경유로만, store 소비자 하나 유지).
-순수 codec 을 bare 함수로 밖에 노출하지 않는다 — 포맷 간 변환은 `Load(A)→정준→Save(B)`.
+**→ README 로 승격 대상** (문서 패스에서). 결정과 결과:
 
-- [ ] 핸들러를 `domain/format/{inline,storage}` 로 재배치 — 카디널리티(**단일 `mask`** = rle·polygon·
-      array·raster / **다객체 `segmap`** = 라벨맵) × 도메인 × 포맷. 각 포맷 핸들러는 **도메인 정준형**
-      (mask = 이진 배열)으로 encode/decode 만 하고, inline/storage 는 payload 가 어디 사는가일 뿐(직교).
-- [ ] **`format[0]` 이 handler 이름이 아니라 도메인**이 된다 — `("segmap","png")`→도메인 첫 칸. 이러면
-      `Infer_type('png')` 거짓말이 풀린다(도메인이 image/mask 를 가른다, 확장자가 아니라).
-- [ ] **`format[0]` 마이그레이션** — 사이드카에 영속된 옛 format → 새 taxonomy. store 의 flat→kind-major
-      마이그레이션([`../store/TODO.md`](../store/TODO.md))과 **함께 태운다**(옛 저장본이 안 열린다).
+- **경계** — port 의 인터페이스는 `Data_Ref` 다(밖에선 `Data_Ref` 경유로만; **소비자는 store 하나** 유지).
+  순수 codec 을 bare 함수로 밖에 노출하지 않는다 — 포맷 간 변환은 `Load(A)→정준형→Save(B)`.
+- **축 둘** — `format = (domain, format)`.
+  - `domain/` = *무엇을 담나* — 유효 포맷 검증 + 정준형(`Canonicalize`) + 정책(`Claims`·`Blank`).
+  - `codec/`  = *어떻게 직렬화하나* — **I/O 의 실제 범위는 도메인보다 작다**(png 읽는 법은 사진이든
+    마스크든 같다). 그래서 codec 이 도메인을 넘어 재사용된다 — `raster` 하나를 image·mask·segmap 이 공유.
+- **카디널리티가 도메인을 가른다** — 단일 `mask`(rle·polygon·png·npy) vs 다객체 `segmap`(라벨맵). 섞으면
+  "라벨맵을 rle 로" 같은 정의 불가 변환이 생긴다. 라벨↔id 합성은 port 가 아니라 `process.func.mask`(배열 계산).
+- **새 처리 구조 = 파일 하나 + 한 줄** — codec 떨구고 도메인 `FORMATS` 에 이름 추가. SAM polygon 이 그렇게
+  붙었다(`codec/polygon.py`) — 폴리곤을 바로 내는 생산자도 mask 배열을 내는 생산자와 같은 도메인에 들어온다.
+- **마이그레이션** — [`scripts/migrate_format_taxonomy.py`](../../scripts/migrate_format_taxonomy.py)
+  (`("rle","rle")` → `("mask","rle")`. 나머지 첫 칸은 이미 도메인 이름이라 무변경).
 
 ## ❓ 논의 대상
 

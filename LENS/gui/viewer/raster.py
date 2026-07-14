@@ -78,9 +78,13 @@ class Segmap_viewer(Node_viewer):
         return QLabel(cls.summary(value, ref))
 
 
-@Register("rle")
-class Rle_viewer(Node_viewer):
-    """coco RLE mask — 디코드된 이진 mask 를 겹친다 (인라인이라 파일이 없다)."""
+@Register("mask")
+class Mask_viewer(Node_viewer):
+    """단일 객체 이진 mask — 포맷(rle·polygon·png…)과 무관하게 **디코드된 이진 배열**을 겹친다.
+
+    port 가 어떤 포맷이든 도메인 정준형(이진 uint8)으로 풀어 주므로, 뷰어는 포맷을 몰라도 된다 —
+    새 포맷(SAM polygon 등)이 붙어도 여기는 안 고친다.
+    """
 
     RASTER = True
 
@@ -92,6 +96,7 @@ class Rle_viewer(Node_viewer):
 
     @classmethod
     def summary(cls, value: Any, ref: Data_Ref) -> str:
+        _fmt = ref.format[1] if len(ref.format) > 1 else "?"
         if not isinstance(value, np.ndarray):
-            return "rle"
-        return f"rle · {int((value > 0).sum())}px"
+            return f"mask · {_fmt}"
+        return f"mask · {_fmt} · {int((value > 0).sum())}px"

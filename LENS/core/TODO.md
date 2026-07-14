@@ -68,8 +68,10 @@ import 하면 실패 ② `core.schema` 만 들였을 때 cv2·numpy 가 안 딸�
 - [x] **① func 가 id↔라벨 규약·합성 단일 소유** (`e7b9a06`) — `func.mask.instance` 에 `Obj_label`·
       `Obj_id_of`·`Mask_of`·`Paint`·`Erase`·`Compose`. 닿는 소비처(sample·SAM3·gui 편집) 갈아끼움.
       **남은 `int(id)+1`** (store/meta·export·gui 렌더)은 계층상 지금 func 에 못 닿아 ③에서 걷힌다.
-- [ ] **② port 내부를 domain × format × (inline/storage) 로 재조직** + `format[0]` 마이그레이션.
-      → [`port/TODO.md`](port/TODO.md)
+- [x] **② port 내부를 domain × format 로 재조직** + 마이그레이션. `domain/`(무엇을 담나 — 유효 포맷 검증·
+      정준형·정책) × `codec/`(어떻게 직렬화 — I/O). **I/O 범위가 도메인보다 작아** codec 이 도메인을 넘어
+      재사용된다(`raster` 를 image·mask·segmap 이 공유). 새 처리 구조 = 파일 하나 + `FORMATS` 한 줄 —
+      SAM polygon 이 그렇게 붙었다. → [`port/TODO.md`](port/TODO.md)
 - [x] **③ export 해체 → binder** — `core/store/sample/export/` → [`core/export/`](export)(binder 계층).
       정본 **live** 읽기(스냅샷/STAGED 버그 해소, `d0c30e5`)·store repaint 벗기(`b1b8589`)에 이어, exporter 가
       `port` 직접 호출을 뗐다: `_obj_mask`→`func.Mask_of`, COCO RLE→`store.Encode`(inline codec 창구),

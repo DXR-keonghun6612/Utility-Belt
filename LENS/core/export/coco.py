@@ -85,4 +85,4 @@ class Coco_exporter(Frame_exporter):
         export 는 binder 라 port 를 직접 못 부른다(소비자는 store 하나) — ``source.Encode`` 로 mask 를 인라인
         ``rle`` ``Data_Ref`` 로 만들어(디스크 안 씀) 그 값을 읽는다. 같은 인코딩을 두 곳에서 안 짠다.
         """
-        return self.source.Encode({"type": "rle"}, mask).info["value"]
+        return self.source.Encode({"type": "mask", "format": "rle"}, mask).info["value"]
