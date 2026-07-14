@@ -40,3 +40,40 @@ write-back + 파생 attr). **파일이 안 움직인다.** 트리의 class 그�
 **→ README 로 승격됨.** 왜 `Data_Ref` 를 `core/schema` 로 꺼냈고 왜 라이프사이클은 store 소유 그대로인지는
 [`../README.md`](../README.md) "왜 검사까지 두는가" 가 소유한다. 결론을 지키는 장치는
 [`../test_layering.py`](../test_layering.py).
+
+---
+
+## ❓ 논의 대상 — 파생이 도메인을 바꾸나(새 데이터냐)가 뷰어·복제·export 를 가른다
+
+**판별자는 "새 파일을 만드나"가 아니라 "정본에 없던 새 도메인의 데이터를 만드나"다.** 포맷·표현만 바꾸는
+것은 생성이 아니다 — 예: polygon 으로 든 geometry 를 segmentation 이미지로 렌더해도 **같은 도메인**(그
+객체의 geometry)이라 새 데이터가 아니고, 정본이 이미 든 것을 다른 표현으로 재인코딩한 것뿐이다. (그
+변환이 **정확히 일치하냐**는 변환 **함수의 correctness** 문제지 sampling 결과 모니터링의 대상이 아니다 —
+함수 테스트가 잡는다.)
+
+> `Sample_stage._materialize`(=`bool(processes)`, [`../process/sample.py`](../process/sample.py))는 **거친
+> proxy** 일 뿐이다 — 표현만 바꾸는 체인도 `processes` 가 있어 True 로 잡힌다. 진짜 축은 **도메인 변경**이다.
+
+| | sample 이 소유 | 뷰어 | export 픽셀 출처 |
+|---|---|---|---|
+| **도메인 변경(생성)** — 예: classification=per-object crop | 새 payload | **전용 뷰어** | sample payload |
+| **도메인 유지(재표현·참조)** — 예: detection·instance-seg | `(source_stem, split)` 참조 | 없음 — 정본 stem 뷰어 | 정본에서 live |
+
+판별 한 줄: **출력이 정본에 없는 도메인인가.** per-object crop 이미지는 정본에 없다(프레임뿐) → 새 도메인 →
+생성. bbox·mask 는 정본 geometry(segment/bbox)의 표현일 뿐 → 재표현(도메인 유지).
+
+**지금 어긋난 곳 (도메인 유지인데 생성처럼 군다)** — detection/seg:
+- `Sample_stage._sample_ref` 가 정본 객체를 **clone** 해 담는다(스냅샷 복제) — 새로 만드는 건 split 뿐인데.
+- export([`sample/export/coco.py`](sample/export/coco.py))가 bbox·class 는 그 클론(스냅샷)에서, segment 는
+  정본(live)에서 읽어 **불일치** — 재라벨하면 박스 옛것·마스크 새것.
+- `gui/meta_page/sample/_sample_view` 의 class-그룹 트리는 생성형 전용인데 재표현형에도 씌운다
+  (frame 마다 객체가 달라 안 맞음).
+
+**방향(합의되면 README 승격)** — 도메인 유지 sample 은 정본 위 **참조/split-index** 로:
+- 빌드: 객체 clone 없이 `(source_stem, split)` 만.
+- export: 객체(bbox·class)도 정본에서 live(segment 와 같은 출처) → 불일치 제거.
+- 뷰: split별 stem 목록 → 메인 meta 뷰어로 stem 조준(이미 객체·segment 그린다). gui 소비는
+  [`../../gui/TODO.md`](../../gui/TODO.md) B.
+
+*원칙: 파생이 **새 도메인**으로 만든 것만 파생이 소유(전용 뷰어)하고, 정본 도메인의 재표현은 참조한다 —
+재표현의 정확도는 변환 함수가 책임지지 sampling 모니터링이 아니다.*
