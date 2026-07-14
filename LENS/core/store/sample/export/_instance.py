@@ -16,8 +16,6 @@ from pathlib import Path
 
 import numpy as np
 
-from .... import port
-from ....constant import STAGED
 from ....schema import Data_Ref
 from ._base import Exporter
 
@@ -72,29 +70,44 @@ class Frame_exporter(Exporter):
         return bool(self.task) and TASKS[self.task].needs_mask
 
     # ── 정규화 ──────────────────────────────────────────────────────────────────
+    def _source_item(self, ref: Data_Ref) -> Data_Ref | None:
+        """sample 의 정본 프레임 item (``source_stem`` 역참조; 없으면 None).
+
+        도메인 유지 sample 은 정본 순수 역참조라 객체(class·bbox)·segment 를 **정본에서 live** 로 읽는다 —
+        sample 에 clone 이 없다. 재라벨하면 정본만 바뀌므로, clone 을 읽으면 bbox 는 옛것·mask 는 새것으로
+        어긋난다(그 불일치를 없애려 여기서 한 출처로 읽는다).
+        """
+        _stem = ref.Attr("source_stem")
+        return self.meta.Find(_stem) if (self.meta is not None and _stem) else None
+
     def _classes(self) -> set[str]:
-        """전 split 인스턴스의 class 이름 집합 (id_map 자동생성용; class 없으면 빈 집합)."""
+        """전 split 인스턴스의 class 이름 집합 (id_map 자동생성용; class 없으면 빈 집합) — 정본 live."""
         return {_c
                 for _split in self.source.CATEGORIES
                 for _ref in self.source.Bucket(_split).values()
-                for _obj in _ref.Branches().values()
+                if (_item := self._source_item(_ref)) is not None
+                for _obj in _item.Branches().values()
                 if (_c := _obj.Attr("class_id"))}
 
     def _records(self, split: str) -> list[Frame_record]:
         """한 split 의 프레임 sample 들을 :class:`Frame_record` 로 (정본 이미지 경로 + 인스턴스).
 
+        객체(bbox·class)·segment 모두 **정본에서 live** 로 읽는다(한 출처 — 재라벨 불일치 제거).
         segmentation 이면 프레임의 ``segment`` 라벨맵을 **프레임당 1회** 풀어 객체마다 나눠 쓴다(객체
         수만큼 다시 읽지 않는다 — resolve-once). segment 가 없으면 조용히 bbox 로 떨어지지 않고 실패한다.
         """
         _out: list[Frame_record] = []
         for _sid, _ref in sorted(self.source.Bucket(split).items()):
+            _item = self._source_item(_ref)                 # 정본 프레임 (객체·segment live)
+            if _item is None:
+                continue
             _stem = _ref.Attr("source_stem") or _sid
             _seg = self._frame_segment(_stem)               # segmentation 이면 라벨맵, 아니면 None
             _out.append(Frame_record(
                 stem=_stem,
                 image_src=self._frame_src(_stem),
                 instances=[self._instance(_seg, _oid, _obj)
-                           for _oid, _obj in _ref.Branches().items()]))
+                           for _oid, _obj in _item.Branches().items()]))
         return _out
 
     def _instance(self, seg, obj_id: str, obj: Data_Ref) -> Instance:
@@ -159,27 +172,34 @@ class Frame_exporter(Exporter):
 
     # ── 검증 ────────────────────────────────────────────────────────────────────
     def _frame_src(self, stem: str) -> Path | None:
-        """정본 staged 프레임 이미지의 원본 파일 경로 (없으면 None) — serializer 가 복사한다."""
+        """정본 프레임 이미지의 원본 파일 경로 (없으면 None) — serializer 가 복사한다.
+
+        **범주를 하드코딩하지 않는다** — 빌드 뒤 stem 이 전이(예: 재라벨 → modified)했을 수 있어, store 에
+        지금 자리를 물어 경로를 파생한다(`Item_path`+`Path_of`). 옛 코드는 `(STAGED, stem)` 을 손으로 박아
+        전이한 프레임의 이미지를 조용히 빠뜨렸다.
+        """
+        _p = self.meta.Item_path(stem) if self.meta is not None else None
         _item = self.meta.Find(stem) if self.meta is not None else None
         _leaf = _item.Get(self.image_key) if _item is not None else None
-        if _leaf is None:
+        if _p is None or _leaf is None:
             return None
-        _src = port.Path_of(self.meta.root, (STAGED, stem), self.image_key, _leaf)
+        _src = self.meta.Path_of(_p, self.image_key, _leaf)   # store 창구 (port 직접 안 부름)
         return _src if _src is not None and _src.exists() else None
 
     def _require_frame_samples(self) -> None:
-        """sample 이 **프레임 단위**(객체를 자식으로 낀 것)인지 확인 — 아니면 실패.
+        """sample 이 **프레임 단위**(정본 프레임 참조)인지 확인 — object 단위면 실패.
 
         det·seg 는 *이미지 하나 + 그 안의 객체들*이라 ``unit=frame`` 으로 빌드해야 한다. ``unit=object``
-        로 빌드하면 sample 이 객체라 annotation 이 빈다 — 조용히 빈 manifest 를 내지 않고 여기서 막는다.
+        는 객체 하나가 sample 이라 ``source_obj`` attr 이 붙는다(crop 기반 classification 용) — 그걸로 프레임
+        참조와 가른다. object 단위를 프레임 내보내면 annotation 이 빈다 — 조용히 빈 manifest 를 내지 않고 막는다.
         """
         _samples = [_r for _s in self.source.CATEGORIES
                     for _r in self.source.Bucket(_s).values()]
-        if _samples and not any(_r.Branches() for _r in _samples):
+        if _samples and any(_r.Attr("source_obj") for _r in _samples):
             raise ValueError(
                 f"{self.task or 'frame'} 내보내기는 프레임 단위 sample 이 필요하다 (이미지 1장 + 그 "
-                "객체들). 이 tasker 는 객체 단위로 빌드돼 sample 에 객체 자식이 없다 — 레시피의 unit 을 "
-                "'frame' 으로 두고 다시 Sample 하라. (unit='object' 는 crop 기반 classification 용이다.)")
+                "객체들). 이 tasker 는 객체 단위(source_obj)로 빌드됐다 — 레시피의 unit 을 'frame' 으로 두고 "
+                "다시 Sample 하라. (unit='object' 는 crop 기반 classification 용이다.)")
 
     def _require_meta(self) -> None:
         """프레임 픽셀은 sample 이 아니라 정본에 있다 — meta 없으면 실패."""

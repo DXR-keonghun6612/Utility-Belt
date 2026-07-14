@@ -124,9 +124,11 @@ class Sample_stage(Stage):
     # ── sample 조립 ────────────────────────────────────────────────────────────
     @staticmethod
     def _sample_ref(unit: Unit) -> Data_Ref:
-        """sample 컨테이너 — 정본 역참조(``source_stem``/``source_obj``) + ``class_id`` attr.
+        """sample 컨테이너 — 정본 **순수 역참조**(``source_stem`` [+ object 단위면 ``source_obj``·``class_id``]).
 
-        payload 실체화는 여기서 안 한다(A+ 역참조) — 소비 측(export·분석)이 정본에서 픽셀을 찾는다.
+        payload 실체화도 객체 clone 도 여기서 안 한다(A+ 역참조) — 소비 측(export·분석)이 정본에서 픽셀·
+        객체(bbox·class)를 **live** 로 찾는다. frame 단위는 객체를 복제해 담으면 재라벨 때 정본만 바뀌어
+        스냅샷이 낡는다(박스 옛것·mask 새것). 그래서 **참조만** 든다 — 도메인 유지 파생은 정본을 가리킨다.
         class 는 구조 key 가 아니라 attr 이다: 폴더로도 표현하면 같은 사실이 두 곳에 살고, 재분류(라벨링
         도구의 핵심 상호작용)가 attr 갱신이 아니라 파일 이동이 된다.
         """
@@ -135,8 +137,4 @@ class Sample_stage(Stage):
         if unit.obj_id is not None:                          # object 단위 — 객체 하나가 sample
             _ref.Set_attr("source_obj", unit.obj_id)
             _ref.Set_attr("class_id", (unit.obj.Attr("class_id") if unit.obj else "") or UNLABELED)
-            return _ref
-        if unit.frame is not None:                           # frame 단위 — 객체들을 통째로 (detection)
-            for _oid, _obj in unit.frame.Branches().items():
-                _ref.Push(_oid, _obj.Clone())
-        return _ref
+        return _ref                                          # frame 단위 = source_stem 참조만 (객체는 정본 live)
