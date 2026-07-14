@@ -160,8 +160,9 @@ app 이 표현을 **아래로 부르는** 지점이 곧 표현 티어의 공개 
 > **뷰어를 붙이나 마나는 파생이 도메인을 바꾸나로 갈린다** — 새 도메인 생성(classification=per-object crop)은
 > 전용 뷰어, 정본 도메인 재표현(detection·instance-seg 는 정본 geometry 참조)은 정본 stem 뷰어 재사용
 > (class-그룹 트리는 생성형 전용이라 frame 마다 객체가 다른 재표현형엔 안 맞음). 축·모델은
-> [`../core/store/TODO.md`](../core/store/TODO.md) "논의 대상 — 파생이 도메인을 바꾸나(새 데이터냐)가
-> 뷰어·복제·export 를 가른다" 가 소유한다. 결론이 이 뷰 모델을 정한다.
+> [`../core/store/TODO.md`](../core/store/TODO.md) "결정됨 — 파생이 도메인을 바꾸나(새 데이터냐)가
+> 뷰어·복제·export 를 가른다" 가 소유한다. **결론 남** — detection·instance-seg frame 뷰 = split→stem
+> 목록(정본 뷰어 재사용, class-트리 아님). ★ port 전면 재구성 ④ 로 실행: [`../core/TODO.md`](../core/TODO.md).
 
 ### B1. sample 편집 surface (display-only → editable)
 - [ ] `meta_page/sample/_sample_view` 를 뷰어 → **편집 surface** 로 확장. 현재 유일 편집인 class 재배정(정본

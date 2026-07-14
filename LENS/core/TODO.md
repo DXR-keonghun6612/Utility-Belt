@@ -42,6 +42,43 @@ import 하면 실패 ② `core.schema` 만 들였을 때 cv2·numpy 가 안 딸�
 
 ---
 
+## ★ port 전면 재구성 + 생성/재표현 대응 — domain × format, 라벨 규약 단일화
+
+두 갈래가 한 파일(`export`)에서 얽혀 **함께 간다.** 확정 결정 (2026-07-14).
+
+### 경계 결정 — port ⟷ Data_Ref
+
+- **port 의 인터페이스는 `Data_Ref` 다.** port 는 `Data_Ref`(+payload)로만 연산하고, 밖에서는
+  `Data_Ref` 를 통해서만(= store 경유) port 를 부른다. **port 소비자는 여전히 store 하나** —
+  `check_port_consumer` 도 gui 티어 규칙도 안 벼린다(이게 규칙을 하나도 안 굽히는 유일한 경계라 골랐다).
+- **합성은 func.** 라벨맵↔객체(`Obj_label`·`Mask_of`·`Paint`·`Erase`·`Compose`)는 **맨 배열 연산이라
+  `Data_Ref` 가 없다** → port 가 아니다. func 가 배열·박스·인스턴스 합성을 알고 process·gui·binder 가
+  자유롭게 부른다. **port 는 obj_id 를 모른다** — 프레임 라벨맵도 port 엔 uint8 payload 일 뿐(semantics-blind).
+- **codec 은 port handler**, `Data_Ref.format` 으로 디스패치. domain × format × (inline/storage) 는
+  **port 내부 구조**다. 카디널리티가 도메인을 하나 더 가른다 — **단일 `mask`**(rle·polygon·array·raster,
+  정준 = 이진 배열) vs **다객체 `segmap`**(라벨맵). 포맷 간 변환은 `Load(A)→정준→Save(B)` 로(관통 함수를
+  bare 로 노출 안 함).
+- **export 는 binder.** store 라이프사이클(전이·삭제·병합·pop)이 아니라 read+compute+external-write 라,
+  func(gather/compose) + store(`Data_Ref` encode·`Path_of`) + 외부 레이아웃 쓰기를 조율한다.
+
+*원칙: 표현 지식은 `Data_Ref` 로 표현돼 port 가 든다(codec). 배열↔배열 합성은 func. 둘을 잇는 것은 binder.*
+
+### 단계 (① 완료)
+
+- [x] **① func 가 id↔라벨 규약·합성 단일 소유** (`e7b9a06`) — `func.mask.instance` 에 `Obj_label`·
+      `Obj_id_of`·`Mask_of`·`Paint`·`Erase`·`Compose`. 닿는 소비처(sample·SAM3·gui 편집) 갈아끼움.
+      **남은 `int(id)+1`** (store/meta·export·gui 렌더)은 계층상 지금 func 에 못 닿아 ③에서 걷힌다.
+- [ ] **② port 내부를 domain × format × (inline/storage) 로 재조직** + `format[0]` 마이그레이션.
+      → [`port/TODO.md`](port/TODO.md)
+- [ ] **③ export 해체 → binder** — gather/compose→func(정본 **live** 읽기: 스냅샷/STAGED 하드코딩 버그
+      동시 해소), encode→port codec(store 경유 `Data_Ref`), layout→binder. store 는 segment repaint 를
+      벗는다(`Remove_object`·`Merge_objects` = 컨테이너 pop 만; 호출 측이 func 로 재도색).
+      → [`store/TODO.md`](store/TODO.md)
+- [ ] **④ sample 객체 clone 제거** (export 가 live 를 읽으니 안전) + gui frame 뷰 = split→stem 목록
+      (class-트리 아님). → [`store/TODO.md`](store/TODO.md) 생성/재표현 · [`../gui/TODO.md`](../gui/TODO.md) B.
+
+---
+
 ## 문서 소유권 (누가 무엇을 적는가)
 
 **같은 사실을 두 곳에 쓰지 않는다.** `core/README.md` 가 data 내부를 중복 서술한 것이 지난번 문서가 썩은

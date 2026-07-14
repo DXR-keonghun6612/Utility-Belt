@@ -36,13 +36,19 @@ tree
 - **객체는 payload-free** — geometry 는 frame-level `segment` 한 장(픽셀 = obj_id+1)이 소유하고, 객체
   BRANCH 는 인라인 값(class_id·bbox)만 든다. per-obj mask 는 segment 에서 파생한다(`process.sample._obj_mask`).
 - **객체가 성립하는 조건 = 라벨맵의 자기 자리** — 그래서 **obj_id 는 정수만** 된다(`Add_branch` 가 막는다.
-  라벨 = id + 1 이라 정수가 아니면 앉을 자리가 없다). 편집(`Remove_object`·`Merge_objects`)은 컨테이너와
-  라벨을 함께 옮겨 정합만 지키고, **빈 자리는 구멍으로 둔다** — 구멍 압축과 **유령 객체
-  제거**(라벨 없는 객체)는 저장 시 `Pipeline.Order`(→ `Order_objects`)의 몫이다. 편집은 정합, 저장은 정돈.
-- **객체 편집은 메모리만 고친다** — 그 둘은 **라벨맵을 인자로 받고**(호출 측이 든 배열을 제자리에서 고친다)
-  디스크엔 안 쓴다. 객체는 payload-free 라 지울 파일이 없고, 라벨맵은 호출 측 쪽이 더 새롭기 때문이다
-  (편집 중인 붓질은 아직 저장 전이다 — store 가 디스크에서 다시 읽으면 그걸 덮어쓴다). **영속은 호출
-  측의 명시적 저장**이 한다(payload write + `Save`). 그래서 "취소"가 `Pipeline.Reload`(다시 읽기)로 성립한다.
+  라벨 = id + 1 이라 정수가 아니면 앉을 자리가 없다). 편집(`Remove_object`·`Merge_objects`)은 컨테이너를
+  옮기고 **빈 자리는 구멍으로 둔다** — 구멍 압축과 **유령 객체 제거**(라벨 없는 객체)는 저장 시
+  `Pipeline.Order`(→ `Order_objects`)의 몫이다. 편집은 정합, 저장은 정돈.
+- **store 는 컨테이너·attr 만 고치고, 라벨맵 재도색은 호출 측이 한다** — store 는 계층상 `func`(합성)에
+  못 닿는다(`store → process` 금지). 라벨맵을 든 호출 측(gui 편집기·process)이 `func.mask.Erase`/
+  `Merge_into` 로 그 객체 라벨을 지우거나 재도색한 **뒤** `Remove_object`/`Merge_objects`(컨테이너 pop +
+  bbox 합집합)를 부른다. **anti-ghost 는 이제 호출 측 규율이다** — store 가 재도색을 못 하니 "라벨맵을
+  안 줬다"고 막을 수도 없다. `라벨 = id + 1` 규약과 합성은 [`../process/README.md`](../process/README.md)
+  (`func.mask.instance`)가 단일 소유한다.
+- **객체 편집은 메모리만 고친다 — 디스크엔 안 쓴다.** 객체는 payload-free 라 지울 파일이 없고, 라벨맵은
+  호출 측 쪽이 더 새롭기 때문이다(편집 중인 붓질은 아직 저장 전이다 — store 가 디스크에서 다시 읽으면
+  그걸 덮어쓴다). **영속은 호출 측의 명시적 저장**이 한다(payload write + `Save`). 그래서 "취소"가
+  `Pipeline.Reload`(다시 읽기)로 성립한다.
 
 범주를 label(item 필드)이 아니라 구조로 둔 이유: 영속 경로가 **재귀 key 뭉치기**라 범주 key 가 그 경로에
 자연히 실린다(→ 3절). 즉 구조 하나가 조회·전이·경로를 동시에 만족시킨다.

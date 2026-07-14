@@ -71,6 +71,17 @@ def Compose(shape: tuple[int, int], objects: dict[str, np.ndarray]) -> np.ndarra
     return _seg
 
 
+def Merge_into(segment: np.ndarray, into: str | int, others: list[str]) -> None:
+    """``others`` 의 라벨을 ``into`` 의 라벨로 **제자리 재도색**한다 (합치기 = 라벨 재도색).
+
+    라벨맵은 픽셀당 라벨 하나라 배타적이라, 재도색이 곧 mask 합집합이다(겹침이 없다). ``into`` 자신은
+    그대로 둔다. bbox 합집합·컨테이너 정리는 이 함수가 아니라 store 몫(라벨맵 밖 데이터).
+    """
+    _dst = np.uint8(Obj_label(into))
+    for _o in others:
+        segment[segment == Obj_label(_o)] = _dst
+
+
 def Box_center_distance(a: BOX, b: BOX) -> float:
     """두 bbox(XYXY) 중심점 사이 유클리드 거리."""
     _ax, _ay = Box_center(a)

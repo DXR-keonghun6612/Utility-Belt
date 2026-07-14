@@ -26,6 +26,7 @@ from PySide6.QtWidgets import QApplication
 
 from core import Pipeline, Pipeline_config
 from core.constant import MODIFIED, STAGED
+from core.process.func.mask.instance import Erase, Merge_into
 
 _CONVERTER = {"globs": {"frame": {"pattern": "img_*", "ext": "png", "type": "image"}}}
 _FLOWS = [{
@@ -314,7 +315,8 @@ def test_remove_object_clears_label() -> None:
     _seg = _p.meta.Load(_stem, "segment")
     assert _seg is not None and int((_seg == _label).sum()) > 0, "지우기 전 라벨이 있어야 한다"
 
-    _p.meta.Remove_object(_stem, _oid, _seg)           # 호출 측이 든 라벨맵을 제자리에서 고친다
+    Erase(_seg, _oid)                                  # 호출 측이 든 라벨맵을 제자리에서 고친다 (func)
+    _p.meta.Remove_object(_stem, _oid)                 # 컨테이너 pop (store)
 
     assert not _p.meta.Find(_stem).Has(_oid), "객체 컨테이너가 안 지워졌다"
     assert int((_seg == _label).sum()) == 0, "지운 객체의 라벨이 유령으로 남았다"
@@ -387,7 +389,8 @@ def test_merge_objects() -> None:
     _seg = _p.meta.Load(_stem, "segment")
     _px = int((_seg == int(_into) + 1).sum()) + int((_seg == int(_gone) + 1).sum())
 
-    _p.meta.Merge_objects(_stem, _into, [_gone], _seg)   # 메모리만 — 라벨 재도색은 넘긴 배열에서
+    _p.meta.Merge_objects(_stem, _into, [_gone])         # bbox 합집합 + 컨테이너 pop (store)
+    Merge_into(_seg, _into, [_gone])                      # 라벨 재도색 (func — 호출 측)
 
     _item = _p.meta.Find(_stem)
     assert not _item.Has(_gone), "흡수된 객체가 안 지워졌다"
@@ -432,7 +435,9 @@ def test_order_compacts_holes() -> None:
     if _n0 < 2:
         return
     _seg = _p.meta.Load(_stem, "segment")
-    _p.meta.Remove_object(_stem, sorted(_p.meta.Find(_stem).Branches(), key=int)[0], _seg)  # 구멍
+    _oid = sorted(_p.meta.Find(_stem).Branches(), key=int)[0]
+    Erase(_seg, _oid)                                    # 라벨맵 구멍 (func)
+    _p.meta.Remove_object(_stem, _oid)                   # 컨테이너 pop (store)
     _flush_segment(_p, _stem, _seg)                      # 저장해야 Order 가 그 라벨맵을 본다
     _p.Order(stems=[_stem])
 

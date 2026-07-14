@@ -14,7 +14,21 @@
 
 ---
 
+## ✅ 합의됨 — port 를 domain × format 로 재조직 (→ [`../TODO.md`](../TODO.md) "★ port 전면 재구성")
+
+**경계 확정** — port 의 인터페이스는 `Data_Ref` 다(밖에선 `Data_Ref` 경유로만, store 소비자 하나 유지).
+순수 codec 을 bare 함수로 밖에 노출하지 않는다 — 포맷 간 변환은 `Load(A)→정준→Save(B)`.
+
+- [ ] 핸들러를 `domain/format/{inline,storage}` 로 재배치 — 카디널리티(**단일 `mask`** = rle·polygon·
+      array·raster / **다객체 `segmap`** = 라벨맵) × 도메인 × 포맷. 각 포맷 핸들러는 **도메인 정준형**
+      (mask = 이진 배열)으로 encode/decode 만 하고, inline/storage 는 payload 가 어디 사는가일 뿐(직교).
+- [ ] **`format[0]` 이 handler 이름이 아니라 도메인**이 된다 — `("segmap","png")`→도메인 첫 칸. 이러면
+      `Infer_type('png')` 거짓말이 풀린다(도메인이 image/mask 를 가른다, 확장자가 아니라).
+- [ ] **`format[0]` 마이그레이션** — 사이드카에 영속된 옛 format → 새 taxonomy. store 의 flat→kind-major
+      마이그레이션([`../store/TODO.md`](../store/TODO.md))과 **함께 태운다**(옛 저장본이 안 열린다).
+
 ## ❓ 논의 대상
 
 - [ ] **`docs` 핸들러의 자리** — id_map 같은 중첩 구조(yaml/json)를 담는데, 이건 payload 라기보다
-      **구조 사이드카에 가깝다**(`Structure` 와 역할이 겹친다). 둘의 경계를 정한다.
+      **구조 사이드카에 가깝다**(`Structure` 와 역할이 겹친다). 둘의 경계를 정한다 — 위 domain × format
+      재조직이 이걸 정할 자리다(docs = 중첩구조 도메인의 한 포맷인지, 아니면 `Structure` 로 흡수되는지).

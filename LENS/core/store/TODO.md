@@ -43,7 +43,10 @@ write-back + 파생 attr). **파일이 안 움직인다.** 트리의 class 그�
 
 ---
 
-## ❓ 논의 대상 — 파생이 도메인을 바꾸나(새 데이터냐)가 뷰어·복제·export 를 가른다
+## ✅ 결정됨 — 파생이 도메인을 바꾸나(새 데이터냐)가 뷰어·복제·export 를 가른다
+
+**→ [`../TODO.md`](../TODO.md) "★ port 전면 재구성"의 ③④ 로 실행한다.** 완료되면 이 절이 README 로
+승격된다(왜 참조/split-index 인지 = 설계 결정). 아래는 판별자와 방향(그대로 확정).
 
 **판별자는 "새 파일을 만드나"가 아니라 "정본에 없던 새 도메인의 데이터를 만드나"다.** 포맷·표현만 바꾸는
 것은 생성이 아니다 — 예: polygon 으로 든 geometry 를 segmentation 이미지로 렌더해도 **같은 도메인**(그
@@ -69,7 +72,7 @@ write-back + 파생 attr). **파일이 안 움직인다.** 트리의 class 그�
 - `gui/meta_page/sample/_sample_view` 의 class-그룹 트리는 생성형 전용인데 재표현형에도 씌운다
   (frame 마다 객체가 달라 안 맞음).
 
-**방향(합의되면 README 승격)** — 도메인 유지 sample 은 정본 위 **참조/split-index** 로:
+**방향 (= ★ 재구성 ③④)** — 도메인 유지 sample 은 정본 위 **참조/split-index** 로:
 - 빌드: 객체 clone 없이 `(source_stem, split)` 만.
 - export: 객체(bbox·class)도 정본에서 live(segment 와 같은 출처) → 불일치 제거.
 - 뷰: split별 stem 목록 → 메인 meta 뷰어로 stem 조준(이미 객체·segment 그린다). gui 소비는
@@ -77,3 +80,16 @@ write-back + 파생 attr). **파일이 안 움직인다.** 트리의 class 그�
 
 *원칙: 파생이 **새 도메인**으로 만든 것만 파생이 소유(전용 뷰어)하고, 정본 도메인의 재표현은 참조한다 —
 재표현의 정확도는 변환 함수가 책임지지 sampling 모니터링이 아니다.*
+
+---
+
+## ✅ 합의됨 — store 가 segment repaint 를 벗는다 (★ 재구성 ③)
+
+`Remove_object`·`Merge_objects` 가 지금은 `segment[seg==id+1]=0` 으로 **라벨맵 픽셀을 직접 재도색**한다 —
+store 에 눌러앉은 계산이고, `라벨=id+1` 규약이 store 로 새어나온 통로다. store 는 계층상 `func` 에 못 닿아
+[★ 재구성 ①](../TODO.md)이 만든 합성 헬퍼(`func.mask.Erase`·`Paint`)를 못 부른다.
+
+- [ ] repaint 를 **호출 측(gui 편집기·process)으로** 옮긴다 — 배열을 든 쪽이 `func` 로 재도색한 **뒤**
+      store 엔 컨테이너 pop 만 요청한다(`Remove_object`·`Merge_objects` 가 segment 인자를 뗀다).
+- [ ] 그러면 store 는 **segment 를 아예 안 만진다**(id/컨테이너만). 지금 store 가 강제하던 anti-ghost
+      불변식("segment 안 주면 유령으로 터진다")은 **호출 측 규율**로 내려간다 — README 의 관련 문단도 갱신.

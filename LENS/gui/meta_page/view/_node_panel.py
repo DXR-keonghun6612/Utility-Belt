@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
 )
 
 from core import port
+from core.process.func.mask.instance import Erase, Merge_into
 
 from ._node_tree import Node, Node_tree
 
@@ -262,7 +263,9 @@ class Node_panel(QWidget):
         _key = self._get_key()
         if _object:                                            # 객체 = 컨테이너 + segment 라벨
             _seg = self._get_segment()
-            _store.Remove_object(_key, _node.name, _seg.value if _seg is not None else None)
+            if _seg is not None:                               # 라벨맵 재도색은 호출 측(여기) 몫 — store 는 못 닿는다
+                Erase(_seg.value, _node.name)
+            _store.Remove_object(_key, _node.name)             # 컨테이너 pop
             self._raster_touched(_seg)
         else:
             _store.Delete_node(_node.path, _node.name)         # leaf·객체 안 attr
@@ -288,11 +291,12 @@ class Node_panel(QWidget):
         _into, _others = _ids[0], _ids[1:]
         _seg = self._get_segment()
         try:
-            _store.Merge_objects(_key, _into, _others,         # 라벨 재도색 + bbox 합집합 (메모리만)
-                                 _seg.value if _seg is not None else None)
-        except (KeyError, ValueError) as _e:                   # 조용히 삼키지 않는다
+            _store.Merge_objects(_key, _into, _others)         # bbox 합집합 + 컨테이너 pop (검증 포함)
+        except KeyError as _e:                                 # 조용히 삼키지 않는다
             QMessageBox.critical(self, "객체 병합", str(_e))
             return
+        if _seg is not None:                                   # 라벨맵 재도색은 호출 측 몫 — store 는 func 에 못 닿는다
+            Merge_into(_seg.value, _into, _others)             # 흡수 라벨 → into (검증 뒤라 안전)
         self._raster_touched(_seg)
         self.load(_store, _key)
         self.tree.select_name(_into)                           # 생존자로 조준이 따라간다 (그 class 를 인스펙터가 보인다)

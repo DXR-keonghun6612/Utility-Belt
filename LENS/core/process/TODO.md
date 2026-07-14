@@ -4,6 +4,10 @@
 
 **이 계층의 계약** — **연산**과 **결과의 흐름**. 데이터는 [`../store`](../store) 에만 요청한다.
 
+> **`func` 가 객체 id↔라벨맵 규약·인스턴스 합성을 소유한다**(`func.mask.instance` — `Obj_label`·`Mask_of`·
+> `Paint`·`Erase`·`Compose`, ★ 재구성 ①). func 는 `Data_Ref` 를 모르는 **맨 배열** 계층이라 이게 여기 산다
+> — port(= `Data_Ref` codec)와 갈린다. → [`../TODO.md`](../TODO.md) "★ port 전면 재구성".
+
 ---
 
 ## ▶ 진행 중 — `analysis/` 해체 → 계산은 `func/`, 나머지는 flow
