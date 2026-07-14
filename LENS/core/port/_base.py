@@ -106,6 +106,20 @@ class Handler(ABC):
         """이미지로 시각화 가능한지 (GUI 데이터 트리·오버레이용)."""
         return False
 
+    @classmethod
+    def Blank(cls, *, size: tuple[int, int] | None = None) -> Any:
+        """이 type 의 **빈 payload** — 곧바로 편집(그리기)을 시작할 수 있는 영값.
+
+        "빈 것이 무엇인가"는 type 마다 다르다(segmap=2D uint8 영배열 · image=BGR 영배열 · 미래
+        points3d=(0,3) 배열…). 그 지식은 payload 표현이라 **이 계층이 소유한다** — 소비처(gui '빈 데이터
+        추가')는 ``port.Blank(type, size=…)`` 로 요청만 하고 shape·dtype 을 손으로 짓지 않는다.
+        ``size`` = (H, W), raster 류만 쓴다.
+
+        Raises:
+            NotImplementedError: 이 type 이 빈 객체 생성을 지원하지 않을 때 (조용한 기본값 없음).
+        """
+        raise NotImplementedError(f"{cls.__name__} 은 빈 객체 생성을 지원하지 않습니다")
+
 
 class File_Handler(Handler):
     """디스크 파일 기반 핸들러 공통 베이스 (등록하지 않는 추상 베이스).

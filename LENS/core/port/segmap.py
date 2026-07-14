@@ -49,3 +49,10 @@ class Segmap_Handler(Image_Handler):
     @classmethod
     def Default_format(cls) -> str:
         return "png"                        # Extensions 비어 파생 불가 → 직접 지정
+
+    @classmethod
+    def Blank(cls, *, size=None):
+        """빈 라벨맵 — 2D uint8 영배열(모두 배경). image 의 BGR 3채널이 아니라 단일채널이다."""
+        if size is None:
+            raise ValueError("segmap 빈 객체는 size(H, W)가 필요합니다")
+        return np.zeros(size, np.uint8)

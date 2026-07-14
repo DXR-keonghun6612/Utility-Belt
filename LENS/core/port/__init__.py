@@ -211,12 +211,29 @@ def Route(root: str, path: tuple[str, ...], name: str, spec: dict, value: Any,
     return Save(root, path, name, Template(spec, value, params=params), value)
 
 
+def Blank(type: str, *, size: tuple[int, int] | None = None) -> Any:
+    """이 type 의 빈 payload 를 만든다 — "빈 것"의 표현(shape·dtype)은 핸들러가 소유한다.
+
+    gui 의 '빈 데이터 추가'(빈 mask 로 나서 캔버스에서 그린다)가 payload 를 손으로 짓지 않게 하는
+    자리 — type 만 주면 핸들러가 자기 영값을 낸다(``store`` 에 타입 스위치를 심지 않는다). ``size`` =
+    (H, W), raster 류만 쓴다.
+
+    Raises:
+        ValueError: 등록되지 않은 type.
+        NotImplementedError: 그 type 이 빈 객체 생성을 지원하지 않을 때.
+    """
+    _cls = HANDLER_REGISTRY._module_dict.get(type)
+    if _cls is None:
+        raise ValueError(f"알 수 없는 type '{type}' (가능: {', '.join(Types())})")
+    return _cls.Blank(size=size)
+
+
 from .attr import Inline, Python_type       # noqa: E402  (자동등록 순회 뒤 — 값→인라인 서술자)
 from .scan import Glob_of, Pattern_of, Scan  # noqa: E402  (자동등록 순회 뒤 — scan 은 handler 가 아니다)
 
 __all__ = [
     "Handler", "File_Handler", "Structure", "HANDLER_REGISTRY",
     "Types", "Infer_type", "Load", "Save", "Move", "Copy", "Delete", "Path_of",
-    "Template", "Template_for_file", "Route", "Inline", "Python_type",
+    "Template", "Template_for_file", "Route", "Blank", "Inline", "Python_type",
     "Scan", "Glob_of", "Pattern_of",
 ]

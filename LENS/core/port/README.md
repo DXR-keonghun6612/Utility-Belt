@@ -49,6 +49,10 @@ port/
 안 건드린다. `Claims` 가 `storage`·`params` 맥락을 함께 봐 **같은 ndarray 를 rle/array/image 로 가르는**
 것이 이 설계의 요점.
 
+**빈 payload 도 핸들러가 만든다**(`Blank` — segmap=2D uint8 영배열 · image=BGR 영배열 · 미래 points3d=(0,3)…).
+"빈 것이 무엇인가"는 payload 표현이라 여기 산다 — gui '빈 데이터 추가'(빈 mask 로 나서 캔버스에서 그린다)가
+shape·dtype 을 손으로 짓지 않고 `port.Blank(type, size)` 로 **요청만** 한다(`store` 에 타입 스위치를 안 심는다).
+
 **한 `Save` 가 두 생산자를 받는다** — ingest 의 raw 파일 `Path` 든 process 의 in-memory payload 든, 핸들러가
 자기가 이해하는 입력으로 해석한다. 파일 핸들러는 `File_Handler`(경로·복사/이동/삭제 공통)를 상속해
 `_Read`/`_Write` 만 구현하고, `segmap` 은 `image` 를 상속해 단일채널·uint8 로 변주한다.

@@ -39,3 +39,10 @@ class Image_Handler(File_Handler):
     @classmethod
     def Can_visualize(cls) -> bool:
         return True
+
+    @classmethod
+    def Blank(cls, *, size=None):
+        """빈 이미지 — 검은 BGR 3채널 (``size`` = (H, W) 필수)."""
+        if size is None:
+            raise ValueError("image 빈 객체는 size(H, W)가 필요합니다")
+        return np.zeros((*size, 3), np.uint8)
