@@ -31,9 +31,11 @@ class Sampler_dialog(Pop_dialog):
 
     Attributes:
         meta_changed: 어느 탭의 class write-back 으로 정본이 바뀌었을 때 emit (상위 meta 뷰 갱신용).
+        stem_focus_requested: 어느 탭의 frame 뷰에서 stem 을 고르면 emit — 메인 meta 뷰어 조준용.
     """
 
     meta_changed = Signal()
+    stem_focus_requested = Signal(str)
 
     def __init__(self, get_pipeline: Callable[[], object | None], parent=None) -> None:
         """Args:
@@ -85,6 +87,7 @@ class Sampler_dialog(Pop_dialog):
     def _add_tab(self, name: str, cfg: dict | None = None) -> Tasker_tab:
         _tab = Tasker_tab(self._get_pipeline, name, cfg)
         _tab.meta_changed.connect(self.meta_changed)
+        _tab.stem_focus_requested.connect(self.stem_focus_requested)
         self._tabs.addTab(_tab, name)
         self._update_view()
         return _tab

@@ -74,8 +74,10 @@ import 하면 실패 ② `core.schema` 만 들였을 때 cv2·numpy 가 안 딸�
       동시 해소), encode→port codec(store 경유 `Data_Ref`), layout→binder. store 는 segment repaint 를
       벗는다(`Remove_object`·`Merge_objects` = 컨테이너 pop 만; 호출 측이 func 로 재도색).
       → [`store/TODO.md`](store/TODO.md)
-- [ ] **④ sample 객체 clone 제거** (export 가 live 를 읽으니 안전) + gui frame 뷰 = split→stem 목록
-      (class-트리 아님). → [`store/TODO.md`](store/TODO.md) 생성/재표현 · [`../gui/TODO.md`](../gui/TODO.md) B.
+- [x] **④ sample 객체 clone 제거**(`d0c30e5`) + **gui frame 뷰 = split→stem 목록**(정본 뷰어로 조준,
+      class-트리 아님). detection·seg tasker 는 class-그룹 대신 split→stem 을 보이고 stem 선택이
+      메인 meta 뷰어를 `refresh(keep=stem)` 로 조준한다(정본 뷰어가 객체·segment 를 그린다).
+      → 생성/재표현 대응 완료. 남은 건 ②(port 재조직)·③b(export→binder).
 
 ---
 

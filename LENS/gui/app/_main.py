@@ -207,6 +207,7 @@ class Main_page(QWidget):
             return
         _dlg = Sampler_dialog(get_pipeline=lambda: self._pipeline, parent=self)
         _dlg.meta_changed.connect(self._meta_view.refresh)  # class write-back → meta 뷰 갱신
+        _dlg.stem_focus_requested.connect(self._meta_view.refresh)  # frame 뷰 stem → 정본 뷰어 조준
         _dlg.finished.connect(self._on_sampler_closed)
         self._sampler_dlg = _dlg
         _dlg.show()

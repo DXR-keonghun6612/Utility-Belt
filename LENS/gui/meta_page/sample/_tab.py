@@ -79,9 +79,11 @@ class Tasker_tab(QWidget):
 
     Attributes:
         meta_changed: 이 탭의 class write-back 으로 정본이 바뀌었을 때 emit (상위 forward 용).
+        stem_focus_requested: frame 뷰에서 stem 을 고르면 emit — 메인 meta 뷰어 조준용 (상위 forward).
     """
 
     meta_changed = Signal()
+    stem_focus_requested = Signal(str)
 
     def __init__(self, get_pipeline: Callable[[], object | None], name: str,
                  cfg: dict | None = None, parent=None) -> None:
@@ -131,6 +133,7 @@ class Tasker_tab(QWidget):
         # ── 본문: sample 편집 뷰 ─────────────────────────────────────────────
         self._view = Sample_view(self._get_pipeline, self._name)
         self._view.meta_changed.connect(self.meta_changed)
+        self._view.stem_focus_requested.connect(self.stem_focus_requested)
         _lay.addWidget(self._view, stretch=1)
 
     # ── 프로필 편집 (레시피 빌더) ───────────────────────────────────────────────

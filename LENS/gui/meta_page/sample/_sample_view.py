@@ -78,9 +78,12 @@ class Sample_view(QWidget):
 
     Attributes:
         meta_changed: class write-back 으로 정본이 바뀌었을 때 emit (상위 meta 뷰 갱신용).
+        stem_focus_requested: frame 뷰(detection·seg)에서 stem 을 고르면 emit — 메인 meta 뷰어를
+            그 정본 프레임으로 조준한다(정본 뷰어가 이미 객체·segment 를 그린다).
     """
 
     meta_changed = Signal()
+    stem_focus_requested = Signal(str)
 
     def __init__(self, get_pipeline: Callable[[], object | None], name: str, parent=None) -> None:
         super().__init__(parent)
@@ -131,10 +134,10 @@ class Sample_view(QWidget):
         self._info.setStyleSheet("color: #888;")
         self._info.setWordWrap(True)
         _rl.addWidget(self._info)
-        _hint = QLabel("트리에서 sample 을 (다중)선택하고 우클릭 → class 재배정")
-        _hint.setStyleSheet("color: #888;")
-        _hint.setWordWrap(True)
-        _rl.addWidget(_hint)
+        self._hint = QLabel("트리에서 sample 을 (다중)선택하고 우클릭 → class 재배정")
+        self._hint.setStyleSheet("color: #888;")
+        self._hint.setWordWrap(True)
+        _rl.addWidget(self._hint)
         _split.addWidget(_right)
         _split.setStretchFactor(1, 1)
         _split.setSizes([320, 600])
@@ -149,8 +152,9 @@ class Sample_view(QWidget):
     def reload(self, keep: str | None = None) -> None:
         """tasker 의 ``Sample_Set`` 을 다시 읽어 트리를 채운다 (``keep`` = 유지할 sample id).
 
-        **class 그룹은 표시용 group-by 다** — 저장 구조는 split 범주이고 class 는 sample 의 attr 이라,
-        여기서 attr 로 묶어 보여줄 뿐이다(그래서 재배정이 트리를 재구성해도 파일은 안 움직인다).
+        **뷰 모양은 task 가 가른다** — 파생이 새 도메인을 만드나(classification=per-object crop)로 갈린다:
+        crop 은 sample 이 소유한 새 데이터라 class-그룹 트리 + 재배정이 맞고, detection·seg 는 정본 프레임
+        재표현(참조)이라 frame 마다 객체가 달라 class-그룹이 안 맞는다 → split→stem 목록 + 정본 뷰어 조준.
         """
         _pipe = self._get_pipeline()
         self._tree.clear()
@@ -159,6 +163,17 @@ class Sample_view(QWidget):
         self._sset = _pipe.Load_sample(self._name)
         self._task = _pipe.Taskers().get(self._name, {}).get("task", "classification")
 
+        if self._task == "classification":
+            self._tree.setHeaderLabels(["sample", "split"])   # class 는 그룹 노드 (attr group-by)
+            self._hint.setText("트리에서 sample 을 (다중)선택하고 우클릭 → class 재배정")
+            self._reload_by_class(keep)
+        else:
+            self._tree.setHeaderLabels(["stem (정본 프레임)", "split"])
+            self._hint.setText("stem 을 고르면 메인 meta 뷰어가 그 정본 프레임으로 조준한다 — 객체·segment 는 거기서 편집")
+            self._reload_by_split(keep)
+
+    def _reload_by_class(self, keep: str | None) -> None:
+        """classification — class(attr) 그룹 → sample. 저장 구조는 split 이고 class 는 표시용 group-by 다."""
         _by_class: dict[str, list[tuple[str, str]]] = {}          # class → [(sid, split)]
         for _split in self._sset.CATEGORIES:
             for _sid, _ref in self._sset.Bucket(_split).items():
@@ -179,6 +194,26 @@ class Sample_view(QWidget):
         if _target is not None:
             self._tree.setCurrentItem(_target)
 
+    def _reload_by_split(self, keep: str | None) -> None:
+        """detection·seg — split → stem(정본 프레임) 목록. class-그룹이 아니다(frame 마다 객체가 달라 안 맞음).
+
+        sample 은 정본 순수 역참조라 여기선 편집하지 않는다 — stem 선택이 메인 meta 뷰어를 조준한다.
+        """
+        _target = None
+        for _split in self._sset.CATEGORIES:
+            _items = sorted(self._sset.Bucket(_split).items())
+            _snode = QTreeWidgetItem([_split, str(len(_items))])
+            self._tree.addTopLevelItem(_snode)
+            for _sid, _ref in _items:
+                _it = QTreeWidgetItem([_ref.Attr("source_stem") or _sid, _split])
+                _it.setData(0, _ROLE, _sid)
+                _snode.addChild(_it)
+                if keep is not None and _sid == keep:
+                    _target = _it
+            _snode.setExpanded(True)
+        if _target is not None:
+            self._tree.setCurrentItem(_target)
+
     # ── 선택 → 미리보기 ─────────────────────────────────────────────────────────
     def _on_select(self, item: QTreeWidgetItem | None, _prev=None) -> None:
         _sid = item.data(0, _ROLE) if item is not None else None
@@ -190,6 +225,12 @@ class Sample_view(QWidget):
         if _ref is None:
             return
         self._show_preview(_sid, _ref)
+        if self._task != "classification":              # frame 뷰 — 메인 meta 뷰어로 조준(여기선 편집 안 함)
+            _stem = _ref.Attr("source_stem") or _sid
+            self.stem_focus_requested.emit(_stem)
+            self._info.setText(f"정본 프레임 '{_stem}'  ·  split={self._sset.Category_of(_sid)}\n"
+                               "메인 뷰어에서 객체·segment 를 편집하세요 (여기선 참조만)")
+            return
         _src = _ref.Attr("source_stem")
         _obj = _ref.Attr("source_obj")
         _has_crop = _ref.Get("crop") is not None
