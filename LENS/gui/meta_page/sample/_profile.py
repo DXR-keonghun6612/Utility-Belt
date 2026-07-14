@@ -22,12 +22,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from core.store.sample.export import TASKS as _TASK_SPECS
+
 from gui._io import load_dict, save_dict
 from gui.steps import Step_list
 from gui.widgets import Pop_dialog
 
-TASKS = ["classification", "detection"]   # 내보내기 레이아웃 (core.sampler.EXPORTERS) — 빌드 축이 아니다
-UNITS = ["object", "frame"]               # 순회 단위
+TASKS = list(_TASK_SPECS)                 # export 레지스트리에서 (task 늘면 자동 반영 — 하드코딩 drift 방지)
 
 
 class Tasker_profile_dialog(Pop_dialog):
@@ -57,8 +58,8 @@ class Tasker_profile_dialog(Pop_dialog):
         _form = QFormLayout(_box)
         self._task = QComboBox()
         self._task.addItems(TASKS)
-        self._unit = QComboBox()
-        self._unit.addItems(UNITS)
+        self._task.setToolTip("데이터 성격 — 순회 unit 은 task 가 정한다 "
+                              "(classification=object/crop · detection/segmentation=frame)")
         self._tr, self._va, self._te = self._ratio_spin(), self._ratio_spin(), self._ratio_spin()
         _ratios = QHBoxLayout()
         for _lbl, _sp in (("train", self._tr), ("val", self._va), ("test", self._te)):
@@ -69,7 +70,6 @@ class Tasker_profile_dialog(Pop_dialog):
         self._salt = QLineEdit()
         self._salt.setPlaceholderText("split 해시 소금 (선택 — 같은 재현성, 다른 분할)")
         _form.addRow("task", self._task)
-        _form.addRow("unit", self._unit)
         _form.addRow("ratios (내보내기 split)", _rw)
         _form.addRow("salt", self._salt)
 
@@ -79,10 +79,11 @@ class Tasker_profile_dialog(Pop_dialog):
         _proc_box = QGroupBox("Processes (실체화 체인 — 정본 payload → sample)")
         _proc_box.setToolTip("staged 정본에서 payload 를 resolve 해 태우는 per-unit 체인. "
                              "최종 출력 key 'crop' 이 sample payload 로 저장된다(slots 로 재배선 가능). "
-                             "비울 수 없다 — 체인이 없으면 이미지 없는 sample 이 된다.")
+                             "classification 은 필요(crop). detection/segmentation 은 정본 프레임 "
+                             "역참조라 비워도 된다(순수 참조 sample).")
         _proc_lay = QVBoxLayout(_proc_box)
         _proc_lay.setContentsMargins(6, 4, 6, 4)
-        self._steps_list = Step_list(min_count=1, add_label="+ process 추가")
+        self._steps_list = Step_list(min_count=0, add_label="+ process 추가")
         _proc_lay.addWidget(self._steps_list)
 
         _body = QWidget()
@@ -108,9 +109,8 @@ class Tasker_profile_dialog(Pop_dialog):
 
     # ── 폼 ↔ config ───────────────────────────────────────────────────────────
     def load(self, cfg: dict) -> None:
-        """레시피 dict 를 폼에 싣는다 (task/unit/ratios/salt/processes)."""
-        self._task.setCurrentText(cfg.get("task", cfg.get("object_type", "classification")))
-        self._unit.setCurrentText(cfg.get("unit", "object"))
+        """레시피 dict 를 폼에 싣는다 (task/ratios/salt/processes). unit 은 task 가 정하므로 안 싣는다."""
+        self._task.setCurrentText(cfg.get("task", "classification"))
         _r = cfg.get("ratios") or {"train": 0.8, "val": 0.1, "test": 0.1}
         self._tr.setValue(float(_r.get("train", 0.0)))
         self._va.setValue(float(_r.get("val", 0.0)))
@@ -119,13 +119,14 @@ class Tasker_profile_dialog(Pop_dialog):
         self._steps_list.load(cfg.get("processes", []))   # min_count=1 — 빈 체인(껍데기 sample) 방지
 
     def cfg(self) -> dict:
-        """현재 편집된 sample 레시피를 반환한다 (탭이 닫을 때 읽어 보유)."""
+        """현재 편집된 sample 레시피를 반환한다 (탭이 닫을 때 읽어 보유). unit 은 task 가 정한다."""
+        _task = self._task.currentText()
         return {
-            "task": self._task.currentText(),
-            "unit": self._unit.currentText(),
+            "task": _task,
+            "unit": _TASK_SPECS[_task].unit,             # task 가 정한다 — 별도 위젯 없음
             "ratios": {"train": self._tr.value(), "val": self._va.value(), "test": self._te.value()},
             "salt": self._salt.text().strip(),
-            "processes": self._steps_list.to_config(),   # 실체화 체인 (최소 1)
+            "processes": self._steps_list.to_config(),   # 실체화 체인 (classification=crop, det/seg 는 비움)
         }
 
     # ── 레시피(config) 저장/불러오기 ────────────────────────────────────────────

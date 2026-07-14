@@ -17,6 +17,7 @@ from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QPlainTextEdit,
     QPushButton,
@@ -147,8 +148,11 @@ class Tasker_tab(QWidget):
         if _pipe is None or not str(_pipe.root).strip():
             self._status.setText("dataset_root 미설정")
             return
-        if not self._cfg.get("processes"):        # 빈 체인 = payload 없는 껍데기 sample → 거절
-            self._status.setText("프로필에서 process 체인을 하나 이상 추가하세요 (실체화 없이 sample 불가)")
+        from core.store.sample.export import TASKS
+        _spec = TASKS.get(self._cfg.get("task", ""))
+        if _spec is not None and _spec.unit == "object" and not self._cfg.get("processes"):
+            self._status.setText("classification 은 crop 체인이 필요합니다 — 프로필에서 process 를 추가하세요"
+                                 " (detection/segmentation 은 정본 역참조라 체인 없이도 됨)")
             return
         self._set_busy(True)
         self._status.setText("빌드 중…")
@@ -176,14 +180,27 @@ class Tasker_tab(QWidget):
         _dest = QFileDialog.getExistingDirectory(self, "split 산출물을 내보낼 위치 선택")
         if not _dest:
             return
+        from core.store.sample.export import Formats_for
+        _task = self._cfg.get("task", "classification")
+        _formats = Formats_for(_task)
+        if not _formats:
+            self._status.setText(f"task '{_task}' 에 내보내기 format 이 없습니다")
+            return
+        if len(_formats) > 1:                          # 여러 레이아웃 → 고른다 (기본이 맨 앞)
+            _fmt, _ok = QInputDialog.getItem(
+                self, "내보내기 format", f"{_task} 레이아웃:", _formats, 0, False)
+            if not _ok:
+                return
+        else:
+            _fmt = _formats[0]
         self._set_busy(True)
-        self._status.setText("split 처리 중…")
+        self._status.setText(f"split 처리 중… ({_fmt})")
         self._pending_dest = _dest
 
-        def _task(_progress) -> None:
-            _pipe.Export_tasker(self._name, _dest)
+        def _task_fn(_progress) -> None:
+            _pipe.Export_tasker(self._name, _dest, format=_fmt)
 
-        self._start_worker(_pipe, _task, self._on_export_done)
+        self._start_worker(_pipe, _task_fn, self._on_export_done)
 
     def _on_export_done(self, ok: bool, info: str) -> None:
         self._status.setText(f"내보냄: {self._pending_dest}/{self._name}"
