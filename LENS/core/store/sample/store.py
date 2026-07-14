@@ -13,7 +13,6 @@ export 산출물이지 store 구조가 아니다. 그래서 파생 store 는 이
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 from typing import ClassVar, Mapping
 
 from ...constant import SPLITS, TEST, TRAIN, VAL
@@ -35,36 +34,8 @@ class Sample_Set(Bucket_Store):
     CATEGORIES:       ClassVar[tuple[str, ...]] = SPLITS
     DEFAULT_CATEGORY: ClassVar[str]             = TRAIN   # placeholder — split 배정은 빌드(frame 해시) 몫
 
-    # ── 내보내기 — 학습 프레임워크 레이아웃으로 (라이프사이클이라 store 소유) ──────────
-    def Export(self, dest: str | Path, *, task: str, format: str | None = None,
-               meta=None, id_map: dict[str, int] | None = None) -> Path:
-        """이 학습셋을 ``(task, format)`` 레이아웃으로 ``dest`` 아래에 실체화한다 (원본 비파괴).
-
-        **split 은 재배정하지 않는다** — 이미 split 범주로 갈려 있다(빌드가 배정). 여기서 정하는 건
-        레이아웃뿐이다: ``task``(데이터 성격) × ``format``(직렬화)를 ``EXPORTERS`` 로 조합해 고른다.
-
-        Args:
-            dest:   산출물 루트.
-            task:   데이터 성격 (classification/detection/segmentation — ``TASKS`` 의 key).
-            format: 직렬화 레이아웃 (imagefolder/coco/yolo/mask — task 와 조합해 ``EXPORTERS`` key).
-            meta:   정본 store — 프레임 픽셀이 sample 이 아니라 정본에 있어 필요하다(det/seg).
-            id_map: class→정수. None 이면 class 정렬로 생성 (class-agnostic 이면 안 씀).
-
-        Raises:
-            ValueError: task 가 없거나 그 task 에 format 조합의 exporter 가 없을 때.
-        """
-        from .export import EXPORTERS, TASKS, Formats_for
-        if task not in TASKS:
-            raise ValueError(f"알 수 없는 sample task: {task!r} (가능: {', '.join(sorted(TASKS))})")
-        _format = format or TASKS[task].default_format     # 미지정 → task 기본 레이아웃
-        try:
-            _cls = EXPORTERS[(task, _format)]
-        except KeyError:
-            raise ValueError(f"task {task!r} 에 format {_format!r} 조합이 없다 "
-                             f"(가능: {', '.join(Formats_for(task))})") from None
-        _out = Path(dest)
-        _cls(source=self, meta=meta, id_map=id_map, task=task).Export(_out)
-        return _out
+    # 내보내기는 여기(store)가 아니라 **binder**([`core/export`](../../export))가 든다 — read+compute+
+    # external-write 라 store 를 안 바꾸고, func(합성)·store(codec)를 함께 조율할 계층이 binder 뿐이다.
 
     # ── 배치 — sample 하나를 split 범주에 앉힌다 (payload write 포함) ────────────────
     def Place(self, sample_id: str, ref: Data_Ref, *,

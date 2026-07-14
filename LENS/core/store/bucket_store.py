@@ -237,6 +237,15 @@ class Bucket_Store(Data_Schema):
         """
         return port.Route(self.root, path, name, spec, value, params=params)
 
+    def Encode(self, spec: dict, value: Any) -> Data_Ref:
+        """값을 spec 의 **인라인** 서술자로 인코딩해 ``Data_Ref`` 로 (디스크 안 씀 — 트리에도 안 꽂는다).
+
+        위 계층(내보내기 등)이 codec 을 **store 경유**로 얻는 창구다 — port 는 소비자가 store 하나라 위
+        계층이 직접 못 부른다. inline handler(``rle`` 등) 전용이라 위치가 필요 없다(파일 handler 를 주면
+        경로 파생에서 실패한다). 예: export 의 COCO ``segmentation`` RLE (``mask → rle Data_Ref → value``).
+        """
+        return port.Route(self.root, (), "", spec, value)
+
     def Trace(self, run: str, path: tuple[str, ...], name: str, spec: dict, value: Any,
               *, params: bool = False) -> None:
         """진단 payload 를 **트리 밖** ``{root}/.trace/{run}/{종류}/{stem}.{ext}`` 에 쓴다.

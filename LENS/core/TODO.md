@@ -70,10 +70,11 @@ import 하면 실패 ② `core.schema` 만 들였을 때 cv2·numpy 가 안 딸�
       **남은 `int(id)+1`** (store/meta·export·gui 렌더)은 계층상 지금 func 에 못 닿아 ③에서 걷힌다.
 - [ ] **② port 내부를 domain × format × (inline/storage) 로 재조직** + `format[0]` 마이그레이션.
       → [`port/TODO.md`](port/TODO.md)
-- [ ] **③ export 해체 → binder** — gather/compose→func(정본 **live** 읽기: 스냅샷/STAGED 하드코딩 버그
-      동시 해소), encode→port codec(store 경유 `Data_Ref`), layout→binder. store 는 segment repaint 를
-      벗는다(`Remove_object`·`Merge_objects` = 컨테이너 pop 만; 호출 측이 func 로 재도색).
-      → [`store/TODO.md`](store/TODO.md)
+- [x] **③ export 해체 → binder** — `core/store/sample/export/` → [`core/export/`](export)(binder 계층).
+      정본 **live** 읽기(스냅샷/STAGED 버그 해소, `d0c30e5`)·store repaint 벗기(`b1b8589`)에 이어, exporter 가
+      `port` 직접 호출을 뗐다: `_obj_mask`→`func.Mask_of`, COCO RLE→`store.Encode`(inline codec 창구),
+      crop 경로→`store.Path_of`. `Sample_Set.Export`→`export.Run_export`(binder). `check_port_consumer`·
+      gui 티어 규칙 안 벼림 — export 는 func·store 만 안다. 스모크로 확인(det live·재라벨·seg RLE/mask).
 - [x] **④ sample 객체 clone 제거**(`d0c30e5`) + **gui frame 뷰 = split→stem 목록**(정본 뷰어로 조준,
       class-트리 아님). detection·seg tasker 는 class-그룹 대신 split→stem 을 보이고 stem 선택이
       메인 meta 뷰어를 `refresh(keep=stem)` 로 조준한다(정본 뷰어가 객체·segment 를 그린다).

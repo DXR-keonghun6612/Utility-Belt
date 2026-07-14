@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core.store.sample.export import TASKS as _TASK_SPECS
+from core.export import TASKS as _TASK_SPECS
 
 from gui._io import load_dict, save_dict
 from gui.steps import Step_list

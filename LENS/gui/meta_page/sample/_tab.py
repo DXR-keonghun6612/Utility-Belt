@@ -151,7 +151,7 @@ class Tasker_tab(QWidget):
         if _pipe is None or not str(_pipe.root).strip():
             self._status.setText("dataset_root 미설정")
             return
-        from core.store.sample.export import TASKS
+        from core.export import TASKS
         _spec = TASKS.get(self._cfg.get("task", ""))
         if _spec is not None and _spec.unit == "object" and not self._cfg.get("processes"):
             self._status.setText("classification 은 crop 체인이 필요합니다 — 프로필에서 process 를 추가하세요"
@@ -183,7 +183,7 @@ class Tasker_tab(QWidget):
         _dest = QFileDialog.getExistingDirectory(self, "split 산출물을 내보낼 위치 선택")
         if not _dest:
             return
-        from core.store.sample.export import Formats_for
+        from core.export import Formats_for
         _task = self._cfg.get("task", "classification")
         _formats = Formats_for(_task)
         if not _formats:

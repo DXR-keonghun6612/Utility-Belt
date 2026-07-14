@@ -37,7 +37,7 @@ LAYER: dict[str, int] = {
     "port":    1,
     "store":   2,
     "process": 3,
-    "_base":   4, "tasker": 4, "__init__": 4,  # binder
+    "_base":   4, "tasker": 4, "__init__": 4, "export": 4,  # binder (export = read+compute+external-write)
 }
 
 

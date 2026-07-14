@@ -7,7 +7,6 @@ from pathlib import Path
 
 from python_toolbox.file import Write_to
 
-from .... import port
 from ._base import Exporter
 
 
@@ -36,7 +35,7 @@ class ImageFolder_exporter(Exporter):
                 _crop = _ref.Get("crop")
                 if _crop is None:                        # 순수 역참조만 — 복사할 픽셀이 없다
                     continue
-                _src = port.Path_of(self.source.root, (_split, _sid), "crop", _crop)
+                _src = self.source.Path_of((_split, _sid), "crop", _crop)   # store 창구 (port 직접 안 부름)
                 if _src is None:
                     continue
                 _dir = _out / _split / _class if _class is not None else _out / _split

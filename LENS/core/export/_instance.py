@@ -16,7 +16,8 @@ from pathlib import Path
 
 import numpy as np
 
-from ....schema import Data_Ref
+from ..process.func.mask.instance import Mask_of
+from ..schema import Data_Ref
 from ._base import Exporter
 
 
@@ -151,16 +152,11 @@ class Frame_exporter(Exporter):
 
     @staticmethod
     def _obj_mask(seg: np.ndarray, obj_id: str) -> np.ndarray | None:
-        """프레임 ``segment`` 라벨맵에서 한 obj 의 이진 mask — 값이 ``obj_id+1`` 인 영역.
+        """프레임 ``segment`` 라벨맵에서 한 obj 의 이진 mask — 라벨↔id 규약·gather 는 ``func.mask`` 소유.
 
-        정본은 per-obj mask 를 따로 저장하지 않고 segment 한 장에서 파생한다(sample.py ``_obj_mask`` 와
-        같은 규약). ``obj_id`` 가 정수화 안 되면 None.
+        export 가 binder 계층이라 이제 func 에 닿는다 — 손으로 ``int(id)+1`` 을 짓지 않고 ``Mask_of`` 를 부른다.
         """
-        try:
-            _lbl = int(obj_id) + 1
-        except (TypeError, ValueError):
-            return None
-        return (seg == _lbl).astype(np.uint8)
+        return Mask_of(seg, obj_id)
 
     def _copy_image(self, rec: Frame_record, dst_dir: Path) -> str | None:
         """record 의 정본 프레임 원본 파일을 ``dst_dir`` 로 복사 (파일명 반환; 없으면 None)."""

@@ -269,9 +269,9 @@ class Pipeline:
     def Export_tasker(self, name: str, dest: str | Path, *, format: str | None = None) -> Path:
         """빌드된 tasker 를 학습 프레임워크 레이아웃으로 외부 경로에 실체화한다.
 
-        **내보내기는 store 가 한다** (``Sample_Set.Export`` — 라이프사이클은 store 소유). 바인더가 여기서
-        하는 일은 **레시피에서 task 를 읽어 넘기는 것**뿐이다: 어떤 tasker 인지 아는 건 레시피이고,
-        그 레시피는 바인더가 든다.
+        **내보내기는 binder 가 든다** (``core.export.Run_export`` — read+compute+external-write 라 store
+        라이프사이클이 아니다). 바인더가 여기서 하는 일은 **레시피에서 task 를 읽어 넘기는 것** + 정본·파생
+        store 와 id_map 을 조율하는 것이다: 어떤 tasker 인지 아는 건 레시피이고, 그 레시피는 바인더가 든다.
 
         Args:
             name: 내보낼 tasker 이름.
@@ -282,19 +282,19 @@ class Pipeline:
 
         Raises:
             FileNotFoundError: tasker 폴더가 없으면 (아직 빌드 안 됨).
-            ValueError: 레시피의 task 에 맞는 exporter 가 없으면 (store 가 판정).
+            ValueError: 레시피의 task 에 맞는 exporter 가 없으면 (``Run_export`` 가 판정).
         """
+        from .export import Run_export
         if not (self._sample_root / name).exists():
             raise FileNotFoundError(f"빌드된 tasker 가 없습니다: {name!r} (먼저 Sample 실행)")
         _cfg = self.Taskers().get(name, {})
         _task = _cfg.get("task")
         if not _task:                          # 조용한 classification fallback 걷어냄 — 레시피가 task 를 든다
             raise ValueError(f"tasker {name!r} 레시피에 task 가 없다 — 프로필에서 지정하라")
-        return self.Load_sample(name).Export(
-            Path(dest) / name,
-            task=_task, format=format,         # format None → store 가 task 기본 레이아웃으로
-            meta=self.meta,
-            id_map=self._meta_id_map())
+        return Run_export(
+            self.Load_sample(name), Path(dest) / name,
+            task=_task, format=format,         # format None → task 기본 레이아웃
+            meta=self.meta, id_map=self._meta_id_map())
 
     def Id_map(self) -> dict:
         """정본 ``meta.params`` 의 id_map 을 원본 dict 로 돌려준다 (없으면 ``{}``).
