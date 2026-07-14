@@ -1,19 +1,16 @@
 """Exporter 계약 — 파생 store → 학습 프레임워크 레이아웃.
 
-**task 가 사는 곳은 여기다** — 그래서 파생(sample) 안쪽이다. 빌드는 무엇을 뽑을지만 정하고 task 를
-모른다. classification 이냐 detection 이냐는 *같은 데이터를 어떤 폴더 모양으로 내놓느냐*의 문제이고,
-그 축이 서로 배타적이라 store 구조로는 둘 다 못 섬긴다:
+**task·format 이 사는 곳은 여기다** — 그래서 파생(sample) 안쪽이다. 빌드는 무엇을 뽑을지(``unit``·crop)만
+정하고 레이아웃은 모른다. 축이 둘이다(레지스트리·조합 설명은 [`__init__.py`](__init__.py)):
 
-- **ImageFolder** (classification) — ``{split}/{class}/{sample}.png``. **class-major**: 폴더명이 곧 라벨.
-- **COCO** (detection) — ``{split}/images/{stem}.png`` + ``instances_{split}.json``. **kind-major**:
-  픽셀과 annotation 이 갈리고 class 는 json 안 정수.
+- **task** = 데이터 성격 (classification / detection / segmentation) — 빌드 ``unit`` 과 mask 필요 여부를 건다.
+- **format** = 직렬화 레이아웃 (imagefolder / coco / yolo / mask) — 같은 task 를 여러 모양으로 낸다.
 
-그래서 store 는 축을 하나만(kind-major) 고르고, 학습셋 관행은 여기서 옮겨 짓는다. 원본(작업 store)은
+한 serializer 가 여러 task 를 겸한다 — ``Coco``·``Yolo`` 는 detection·segmentation 을 함께 섬기고 task 가
+mask 를 토글한다([`_instance.py`](_instance.py) 의 ``Frame_exporter`` 공통 base). 원본(작업 store)은
 비파괴 — payload 는 ``port.Path_of`` 로 원본 파일을 찾아 **복사**한다(디코드·재인코딩 없음).
 
 split 은 **재배정하지 않는다** — store 가 이미 split 범주로 갈려 있다(빌드가 배정). 여기선 순회할 뿐이다.
-
-**task 하나 = 파일 하나** — [`classification.py`](classification.py) · [`detection.py`](detection.py).
 """
 
 from __future__ import annotations
@@ -43,6 +40,7 @@ class Exporter(ABC):
     source: Sample_Set
     meta:   Dataset_Meta | None    = None
     id_map: dict[str, int] | None  = None
+    task:   str                    = ""    # 공유 serializer 가 데이터 성격을 읽는 자리 (seg→mask 토글)
 
     @abstractmethod
     def Export(self, dest: str | Path) -> None:

@@ -266,7 +266,7 @@ class Pipeline:
         Save_taskers(self._sample_root, _taskers)
         return sum(len(_sset.Bucket(_s)) for _s in _sset.CATEGORIES)
 
-    def Export_tasker(self, name: str, dest: str | Path) -> Path:
+    def Export_tasker(self, name: str, dest: str | Path, *, format: str | None = None) -> Path:
         """빌드된 tasker 를 학습 프레임워크 레이아웃으로 외부 경로에 실체화한다.
 
         **내보내기는 store 가 한다** (``Sample_Set.Export`` — 라이프사이클은 store 소유). 바인더가 여기서
@@ -287,9 +287,12 @@ class Pipeline:
         if not (self._sample_root / name).exists():
             raise FileNotFoundError(f"빌드된 tasker 가 없습니다: {name!r} (먼저 Sample 실행)")
         _cfg = self.Taskers().get(name, {})
+        _task = _cfg.get("task")
+        if not _task:                          # 조용한 classification fallback 걷어냄 — 레시피가 task 를 든다
+            raise ValueError(f"tasker {name!r} 레시피에 task 가 없다 — 프로필에서 지정하라")
         return self.Load_sample(name).Export(
             Path(dest) / name,
-            task=_cfg.get("task", _cfg.get("object_type", "classification")),
+            task=_task, format=format,         # format None → store 가 task 기본 레이아웃으로
             meta=self.meta,
             id_map=self._meta_id_map())
 

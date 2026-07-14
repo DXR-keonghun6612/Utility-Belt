@@ -34,6 +34,15 @@ def _encode(mask: np.ndarray) -> dict:
     }
 
 
+def Encode_coco_rle(mask: np.ndarray) -> dict:
+    """uint8 마스크 → COCO ``segmentation`` RLE dict (``counts`` 는 JSON 직렬화 가능한 str).
+
+    coco RLE 코덱은 이 핸들러가 소유한다(인라인 mask payload 도 같은 코덱). 내보내기(export)의 COCO
+    ``segmentation`` 필드가 같은 표현을 재사용하도록 여는 공개 진입점 — 같은 인코딩을 두 곳에서 짜지 않는다.
+    """
+    return _encode(mask)
+
+
 @HANDLER_REGISTRY.Register_module("rle")
 class Rle_Handler(Handler):
 
