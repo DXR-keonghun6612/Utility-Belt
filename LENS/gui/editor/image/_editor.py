@@ -147,6 +147,19 @@ class Image_editor(Editor_base):
         self._radius.setVisible(_painting and _shape == "fill")
         self._tol.setVisible(_painting and _shape == "fill")
 
+    def _interactive(self) -> bool:
+        """조준이 없어도 이미지가 있으면 포인터를 받는다 — **view 모드의 pick(객체 고르기)** 때문.
+
+        편집(paint/bbox)은 여전히 armed 여야 하지만(그건 ``_on_press`` 가 든다), 클릭으로 객체를 고르는
+        건 편집 전 단계라 조준이 필요 없다. 이미지가 떠 있으면(``source_size``) 흘려보낸다.
+        """
+        return self.armed() or self.canvas.source_size() is not None
+
+    def _on_unarmed_press(self, x: int, y: int) -> None:
+        """조준 없는 클릭 — view 모드면 pick 만 한다(고른 객체가 곧 조준이 된다). 편집 모드는 무시."""
+        if self.tool("mode") not in ("paint", "erase", "bbox"):
+            self._view_press(x, y)
+
     def _tool_enabled(self, tool: Tool) -> bool:
         if not self.armed():
             return False
@@ -287,7 +300,7 @@ class Image_editor(Editor_base):
         이유가 없어야 한다. Shift 중엔 핸들을 안 잡는다(모으는 중이지 고치는 중이 아니다).
         """
         _additive = bool(QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier)
-        _box = self._t.bbox
+        _box = self._t.bbox if self._t is not None else None   # 조준 없이 pick 만 할 때는 핸들이 없다
         if _box and not _additive:
             _i = _geom.hit_corner(_box, x, y, self._grab())
             if _i is not None:

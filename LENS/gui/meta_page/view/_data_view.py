@@ -88,6 +88,17 @@ class Data_view(QWidget):
         self._inspector.setEnabled(editable)
         self._editor.set_locked(not editable)
 
+    def focus_editor(self) -> None:
+        """이미지 편집기(캔버스)에 키보드 포커스를 준다 (Tab 왕복의 한 끝)."""
+        self._canvas.setFocus(Qt.FocusReason.TabFocusReason)
+
+    def canvas_size(self) -> tuple[int, int] | None:
+        """지금 캔버스에 뜬 이미지 크기 (H, W) — 빈 라스터를 이 크기로 만든다 (편집기가 든 그 이미지).
+
+        store 를 다시 순회하지 않고 **편집기가 현재 보여주는 것**을 그대로 쓴다 (roi 는 그 위에 그린다).
+        """
+        return self._canvas.source_size()
+
     def set_objects(self, objects: list[Node]) -> None:
         """선택 stem 의 객체들 — bbox 는 raster 가 아니라 attr 이라 layer 로 안 오고, 조준의 단위다.
 
@@ -126,9 +137,15 @@ class Data_view(QWidget):
         """편집 중 미리보기·표시 옵션 변경 — 지금 layer 그대로 다시 그린다."""
         self.show_layers(self._layers)
 
-    def show_node(self, node: Node | None, *, candidates=None) -> None:
-        """선택 노드 → 인스펙터에 값 패널을 띄우고, **편집기를 그 대상으로 조준**한다."""
-        self._aim(node)
+    def show_node(self, node: Node | None, *, candidates=None,
+                  aim: bool = True, editable: bool = True) -> None:
+        """선택 노드 → 인스펙터에 값을 띄운다.
+
+        ``aim`` 이면 편집기를 그 대상으로 **조준**하고(칠할 수 있게), ``editable`` 이면 값 편집 패널을
+        준다. params 같은 **전역 값은 선택만으론 조준·편집하지 않는다**(``aim=False, editable=False`` 로
+        읽기전용 미리보기) — 무심코 칠하면 전 stem 에 파급되므로 명시적 [수정]에서만 둘 다 켠다.
+        """
+        self._aim(node if aim else None)
         self._clear_inspector()
         if node is None:
             self._inspector_lay.addWidget(self._label("노드를 선택하세요"))
@@ -137,6 +154,11 @@ class Data_view(QWidget):
         if _viewer is None:
             self._inspector_lay.addWidget(
                 self._label(f"{node.name} — 뷰어 없음 ({node.ref.format[0]})"))
+            return
+        if not editable:                                  # 미리보기 — 읽기전용 요약만 (편집은 [수정]에서)
+            self._inspector_lay.addWidget(QLabel(f"<b>{node.name}</b>"))
+            self._inspector_lay.addWidget(self._label(_viewer.summary(node.value, node.ref)))
+            self._inspector_lay.addStretch(1)
             return
 
         _ctx = {**self._ctx}

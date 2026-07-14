@@ -58,15 +58,22 @@ class Node_tree(QTreeWidget):
     selected       = Signal(object)
     layers_changed = Signal()
 
-    def __init__(self, scope: str = "all", parent=None) -> None:
+    def __init__(self, scope: str = "all", check_default: bool = True, parent=None) -> None:
         """``scope`` = 루트의 직속 자식 중 무엇을 보일지: ``all`` / ``leaves``(데이터) / ``objects``.
 
         같은 재귀 렌더러를 역할별로 나눠 쓰기 위한 필터다 — 루트 직속에만 걸리고, 객체 안쪽은 언제나
         전부 보인다(그 attr 을 편집해야 하므로). 데이터모델은 하나(재귀 ``Data_Ref``)지만 **표현은
         축(데이터 vs 객체)이 다르다.**
+
+        Args:
+            check_default: 첫 로드 시 raster 를 켤지 — 데이터는 켜고(True), params 는 끈다(전역이라
+                stem 마다 캔버스를 채우면 방해). 사용자가 한 번 토글하면 그 선택(``_checked``)이 이겨서
+                **stem 을 넘어가도 유지**된다(편집기가 앱 싱글턴이라 매번 리셋되면 귀찮다).
         """
         super().__init__(parent)
         self._scope = scope
+        self._check_default = check_default
+        self._checked: set[str] | None = None   # 사용자가 정한 표시 선택 (None = 아직 없음 → 기본값)
         self.setHeaderLabels(["노드", "값"])
         self.header().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.header().setSectionResizeMode(1, QHeaderView.Stretch)
@@ -121,7 +128,10 @@ class Node_tree(QTreeWidget):
             _item = QTreeWidgetItem(parent, [_name, _summary])
             _item.setData(0, _ROLE, Node(path, _name, _ref, _val))
             if _viewer is not None and _viewer.RASTER:     # 그릴 수 있는 것만 체크박스
-                _item.setCheckState(0, Qt.CheckState.Checked)
+                _on = (_name in self._checked if self._checked is not None
+                       else self._check_default)           # 유지된 선택 우선, 없으면 기본값
+                _item.setCheckState(0, Qt.CheckState.Checked if _on
+                                    else Qt.CheckState.Unchecked)
             else:
                 _uncheckable(_item)                        # Qt 기본 플래그를 떼야 정직하다
 
@@ -189,6 +199,24 @@ class Node_tree(QTreeWidget):
             return True
         return False
 
+    def check_node(self, node: Node) -> bool:
+        """그 노드의 raster 를 표시(체크)한다 — 편집하려고 조준할 때 화면에 뜨게. 체크했으면 True.
+
+        params [수정]에서 쓴다: 전역 raster 는 기본 꺼져 있으니, 편집을 시작하면 캔버스에 띄운다.
+        """
+        def _walk(item: QTreeWidgetItem) -> bool:
+            for _i in range(item.childCount()):
+                _c = item.child(_i)
+                if (_c.data(0, _ROLE) is node
+                        and _c.flags() & Qt.ItemFlag.ItemIsUserCheckable):
+                    _c.setCheckState(0, Qt.CheckState.Checked)
+                    return True
+                if _walk(_c):
+                    return True
+            return False
+
+        return _walk(self.invisibleRootItem())
+
     def select_index(self, idx: int) -> bool:
         """루트 직속 ``idx`` 번째 항목을 선택한다 (숫자키 단축키 — 객체 트리에서 쓴다). 있으면 True."""
         _root = self.invisibleRootItem()
@@ -196,6 +224,21 @@ class Node_tree(QTreeWidget):
             return False
         self.setCurrentItem(_root.child(idx))
         return True
+
+    def select_name(self, name: str) -> bool:
+        """루트 직속에서 그 이름의 항목을 선택한다 — 병합 생존자(가장 작은 obj_id)로 조준을 옮긴다.
+
+        노드는 ``load`` 로 새로 만들어져 정체성이 바뀌므로(``select_node`` 는 못 씀), 이름으로 찾는다.
+        선택하면 조준이 그리로 따라가 인스펙터가 생존자의 class 를 보인다. 있으면 True.
+        """
+        _root = self.invisibleRootItem()
+        for _i in range(_root.childCount()):
+            _item = _root.child(_i)
+            _n = _item.data(0, _ROLE)
+            if _n is not None and _n.name == name:
+                self.setCurrentItem(_item)
+                return True
+        return False
 
     def set_editable(self, editable: bool) -> None:
         """편집 잠금 — 체크(표시 토글)는 보기라 막지 않는다."""
@@ -206,4 +249,5 @@ class Node_tree(QTreeWidget):
         self.selected.emit(self.current_node())
 
     def _on_check(self, *_a) -> None:
+        self._checked = {_n.name for _n in self.checked_layers()}   # stem 넘어가도 유지할 선택
         self.layers_changed.emit()

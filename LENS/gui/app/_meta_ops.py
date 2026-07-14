@@ -17,7 +17,7 @@ class Meta_ops(QObject):
     """run·전이·삭제를 한 워커로 실행 (동시 실행 금지, 진행바·편집잠금 공유).
 
     Args:
-        meta_view: 완료 후 동기화할 본문 뷰 (``set_editable``·``apply_transition``·``apply_removal``·``refresh``).
+        meta_view: 완료 후 동기화할 본문 뷰 (``set_editable``·``refresh``).
         progress: 진행 표시 바.
         run_btn: 실행 중 비활성화할 run 버튼.
         parent: ``QMessageBox`` 부모 + ``QObject`` 소유자(메인 스레드 affinity).
@@ -32,8 +32,6 @@ class Meta_ops(QObject):
         self._parent = parent
         self._thread: QThread | None = None
         self._worker: Pipeline_worker | None = None
-        self._txn: tuple[str, list] | None = None     # 진행 중 전이 완료 컨텍스트 (to_state, stems)
-        self._rm: list | None = None                  # 진행 중 삭제 완료 컨텍스트 (stems)
 
     @property
     def busy(self) -> bool:
@@ -73,13 +71,11 @@ class Meta_ops(QObject):
                 _pipe.meta.Move(_stem, to_state)  # payload+사이드카+버킷 (Bucket_Store 소유)
                 _progress("이동 중", _i, _n)
 
-        self._txn = (to_state, stems)
         self._start(pipeline, _task, self._transition_done, "이동 중…")
 
     def _transition_done(self, ok: bool, info: str) -> None:
-        _to_state, _stems = self._txn
         if ok:
-            self._view.apply_transition(_to_state, _stems)
+            self._view.refresh()                       # 단일 refresh (O(n)) — 포커스는 _focus_after 소비
         self._end(ok)
         if not ok:
             QMessageBox.critical(self._parent, "이동 실패", info)
@@ -96,12 +92,11 @@ class Meta_ops(QObject):
                 _pipe.meta.Delete(_stem)          # payload+사이드카+버킷 제거 (Bucket_Store 소유)
                 _progress("삭제 중", _i, _n)
 
-        self._rm = stems
         self._start(pipeline, _task, self._remove_done, "삭제 중…")
 
     def _remove_done(self, ok: bool, info: str) -> None:
         if ok:
-            self._view.apply_removal(self._rm)
+            self._view.refresh()                       # 단일 refresh (O(n)) — 포커스는 _focus_after 소비
         self._end(ok)
         if not ok:
             QMessageBox.critical(self._parent, "삭제 실패", info)

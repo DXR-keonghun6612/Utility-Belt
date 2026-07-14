@@ -76,6 +76,7 @@ class Image_label(QWidget):
 
         self.setMinimumSize(160, 120)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)   # 클릭하면 키보드 포커스가 딸려온다 (바로 단축키 편집)
 
     def set_interactive(self, on: bool) -> None:
         """마우스 좌표 시그널(원본 픽셀) 방출을 켠다/끈다.
@@ -140,6 +141,12 @@ class Image_label(QWidget):
         self._src = None
         self._inner.clear()
         self._inner.setText(msg)
+
+    def source_size(self) -> tuple[int, int] | None:
+        """지금 표시 중인 이미지 크기 ``(H, W)`` — 없으면 None (빈 라스터를 이 크기로 만든다)."""
+        if self._src is None:
+            return None
+        return self._src.height(), self._src.width()
 
     def set_zoom(self, zoom: float) -> None:
         """절대 배율로 줌한다 (허용 범위로 클램프).
@@ -218,6 +225,8 @@ class Image_label(QWidget):
         """
         if obj is self._inner and self._interactive and self._src is not None:
             _et = event.type()
+            if _et == QEvent.Type.MouseButtonPress:
+                self.setFocus(Qt.FocusReason.MouseFocusReason)   # 클릭 = 선택하고 바로 단축키로 편집
             if _et == QEvent.Type.MouseButtonPress and event.button() == Qt.LeftButton:
                 _p = self._to_orig(event.position())
                 if _p is not None:

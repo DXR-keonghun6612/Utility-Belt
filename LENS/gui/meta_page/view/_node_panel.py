@@ -231,9 +231,9 @@ class Node_panel(QWidget):
                         self, "데이터 추가",
                         "크기를 잡을 이미지가 없습니다 — 이 stem 에 이미지가 먼저 있어야 합니다.")
                     return
-                _blank = np.zeros(_size, np.uint8)             # 빈 mask → 바로 그릴 수 있다
-                _store.Add_leaf(_path, _name,
-                                {"to": "storage", "type": _type, "format": "png"}, _blank)
+                _store.Add_leaf(_path, _name,                  # 빈 payload 는 port 가 낸다 (표현 지식)
+                                {"to": "storage", "type": _type, "format": "png"},
+                                port.Blank(_type, size=_size))
             else:
                 _store.tree.At(_path).Set_attr(_name, _value)
         except Exception as _e:                                 # 조용히 삼키지 않는다
@@ -250,18 +250,15 @@ class Node_panel(QWidget):
         이 비대칭은 payload 가 정한다: 객체는 payload-free 라 지워도 지울 파일이 없어 저장까지 미룰 수
         있고(취소 = 다시 읽기), 데이터 leaf 는 파일을 지우는 일이라 미룰 수 없다 — 그래서 사이드카도
         그 자리에서 맞춰 둔다(안 그러면 없는 파일을 가리키는 서술자가 남는다).
+
+        **확인은 묻지 않는다** — 매번 뜨면 라벨링 동선이 끊긴다. 객체는 다시 읽기로 복원되고, leaf 는
+        지워도 '빈 라스터'로 다시 그리면 되니(재생성이 복구다), 되돌릴 수 없음이 확인창을 정당화하지 못한다.
         """
         _store = self._get_store()
         _node: Node | None = self.tree.current_node()
         if _store is None or _node is None or not self._editable:
             return
         _object = self._is_object(_store, _node)
-        _warn = ("저장하기 전까지는 디스크에 그대로 있습니다 (되돌리려면 저장 없이 다시 읽기)."
-                 if _object else "payload 파일까지 지웁니다 — 되돌릴 수 없습니다.")
-        if QMessageBox.question(self, "노드 삭제", f"'{_node.name}' 을 지웁니다.\n{_warn} 계속할까요?") \
-                != QMessageBox.StandardButton.Yes:
-            return
-
         _key = self._get_key()
         if _object:                                            # 객체 = 컨테이너 + segment 라벨
             _seg = self._get_segment()
@@ -276,29 +273,19 @@ class Node_panel(QWidget):
     def merge_selected(self) -> None:
         """고른 객체들을 하나로 — 생존자는 **가장 작은 obj_id**, 그 class 가 이긴다.
 
-        무엇이 살아남는지(=어느 class 로 합쳐지는지)를 확인 다이얼로그가 말한다 — 생존자를 store 가
-        조용히 고르면 사용자는 어느 class 가 이겼는지 모른 채 넘어간다. 결과는 **저장 전까지 메모리**다.
+        확인은 묻지 않는다 — 결과는 **저장 전까지 메모리**라 잘못 합쳤으면 다시 읽기로 복원된다(매번
+        물으면 라벨링 동선이 끊긴다). 어느 class 로 합쳐졌는지는 병합 뒤 **인스펙터**가 보인다(생존자
+        = 가장 작은 obj_id). 둘 미만이면 병합이 성립하지 않아 **조용히 no-op**.
         """
         _store, _key = self._get_store(), self._get_key()
         if _store is None or not _key or not self._editable:
             return
         _objs = [_n for _n in self.tree.selected_nodes() if self._is_object(_store, _n)]
         if len(_objs) < 2:
-            QMessageBox.information(
-                self, "객체 병합",
-                "객체를 둘 이상 고르세요 — 트리에서 Ctrl/Shift, 또는 캔버스에서 Shift+클릭.")
-            return
+            return                                             # 둘 미만은 병합 불가 (경고 안 띄운다)
 
         _ids = sorted((_n.name for _n in _objs), key=int)
         _into, _others = _ids[0], _ids[1:]
-        _cls = _store.Find(_key).Get(_into).Attr("class_id") or "미분류"
-        if QMessageBox.question(
-                self, "객체 병합",
-                f"객체 {', '.join(_others)} 을(를) '{_into}' 에 흡수합니다.\n"
-                f"class 는 '{_cls}' 로 남고, 흡수된 객체의 값은 버려집니다. 계속할까요?") \
-                != QMessageBox.StandardButton.Yes:
-            return
-
         _seg = self._get_segment()
         try:
             _store.Merge_objects(_key, _into, _others,         # 라벨 재도색 + bbox 합집합 (메모리만)
@@ -308,6 +295,7 @@ class Node_panel(QWidget):
             return
         self._raster_touched(_seg)
         self.load(_store, _key)
+        self.tree.select_name(_into)                           # 생존자로 조준이 따라간다 (그 class 를 인스펙터가 보인다)
         self.changed.emit()
 
     def _raster_touched(self, seg: Node | None) -> None:

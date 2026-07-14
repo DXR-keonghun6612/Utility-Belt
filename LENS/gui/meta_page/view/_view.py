@@ -20,10 +20,14 @@ stem 을 바꿔도 params 는 그대로 있고, 그 raster(예: `roi`)는 어느
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
+    QAbstractSpinBox,
+    QApplication,
+    QComboBox,
     QHBoxLayout,
+    QLineEdit,
     QMessageBox,
     QPushButton,
     QSplitter,
@@ -88,9 +92,10 @@ class Meta_view(QWidget):
         self._stem_list.delete_requested.connect(self.remove_requested)
 
         # 가운데 = params(dataset-wide) · 데이터(leaf) · 객체(objects). 같은 렌더러, 다른 scope.
-        self._params = Params_panel(self._meta)          # 추가/삭제는 store 메서드가 한다
-        self._params.tree.selected.connect(self._on_node)
+        self._params = Params_panel(self._meta, get_size=lambda: self._data.canvas_size())
+        self._params.tree.selected.connect(self._on_params_select)   # 선택 = 읽기전용 미리보기 (전역이라)
         self._params.tree.layers_changed.connect(self._redraw)
+        self._params.edit_requested.connect(self._on_params_edit)    # [수정] = 조준·편집
         self._params.changed.connect(self._on_params_changed)
 
         self._leaf_panel = Node_panel("leaves", self._meta, lambda: self._key)
@@ -129,6 +134,7 @@ class Meta_view(QWidget):
         _split.setSizes([240, 320, 700])
         _lay.addWidget(_split, stretch=1)
         self._install_shortcuts()
+        QApplication.instance().installEventFilter(self)   # Tab = stem 목록 ↔ 편집기 왕복 (아래 eventFilter)
 
     def _install_shortcuts(self) -> None:
         """**store 를 아는 단축키는 여기 산다** — 편집기가 아니라.
@@ -153,6 +159,28 @@ class Meta_view(QWidget):
         _bind("M", self._obj_panel.merge_selected)
         _bind("Ctrl+S", self._on_save)
         _bind("Ctrl+R", self._on_revert)
+
+    def eventFilter(self, obj, event) -> bool:
+        """Tab / Shift+Tab — 이 뷰 안에선 stem 목록 ↔ 이미지 편집기 사이만 포커스를 왕복한다.
+
+        앱 전역 필터지만 **이 뷰에 포커스가 있을 때만** 가로챈다(다른 창·트리로 안 샌다). 폼 필드
+        (스핀박스·입력·콤보)에선 Tab 이 필드 이동으로 남게 예외를 둔다(bbox 4칸 이동 보존).
+        """
+        if (event.type() == QEvent.Type.KeyPress
+                and event.key() in (Qt.Key.Key_Tab, Qt.Key.Key_Backtab)):
+            _fw = QApplication.focusWidget()
+            if (_fw is not None and (_fw is self or self.isAncestorOf(_fw))
+                    and not isinstance(_fw, (QLineEdit, QAbstractSpinBox, QComboBox))):
+                self._toggle_focus()
+                return True
+        return super().eventFilter(obj, event)
+
+    def _toggle_focus(self) -> None:
+        """포커스를 stem 목록 ↔ 이미지 편집기 사이에서 왕복한다 (라벨링 동선 — 트리로 안 샌다)."""
+        if self._stem_list.list_has_focus():
+            self._data.focus_editor()
+        else:
+            self._stem_list.focus_list()
 
     # ── Public API ────────────────────────────────────────────────────────────
     def set_pipeline(self, pipeline) -> None:
@@ -232,6 +260,18 @@ class Meta_view(QWidget):
         """노드 선택 → 그 값의 편집 패널. ``class_id`` 에만 id_map 후보를 넘긴다."""
         _cands = self._classes() if (node is not None and node.name == "class_id") else None
         self._data.show_node(node, candidates=_cands)
+
+    def _on_params_select(self, node: Node | None) -> None:
+        """params 선택 → **읽기전용 미리보기**(조준·편집 안 함). 편집은 [수정]에서만 — 전역 값이라."""
+        self._data.show_node(node, aim=False, editable=False)
+
+    def _on_params_edit(self, node: Node) -> None:
+        """params [수정] → 그 값을 편집한다. raster(roi)는 캔버스에 띄우고 편집기를 조준한다(원본 위에)."""
+        if node is None:
+            return
+        self._params.tree.check_node(node)              # 편집하려면 보여야 한다 (전역 raster 는 기본 off)
+        _cands = self._classes() if node.name == "class_id" else None
+        self._data.show_node(node, candidates=_cands, aim=True, editable=True)
 
     def _redraw(self) -> None:
         """체크가 바뀌면 캔버스를 다시 합성한다 — **params 의 raster 도 함께 겹친다**.

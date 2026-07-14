@@ -271,6 +271,8 @@ class Editor_base(QWidget):
     def _press(self, x: int, y: int) -> None:
         if self.armed():
             self._on_press(x, y)
+        else:
+            self._on_unarmed_press(x, y)          # 조준 전이라도 선택(pick)은 열 수 있다
 
     def _move(self, x: int, y: int) -> None:
         if self.armed():
@@ -329,6 +331,14 @@ class Editor_base(QWidget):
 
     def _on_press(self, x: int, y: int) -> None:
         """좌클릭 (조준·잠금 검사는 Base 가 이미 했다)."""
+
+    def _on_unarmed_press(self, x: int, y: int) -> None:
+        """조준이 **없을 때**의 좌클릭 — 기본 no-op. 편집기가 **비편집 상호작용(pick)** 을 열 수 있다.
+
+        편집(paint/bbox)은 조준을 요구하지만, 클릭으로 대상을 **고르는** 건 조준 이전 단계다(고른 결과가
+        곧 조준이 된다). 그 닭-달걀을 여기서 끊는다 — 안 그러면 트리에서 한 번 골라 조준을 만들기 전엔
+        캔버스 클릭이 죽어 있다. 이 경로를 여는 편집기는 ``_interactive()`` 도 조준 없이 켜야 한다.
+        """
 
     def _on_move(self, x: int, y: int) -> None:
         """포인터 이동."""
