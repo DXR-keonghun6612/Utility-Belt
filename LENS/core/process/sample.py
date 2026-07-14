@@ -26,7 +26,6 @@ from ..schema import Data_Ref
 from ..store import SPLITS, Sample_Set
 from ._base import Stage, Unit, inline_ctx
 
-DEFAULT_RATIOS: dict[str, float] = {"train": 0.8, "val": 0.1, "test": 0.1}
 UNLABELED = UNCLASSIFIED   # class_id 가 없는 unit 의 fallback class (정본 미분류 값과 통일)
 
 
@@ -59,7 +58,8 @@ class Sample_stage(Stage):
 
     unit:     str               = "object"   # object = 객체 하나가 sample / frame = 프레임 하나가 sample
     category: str               = STAGED     # 검수 끝난 정본만 파생한다
-    ratios:   dict[str, float]  = field(default_factory=lambda: dict(DEFAULT_RATIOS))
+    ratios:   dict[str, float]  = field(
+        default_factory=lambda: {"train": 0.8, "val": 0.1, "test": 0.1})
     salt:     str               = ""
     target:   Sample_Set | None = None
 
