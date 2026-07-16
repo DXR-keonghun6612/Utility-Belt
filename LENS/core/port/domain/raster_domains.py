@@ -8,7 +8,7 @@
   사진인지 라벨맵인지 알 수 없어, 추론은 곧 조용히 하나를 고르는 일이다(``type: segmap`` 명시를 요구).
 
 라벨맵↔per-obj mask 합성(``라벨 = id+1``)은 port 가 아니라
-[`process.func.mask`](../../process/func/mask/instance.py) 소유 — 그건 배열↔배열 계산이라 ``Data_Ref`` 가 없다.
+[`func.mask`](../../func/mask/instance.py) 소유 — 그건 배열↔배열 계산이라 ``Data_Ref`` 가 없다.
 """
 
 from __future__ import annotations
@@ -55,10 +55,10 @@ class Segmap_Domain(Domain):
     INFERABLE: ClassVar[bool]            = False   # png 는 image 와 구분 불가 → type 명시
 
     @classmethod
-    def Canonicalize(cls, value: Any) -> Any:
+    def Normalize(cls, value: Any) -> Any:
         """단일채널 uint8 라벨맵으로 — 다채널로 저장됐으면 첫 채널만(라벨은 단일채널이다).
 
-        **배열 payload 에만 적용된다** (codec 네이티브 표현은 그대로 통과 — mask 도메인과 같은 규약).
+        **배열 payload 에만 적용된다** (구조는 그대로 통과 — mask 도메인과 같은 규약).
         """
         if not isinstance(value, np.ndarray):
             return value

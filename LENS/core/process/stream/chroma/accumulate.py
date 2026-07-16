@@ -5,9 +5,9 @@ from typing import Annotated
 
 import numpy as np
 
-from ...func.chroma._core import Accumulate_histogram
-from ...func.chroma._space import Get_space, DEFAULT_SPACE
-from ...func.cv.geom import Roi_to_mask
+from ....func.chroma._core import Accumulate_histogram
+from ....func.chroma._space import Get_space, DEFAULT_SPACE
+from ....func.cv.geom import Roi_to_mask
 from .. import PROCESS_REGISTRY, Base_Process, UI, GRAY_IMAGE, BBOX
 
 

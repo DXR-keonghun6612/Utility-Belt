@@ -10,9 +10,14 @@
 
 | 고른 것 | 겨누는 것 | 칠할 값 |
 |---|---|---|
-| 객체(BRANCH), 또는 객체 안의 값 | 프레임의 라벨맵(`segment`) | 그 객체의 라벨 (obj_id+1) |
+| 객체(BRANCH), 또는 객체 안의 값 | **그 객체의 `mask`**(rle 인라인) | 1 |
 | 이진 mask leaf (`roi` 등) | 그 라스터 자체 | 1 |
 | 그 밖 | 없음 (왜인지 툴바가 말한다) | — |
+
+**객체마다 자기 mask 를 든다** — 한때 프레임 라벨맵 한 장(`segment`)에 obj_id+1 로 겹쳐 담았지만
+(겹침·255 한계), 이제 각 객체가 `("mask", "rle")` 로 자기 픽셀을 든다. 편집기는 그 이진 배열을 칠하고
+(rle↔배열 왕복은 이 계층이 든다), 표시는 객체 mask 들을 [`Compose`](../../../core/func/mask/instance.py)
+로 라벨맵을 **재구성**해 보여준다(화면은 그대로, truth 만 객체별). 라벨맵은 표시·계산의 파생이다.
 
 **캔버스에서 고른 것도 여기가 답한다** — 편집기는 "여기 뭐가 있냐"(`picked`)고 묻기만 하고, bbox 를 든
 객체를 찾아 트리에 알리는 건 트리를 아는 이 계층의 일이다.
@@ -23,10 +28,11 @@ import numpy as np
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QLabel, QSplitter, QVBoxLayout, QWidget
 
-from core.process.func.mask.instance import Obj_label
+from core.format import rle
+from core.func.mask.instance import Compose
 from core.schema import Data_Ref
+from gui.editor.format import bbox
 from gui.editor.image import Image_editor, Target
-from gui.editor.image._geom import area, inside
 from gui.viewer import Viewer_for
 from gui.viewer._compose import compose
 
@@ -54,7 +60,8 @@ class Data_view(QWidget):
         self._layers: list[Node] = []       # 지금 그린 layer (편집 미리보기에 재사용)
         self._objects: list[Node] = []      # 선택 stem 의 객체들 (bbox 를 그린다)
         self._edit_node: Node | None = None  # 편집기가 겨눈 **라스터를 든 노드** (저장 대상)
-        self._aim_obj: Node | None = None    # 겨눈 객체 (bbox 를 쓸 곳)
+        self._aim_obj: Node | None = None    # 겨눈 객체 (bbox·mask 를 쓸 곳)
+        self._edit_arr: np.ndarray | None = None  # 조준 객체 mask 의 편집 배열 (rle 를 푼 사본)
 
         _lay = QVBoxLayout(self)
         _lay.setContentsMargins(0, 0, 0, 0)
@@ -125,6 +132,9 @@ class Data_view(QWidget):
             _raster = _v.layer(_n.value, _n.ref)
             if _raster is not None:
                 _layers.append((_raster, _n.ref.format[0]))
+        _seg = self._objects_layer()                     # 객체 mask 들 → 표시용 라벨맵 (파생)
+        if _seg is not None:
+            _layers.append((_seg, "segmap"))
         if not _layers:
             self._canvas.clear_image("표시할 데이터가 없습니다 (트리에서 체크하세요)")
             return
@@ -178,6 +188,7 @@ class Data_view(QWidget):
     def _aim(self, node: Node | None) -> None:
         self._edit_node = None
         self._aim_obj = None
+        self._edit_arr = None
         _target, _hint = self._resolve(node)
         self._editor.aim(_target, hint=_hint)
         self._center_on_aim()
@@ -187,9 +198,10 @@ class Data_view(QWidget):
 
         (fit 모드로 다 보이는 중이면 스크롤바가 없어 사실상 no-op.)
         """
-        _box = _box_of(self._aim_obj) if self._aim_obj is not None else []
-        if len(_box) == 4:
-            self._canvas.center_on((_box[0] + _box[2]) / 2, (_box[1] + _box[3]) / 2)
+        _aimed = _box_of(self._aim_obj) if self._aim_obj is not None else None
+        if bbox.is_set(_aimed):
+            _center = _aimed.mean(axis=0)
+            self._canvas.center_on(_center[0], _center[1])
 
     def _resolve(self, node: Node | None) -> tuple[Target | None, str]:
         """무엇을 겨눌지 — 겨눌 게 없으면 **왜 없는지**를 함께 돌려준다(조용히 안 죽는다)."""
@@ -198,23 +210,21 @@ class Data_view(QWidget):
 
         _viewer = Viewer_for(node.ref)
         if node.is_leaf and _viewer is not None and _viewer.EDITABLE and _is_mask(node.value):
-            self._edit_node = node                       # 이진 mask leaf — 자기 자신을 칠한다
+            self._edit_node = node                       # 이진 mask leaf (roi 등) — 자기 자신을 칠한다
             return Target(raster=node.value, paint=1, base=self._base_image(),
                           name=node.name, key=_key_of(node)), ""
 
         _obj = self._object_of(node)                     # 객체이거나, 그 안의 값을 고른 것이거나
         if _obj is None:
             return None, "객체를 고르면 그 mask 를 칠할 수 있습니다"
-        _label = Obj_label(_obj.name)                    # 라벨 = obj_id + 1 (규약은 func.mask 가 소유)
-        _seg = self.segment_node()
-        if _seg is None:
-            return None, "segment 가 없습니다 — '+ 데이터'로 만들고 트리에서 체크하세요"
+        _size = self.canvas_size()
+        if _size is None:
+            return None, "이미지를 먼저 표시하세요 — 트리에서 프레임을 체크하세요"
 
-        _ref = _obj.ref.Get("bbox")
-        _box = [float(_v) for _v in (_ref.info.get("value") or [])] if _ref is not None else []
-        self._edit_node, self._aim_obj = _seg, _obj
-        return Target(raster=_seg.value, paint=_label, base=self._base_image(),
-                      bbox=_box, name=f"객체 {_obj.name}", key=_key_of(_seg)), ""
+        self._edit_node, self._aim_obj = _obj, _obj
+        self._edit_arr = _obj_mask(_obj, _size)          # 객체 mask 를 배열로 (없으면 빈 것)
+        return Target(raster=self._edit_arr, paint=1, base=self._base_image(),
+                      bbox=_box_of(_obj), name=f"객체 {_obj.name}", key=_key_of(_obj)), ""
 
     def _object_of(self, node: Node) -> Node | None:
         """이 노드가 속한 객체 — 객체 자신이거나, 그 안의 값이거나 (아니면 None).
@@ -229,16 +239,30 @@ class Data_view(QWidget):
                 return _o
         return None
 
-    def segment_node(self) -> Node | None:
-        """지금 그려진 layer 중 라벨맵 노드 (객체 mask 가 사는 곳).
+    def _objects_layer(self) -> np.ndarray | None:
+        """선택 stem 의 객체 mask 들을 표시용 라벨맵 한 장으로 **재구성**한다 (없으면 None).
 
-        객체 삭제·병합도 이 배열을 고쳐야 한다 — 라벨은 여기 살고, **저장 안 한 붓질이 이 안에 있다**
-        (store 가 디스크에서 다시 읽으면 그 붓질을 덮어쓴다). 그래서 공개한다.
+        truth 는 객체별 mask(rle)지만 화면은 지금처럼 라벨맵으로 보인다 — 색은 `Compose` 가 픽셀에
+        obj_id+1 을 찍고 [`compose`](../../viewer/_compose.py) 가 라벨별로 칠한다(bbox 색과 맞는다).
+
+        **조준 중인 객체는 편집 배열(`_edit_arr`)을 쓴다** — 저장 안 한 붓질이 그 안에 있으므로, rle 로
+        굳기 전의 픽셀을 그대로 얹어야 칠하는 게 즉시 보인다.
         """
-        for _n in self._layers:
-            if _n.ref.format and _n.ref.format[0] == "segmap" and _is_mask(_n.value):
-                return _n
-        return None
+        if not self._objects:
+            return None
+        _size = self.canvas_size()
+        if _size is None:
+            return None
+        _masks: dict[str, np.ndarray] = {}
+        for _o in self._objects:
+            if _o is self._aim_obj and self._edit_arr is not None:
+                _masks[_o.name] = self._edit_arr        # 편집 중 — 굳기 전 붓질
+            else:
+                _ref = _o.ref.Get("mask")
+                _val = _ref.info.get("value") if _ref is not None else None
+                if _val:
+                    _masks[_o.name] = rle.To_mask(_val)
+        return Compose(_size, _masks) if _masks else None
 
     def _base_image(self) -> np.ndarray | None:
         """체크된 layer 중 첫 BGR 배경 (없으면 None) — 색 기반 채우기의 기준."""
@@ -253,21 +277,37 @@ class Data_view(QWidget):
 
     # ── 편집 결과 ─────────────────────────────────────────────────────────────
     def _on_raster(self, target) -> None:
-        """편집 확정 — 라스터는 제자리에서 이미 바뀌었고, **파일 write 는 store 가 한다**(상위가 받는다)."""
-        if self._edit_node is None:
-            return
-        self._edit_node.value = target.raster
-        self._redraw()
-        self.raster_edited.emit(self._edit_node, target.raster)
+        """편집 확정 — 겨눈 것이 **객체 mask** 면 rle 인라인으로, **leaf 라스터**(roi)면 파일로 저장한다.
+
+        객체 mask 는 편집 배열(``_edit_arr``)을 rle 로 굳혀 서술자에 담는다(bbox 와 같은 인라인 경로 →
+        사이드카). roi 같은 파일 mask 는 제자리 배열이라 store 가 파일로 write 한다(``raster_edited``).
+        """
+        if self._aim_obj is not None:                    # 객체 mask → rle 인라인 (사이드카)
+            _value = rle.From_mask(target.raster)
+            _ref = self._aim_obj.ref.Get("mask")
+            if _ref is None:
+                self._aim_obj.ref.Push("mask", Data_Ref(format=("mask", "rle"),
+                                                        info={"value": _value}))
+            else:
+                _ref.info["value"] = _value
+            self._redraw()
+            self.edited.emit(self._aim_obj)
+        elif self._edit_node is not None:                # leaf 라스터(roi) → 파일
+            self._edit_node.value = target.raster
+            self._redraw()
+            self.raster_edited.emit(self._edit_node, target.raster)
 
     def _on_bbox(self, box) -> None:
-        """상자가 바뀌었다(그리기·핸들·undo) — 겨눈 객체의 ``bbox`` attr 을 만들거나 갱신한다(인라인)."""
+        """상자가 바뀌었다(그리기·핸들·undo) — 겨눈 객체의 ``bbox`` attr 을 만들거나 갱신한다(인라인).
+
+        편집기는 정준형 상자를 내고, 서술자에 담기는 건 평탄 리스트다 — 그 변환이 이 계층의 일이다.
+        """
         if self._aim_obj is None:
             return
-        _value = [float(_v) for _v in box]
+        _value = bbox.to_flat(box)
         _ref = self._aim_obj.ref.Get("bbox")
         if _ref is None:
-            self._aim_obj.ref.Push("bbox", Data_Ref(format=("bbox", "list"),
+            self._aim_obj.ref.Push("bbox", Data_Ref(format=("region", "bbox", "xyxy"),
                                                     info={"value": _value}))
         else:
             _ref.info["value"] = _value
@@ -280,25 +320,28 @@ class Data_view(QWidget):
         **겹치면 작은 상자가 이긴다** — 큰 상자 안에 든 작은 객체를 영영 못 고르는 일이 없게.
         편집기는 여기까지 못 온다(트리를 모른다) — 그래서 좌표만 주고 답을 기다린다.
         """
-        _hits = [(_o, area(_box_of(_o))) for _o in self._objects
-                 if inside(_box_of(_o), x, y)]
+        _hits = [(_o, bbox.measure(_box_of(_o))) for _o in self._objects
+                 if bbox.inside(_box_of(_o), (x, y))]
         if _hits:
             self.object_picked.emit(min(_hits, key=lambda _h: _h[1])[0], additive)
 
     def _boxes(self) -> list[tuple[list, int, str]]:
-        """객체들의 bbox (+ 그리는 중인 미리보기) — 색은 라벨과 맞추고, 이름은 편집기가 켰을 때만."""
+        """객체들의 bbox (+ 그리는 중인 미리보기) — 색은 라벨과 맞추고, 이름은 편집기가 켰을 때만.
+
+        합성은 평탄 ``[x0, y0, x1, y1]`` 을 먹으므로 여기서 정준형을 되돌린다 (`_box_of` 의 짝).
+        """
         _out: list[tuple[list, int, str]] = []
         _aimed = self._aim_obj.name if self._aim_obj is not None else None
         for _o in self._objects:
             if _o.name == _aimed:                    # 겨눈 객체는 아래에서 미리보기로 그린다
                 continue
-            _box = _box_of(_o)
-            if _box:
-                _out.append((_box, _index_of(_o.name), self._caption(_o)))
+            _flat = bbox.to_flat(_box_of(_o))
+            if _flat:
+                _out.append((_flat, _index_of(_o.name), self._caption(_o)))
         if _aimed is not None:
-            _pv = self._editor.preview_box()
-            if _pv:
-                _out.append((_pv, _index_of(_aimed), self._caption(self._aim_obj)))
+            _preview = bbox.to_flat(self._editor.preview_box())
+            if _preview:
+                _out.append((_preview, _index_of(_aimed), self._caption(self._aim_obj)))
         return _out
 
     def _caption(self, obj: Node) -> str:
@@ -337,10 +380,25 @@ def _is_mask(value) -> bool:
     return isinstance(value, np.ndarray) and value.ndim == 2
 
 
-def _box_of(node: Node) -> list:
-    """객체의 bbox 값 (없으면 ``[]``) — 상자는 raster 가 아니라 인라인 attr 이다."""
+def _box_of(node: Node) -> np.ndarray:
+    """객체의 bbox — [`format/bbox`](../../editor/format/bbox.py) 정준형 (없으면 빈 상자).
+
+    상자는 raster 가 아니라 인라인 attr 이라 서술자에 평탄 리스트로 산다. **평탄 ↔ 정준형 변환은 이
+    경계에서만** 한다 — 편집기 안으로 리스트를 들이면 "길이가 4"가 곳곳에 박힌다.
+    """
     _ref = node.ref.Get("bbox")
-    return list(_ref.info.get("value") or []) if _ref is not None else []
+    return bbox.from_flat(_ref.info.get("value") or [] if _ref is not None else [])
+
+
+def _obj_mask(obj: Node, size: tuple[int, int]) -> np.ndarray:
+    """객체의 mask 를 편집용 배열로 — rle 서술자를 풀어 **사본**을, 없으면 빈 mask(그리기 시작).
+
+    편집기는 이 배열을 제자리에서 칠하고, 확정되면 이 계층이 다시 rle 로 굳힌다(`_on_raster`). mask 가
+    rle 인라인이라 서술자(``obj.ref.Get("mask").info["value"]``)에 값이 직접 있어 store 를 안 부른다.
+    """
+    _ref = obj.ref.Get("mask")
+    _val = _ref.info.get("value") if _ref is not None else None
+    return rle.To_mask(_val).copy() if _val else np.zeros(size, np.uint8)
 
 
 def _key_of(node: Node) -> tuple:

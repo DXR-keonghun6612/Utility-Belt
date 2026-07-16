@@ -5,8 +5,8 @@ from typing import Annotated
 
 import numpy as np
 
-from ...func.cv.filter import Band_threshold, Threshold_signed
-from ...func.cv.geom import Mask_within_roi
+from ....func.cv.filter import Band_threshold, Threshold_signed
+from ....func.cv.geom import Mask_within_roi
 from .. import PROCESS_REGISTRY, Base_Process, UI, BBOX, IMAGE, GRAY_IMAGE
 
 

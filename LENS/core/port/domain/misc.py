@@ -54,5 +54,5 @@ class Attr_Domain(Domain):
     @classmethod
     def Claims(cls, value: Any, *, storage: bool, params: bool) -> int:
         """인라인 요청의 최저 fallback — 파일이 아닌 파이썬 값(스칼라·list) 담당."""
-        from ..codec.value import Python_type
+        from ...codec.inline import Python_type
         return 1 if not storage and Python_type(value) is not None else 0

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Annotated
 
 from .. import PROCESS_REGISTRY, Base_Process, UI, GRAY_IMAGE
-from ...func.cv.filter import Close_gaps
+from ....func.cv.filter import Close_gaps
 
 
 @PROCESS_REGISTRY.Register_module()

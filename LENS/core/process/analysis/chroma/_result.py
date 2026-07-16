@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from core.process.func.chroma._space import ChromaSpace
+from core.func.chroma._space import ChromaSpace
 
 
 @dataclass

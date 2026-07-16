@@ -12,8 +12,8 @@ from typing import Annotated
 import numpy as np
 
 from .. import PROCESS_REGISTRY, Base_Process, UI, GRAY_IMAGE
-from ...func.cv.filter import log_edges
-from ...func.mask.fill import Carve_holes_by_label
+from ....func.cv.filter import log_edges
+from ....func.mask.fill import Carve_holes_by_label
 
 
 @PROCESS_REGISTRY.Register_module()

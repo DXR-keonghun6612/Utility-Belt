@@ -37,18 +37,23 @@ def fill_complement(canvas: np.ndarray, region: np.ndarray) -> None:
                     + _ALPHA * (255 - canvas[_sel].astype(np.float32))).astype(np.uint8)
 
 
-def preview_polygon(canvas: np.ndarray, points: list[tuple[int, int]]) -> None:
-    """그리는 중인 다각형 — 3점 이상이면 보색 채움 + 폴리라인 + 꼭짓점 점."""
-    if not points:
+def preview_polygon(canvas: np.ndarray, points) -> None:
+    """그리는 중인 다각형 — 3점 이상이면 보색 채움 + 폴리라인 + 꼭짓점 점.
+
+    Args:
+        canvas: 합성된 BGR 캔버스 (in-place).
+        points: 꼭짓점 ``(N, 2)`` — 픽셀 격자에 반올림해 그린다.
+    """
+    _pts = np.asarray(points, float).round().astype(np.int32)
+    if len(_pts) == 0:
         return
-    _pts = np.array(points, np.int32)
-    if len(points) >= 3:
+    if len(_pts) >= 3:
         _region = np.zeros(canvas.shape[:2], np.uint8)
         cv2.fillPoly(_region, [_pts], 1)
         fill_complement(canvas, _region)
-    cv2.polylines(canvas, [_pts], len(points) >= 3, _YELLOW, 1)
-    for _p in points:
-        cv2.circle(canvas, _p, 3, _YELLOW, -1)
+    cv2.polylines(canvas, [_pts], len(_pts) >= 3, _YELLOW, 1)
+    for _p in _pts:
+        cv2.circle(canvas, tuple(_p), 3, _YELLOW, -1)
 
 
 def preview_circle(canvas: np.ndarray, center: tuple[int, int], radius: int) -> None:
@@ -66,15 +71,19 @@ def cursor(canvas: np.ndarray, center: tuple[int, int], radius: int) -> None:
     cv2.circle(canvas, center, max(1, radius), _YELLOW, 1)
 
 
-def handles(canvas: np.ndarray, corners: list[tuple[int, int]],
-            midpoints: list[tuple[int, int, str]]) -> None:
-    """bbox 편집 핸들 — 코너는 **사각형**(양축 리사이즈), 변 중점은 **원**(한 축 이동).
+def handles(canvas: np.ndarray, corners, faces) -> None:
+    """bbox 편집 핸들 — 코너는 **사각형**(전 축 리사이즈), 면 중심은 **원**(한 축 이동).
 
-    모양으로 가른다 — 색만 다르면 무엇이 한 축이고 무엇이 양축인지 알 수 없다.
+    모양으로 가른다 — 색만 다르면 무엇이 한 축이고 무엇이 전 축인지 알 수 없다.
+
+    Args:
+        canvas: 합성된 BGR 캔버스 (in-place).
+        corners: 코너 위치 ``(N, 2)``.
+        faces: 면 중심 위치 ``(M, 2)`` — 어느 축·쪽인지는 히트 판정의 몫이라 위치만 받는다.
     """
-    for _x, _y in corners:
+    for _x, _y in np.asarray(corners, float).round().astype(int):
         cv2.rectangle(canvas, (_x - 4, _y - 4), (_x + 4, _y + 4), _BLACK, -1)
         cv2.rectangle(canvas, (_x - 3, _y - 3), (_x + 3, _y + 3), _YELLOW, -1)
-    for _x, _y, _ in midpoints:
+    for _x, _y in np.asarray(faces, float).round().astype(int):
         cv2.circle(canvas, (_x, _y), 4, _BLACK, -1)
         cv2.circle(canvas, (_x, _y), 3, _YELLOW, -1)

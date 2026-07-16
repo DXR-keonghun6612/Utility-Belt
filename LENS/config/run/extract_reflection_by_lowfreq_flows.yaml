@@ -1,0 +1,66 @@
+# 무채색 씬에서 물체 표면 반사 띠만 골라내는 단일 per-frame flow (저주파 광원 가변-ROI 방식).
+#
+# 직접 광원(맞은편의 촬영된 조명)과 물체에 반사된 광은 둘 다 밝고 포화(255)해 밝기·연결성만으로는
+# 못 가른다. 다른 것은 **공간 주파수**다 — 직접 광원은 크고 균일한 저주파 영역, 반사는 곡면 위 국소
+# 하이라이트. 물체가 광원 앞을 지나며 광원이 프레임마다 달리 가려지므로 고정 ROI 로는 못 뺀다.
+#
+# 프레임마다:
+#   1. reflection_gate — 강한 저주파 통과 후에도 밝은 영역(= 큰 균일광 = 직접 광원)을 그 프레임의
+#        가변-ROI 로 잡아, 밝은 밴드에서 빼서 반사만 남긴다. 저주파는 다운샘플 불변이라 유닛이 내부에서
+#        축소본으로 계산 → 원본 4000px 에서도 별도 downscale 없이 바로 돈다(공간 파라미터는 min(H,W)
+#        상대값이라 해상도 무관). 밝기·정규화 임계는 강도값이라 절대값.
+#   2. morph_mask — OPEN 으로 잡티 제거(반사 코어 근처 스펙클).
+#   3. split_objects — 반사 blob 을 연결성분으로 분리해 인스턴스 segment + object(bbox) 로. bbox 는
+#        여기서 원본 좌표 기준으로 나온다(축소 안 하므로 되돌릴 필요 없음). 이 object 가 다음 단계
+#        (SAM3 segment, point+mask_input 프롬프트)의 seed 가 된다.
+#
+# 근거는 core/process/func/cv/filter.py(Lowpass_bright_mask) · stream/mask/reflect.py(Reflection_gate).
+
+flows:
+-   object_type: flow
+    name: extract_reflection_by_lowfreq
+    unit: frame
+    processes:
+
+    # 1. 저주파 광원 가변-ROI 를 빼서 반사 밴드만 (원본 해상도, 내부 축소)
+    -   object_type: reflection_gate
+        sigma_frac: 0.06      # 저주파 sigma = min(H,W) × 이 비율 (클수록 국소광 더 씻김)
+        source_thr: 130       # 정규화 저주파 하한 — 이 이상이 직접 광원 ROI
+        close_frac: 0.02      # 광원 ROI CLOSE (min(H,W) 비율)
+        bright_low: 90        # 반사 하단 밝기 (이보다 어두우면 버림)
+        bright_high: 255      # 반사 상단 밝기 (255=반사 코어 유지, 광원은 ROI 로 이미 빠짐)
+        outputs:
+            mask:
+                to: storage
+                level: frame
+                type: segmap
+                format: png
+                dir: reflection_raw
+
+    # 2. 스펙클 제거 (OPEN 위주)
+    -   object_type: morph_mask
+        close_size: 5
+        open_size: 7
+        reverse: false
+        outputs:
+            mask:
+                to: storage
+                level: frame
+                type: segmap
+                format: png
+                dir: reflection_clean
+
+    # 3. 연결성분 분리 → 인스턴스 segment + object(bbox). bbox 는 원본 좌표.
+    -   object_type: split_objects
+        min_area: 5000        # 원본 해상도 기준 (작은 스펙클 blob 버림)
+        mask_reverse: false
+        merge_gap: 0
+        bbox_gap: 0.15
+        outputs:
+            object: {}
+            segment:
+                to: storage
+                level: frame
+                type: segmap
+                format: png
+                dir: reflection_mask

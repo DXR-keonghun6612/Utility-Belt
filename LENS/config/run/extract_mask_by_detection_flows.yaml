@@ -1,0 +1,15 @@
+flows:
+-   object_type: flow
+    name: Extract_mask_by_detection
+    unit: frame
+    processes:
+    -   object_type: detect_instances
+        threshold: 0.5
+        min_area: 200
+        merge_gap: 0
+        bbox_gap: 0.0
+        model:
+            type: onnx_seg
+            onnx_file: detection.onnx
+        outputs:
+            object: {}

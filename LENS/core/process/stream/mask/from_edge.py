@@ -11,8 +11,8 @@ from dataclasses import dataclass
 from typing import Annotated
 
 from .. import PROCESS_REGISTRY, Base_Process, UI, GRAY_IMAGE
-from ...func.cv.filter import Fill_contours
-from ...func.mask.enclosure import Carve_enclosed
+from ....func.cv.filter import Fill_contours
+from ....func.mask.enclosure import Carve_enclosed
 
 
 @PROCESS_REGISTRY.Register_module()

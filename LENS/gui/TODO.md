@@ -151,6 +151,48 @@ app 이 표현을 **아래로 부르는** 지점이 곧 표현 티어의 공개 
 
 ---
 
+## ✅ 합의됨 — 폴리곤 편집기 (obj별 polygon leaf = 영역 truth)
+
+최종 산출물이 폴리곤(COCO instance-seg)이라 폴리곤을 **1급 편집 대상**으로 둔다.
+
+> **전제가 바뀐다** — 한때 여기 *"polygon 과 raster-mask 는 mask 도메인 **정준형**의 다른 포맷이고, codec 이
+> 변환하고 `Mask_viewer` 가 포맷 무관하게 그린다"* 고 적었다. **그 정준형이 정확히 이 항목을 막고 있었다** —
+> `Polygon_Codec.Load` 가 contours 를 채워 배열로 내서 편집기가 꼭짓점을 본 적이 없다. 대표 포맷 제거는
+> [`../core/TODO.md`](../core/TODO.md) "★ 축 정리" 가 소유하고, 그 ②③ 이 이 항목의 선행이다.
+
+- [x] **① 편집기 구조 분해** — 도구를 **손짓이 아니라 산출물로** 갈랐다(영역 / 픽셀). `image/tool/`
+      = `_region`(드래그→상자 · 꼭짓점→폴리곤 · 핸들) + `_pixel`(브러시·원·색채우기·올가미 × 칠/지움).
+      좌표 구조는 `editor/format/`(numpy, 차원 무지) — 같은 `polygon.Draft` 를 저장하는 쪽과 픽셀로 찍는
+      쪽이 함께 쓴다. 한때 `_editor.py` 495줄에 같은 `tool("mode")` 스위치가 여섯 곳이라 도구를 못 늘렸다.
+- [ ] **obj별 polygon 포맷 mask leaf 를 영역 truth 로.** 지금은 프레임 공유 `segment` 라벨맵과 **나란히**
+      두고(호환), sync 는 **polygon→segment 한 방향**. (정본을 polygon집합으로 승격하는 건 아래 deferred.)
+- [ ] **`region` 도구에 폴리곤 편집을 얹는다.** 지금은 폴리곤을 그려 **bbox 만** 내고 폴리곤을 버린다
+      (`_finish_polygon`). 꼭짓점 **드래그**·Ctrl+클릭 **추가**·Ctrl+우클릭 **삭제** 를 더하고, `Target` 이
+      raster 대신 contours 를 들게 한다. 손짓·정준형은 `editor/format/polygon.Draft` 에 이미 있고, 확정 전
+      상태를 `view` 모드에서 잡는 자리(`Draw_tool.grab`)도 이미 계약에 있다 — 붙일 자리가 서 있다.
+- [ ] **`gui/editor/format` 를 `core/format` 으로 대체.** core 에 구조 층이 생기면 **짝이 아니라 중복**이다.
+      다만 전부는 아니다 — 구조·순수연산(`from_flat`/`to_flat`/`inside`/`measure`/`grow`)은 core 로 올라가고,
+      **편집 중 상태(`Draft`)와 핸들 히트 판정(`corners`·`faces`·`hit_*`)은 편집기에 남는다**(core 는 핸들이
+      없다). → [`../core/TODO.md`](../core/TODO.md) ②⑤ 이후.
+- [ ] **`Data_view._resolve` 가 obj polygon leaf 를 aim** (프레임 segment 대신/병행). history 에 폴리곤 포함.
+- [ ] **편집 시작 시 segment 자동 생성.** bbox/polygon 을 편집하려는데 stem 에 segment 관련 leaf·구조가
+      없으면 **자동 추가**한다 — 지금은 `_resolve` 가 `"segment 가 없습니다 …"` 힌트로 막고 수동 `'+ 데이터'`
+      를 요구한다. 프레임 크기의 blank segment(그리고 polygon-first 면 obj polygon leaf)를 `port.Blank`·
+      `store.Add_leaf` 로 만들어 바로 조준·편집되게 (한 번 그으려고 먼저 데이터를 만드는 왕복 제거).
+- [ ] **bbox = 클립 제한**(생성기 아님). `segment = polygon ∩ (bbox+margin)`, margin 으로 여유. 로직은
+      **`func/mask`** 에 두고 gui·flow 가 공유 소비(→ [`../core/process/TODO.md`](../core/process/TODO.md)).
+      SAM3 프롬프트 box 는 저장 bbox 가 아니라 **그린 폴리곤 extent 에서 유도**(별개).
+- [ ] **SAM3 정제 = 배치 flow**(라이브 추론 아님) — obj 폴리곤 → 유도 box → `Segment`(sam3) → `Encode_polygon`
+      → obj 폴리곤 leaf 덮어쓰기. Dataset_Meta 를 순차 입력으로 처리. → core `segment` point+mask_input 확장과 연결.
+
+### ❓ 논의 대상 (deferred — 나중에)
+- **segmap → polygon 집합 승격 + 마이그레이션.** 정본 모델을 프레임 raster 라벨맵 → obj 폴리곤 집합으로.
+  **겹침**(픽셀당 라벨 하나 한계)과 **uint8 255개 한계**(→ core/process/TODO)를 동시에 해소. 마이그레이션은
+  급하지 않아 미룸 — 기존 raster → `Encode_polygon(segment==obj_id)` 로 기계적이나 **손실 변환**(contour 근사)이라
+  정밀 obj 는 `rle` 포맷 선택지를 연다. **truth 이전 후 README 로 승격.**
+
+---
+
 ## B. UI 확장 — sample 갈래 격상 · steps 그래프화 (제품 방향, 설계 단계)
 
 **동기.** app 이 Pipeline 객체 그래프(정본 `meta` 1 + tasker N)를 미러링하면, sample 은 `meta_page/sample/`

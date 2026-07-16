@@ -104,9 +104,8 @@ class Meta_view(QWidget):
         self._leaf_tree.layers_changed.connect(self._redraw)
         self._leaf_panel.changed.connect(self._on_nodes_changed)
 
-        # 객체 삭제·병합은 라벨맵을 고친다 — **캔버스에 뜬 그 배열**을 넘긴다(디스크 사본이 아니라).
-        self._obj_panel = Node_panel("objects", self._meta, lambda: self._key,
-                                     lambda: self._data.segment_node())
+        # 객체 삭제·병합은 store 라이프사이클이다 — 컨테이너 pop·mask 합집합을 store 가 든다(라벨맵 조작 없음).
+        self._obj_panel = Node_panel("objects", self._meta, lambda: self._key)
         self._obj_tree = self._obj_panel.tree
         self._obj_tree.selected.connect(self._on_node)
         self._obj_tree.layers_changed.connect(self._redraw)

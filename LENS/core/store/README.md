@@ -1,10 +1,13 @@
 # store
 
 **무엇이 어느 범주로 있나 + 라이프사이클.** 데이터 **여럿**의 관리(메모리 컬렉션)와, 그 컬렉션에 일어나는
-일(들이기·전이·삭제·병합·영속·내보내기)을 소유한다.
+일(들이기·전이·삭제·병합·영속)을 소유한다.
 
 트리 기계는 [`../schema.py`](../schema.py) 가, payload 실체화는 [`../port`](../port) 가 든다 — 여기는
 **어떤 항목이 무슨 범주로 있고 어떻게 오가나**만 안다. 읽기/쓰기는 port 에 **요청**한다(`Resolve`/`Route`).
+
+**store 가 안 드는 두 가지** — 둘 다 계층이 아래를 못 봐서가 아니라 **위를 봐야 하는 일**이라서다:
+배열 합성(라벨맵 재도색)은 `func` 가(→ §1), 내보내기는 binder [`../export`](../export) 가 든다(→ §4).
 
 각 심볼의 인자·반환은 그 심볼의 docstring 에 있다. 이 문서는 **심볼 사이에 걸치는 것**만 다룬다.
 
@@ -72,9 +75,10 @@ tree
 ## 3. 영속 — 경로는 트리 위치에서 파생
 
 ```text
-{root}/.meta/{최상위}/{key}.json     # 구조 사이드카 — item.Serialize()  (예: .meta/staged/frame0.json)
-{root}/{범주}/{종류}/{stem}.{ext}    # payload — kind-major (경로 규칙은 port 소유)
-{root}/params/{종류}.{ext}           # params payload — 범주 무관이라 stem 축이 없다
+{root}/.meta/{최상위}/{key}.json      # 구조 사이드카 — item.Serialize()  (예: .meta/staged/frame0.json)
+{root}/{범주}/{종류}/{stem}.{ext}     # payload — kind-major (경로 규칙은 port 소유)
+{root}/params/{종류}.{ext}            # params payload — 범주 무관이라 stem 축이 없다
+{root}/.trace/{run}/{종류}/{stem}.{ext}   # 진단 sink — 트리 **밖** (→ §4)
 ```
 
 `{최상위}` = 범주 **또는 `params`** — 둘은 트리에서 나란한 최상위 key 라 영속 경로에서도 같은 자리를 쓴다.
@@ -86,6 +90,9 @@ tree
   인라인 LEAF(attr/rle)는 값이 사이드카 안이라 파일 이동이 no-op.
 - **복원은 `.meta` walk** — 경로 key 가 곧 트리 위치라 walk 결과를 그 자리에 꽂으면 트리가 선다.
   모양이 안 맞는 사이드카는 **조용히 버리지 않고 실패**한다 — 옛 저장본이면 마이그레이션([`TODO.md`](TODO.md)).
+- **트리에서 떨어진 payload 는 `Vacuum` 이 걷는다** — 서술자를 갈아끼우는 편집(객체 편집·`Replace_branches`)은
+  옛 파일을 트리에서 떼지만 디스크엔 남긴다. `Move`·`Delete` 는 `Iter_leaves` 로 **트리를 따라가므로** 그
+  고아를 못 본다 — 살아있는 경로 집합을 만들어 훑는 이 자리가 유일한 청소구다.
 
 payload 경로 규칙(kind-major)은 [`../port/README.md`](../port/README.md) 가 소유한다.
 
@@ -100,20 +107,33 @@ payload 경로 규칙(kind-major)은 [`../port/README.md`](../port/README.md) �
 것은 라이프사이클이 **호출 측으로 새어나가는 것**이다(`port.Move(store, key)` 를 호출 측이 부르는 순간
 규칙이 깨진다).
 
-**외부와 오가는 네 방향이 한 축의 형제다:**
+**밖에서 트리로 들어오는 세 방향이 한 축의 형제다:**
 
 | | 어디서 → 어디로 |
 |---|---|
 | `Restore` | 자기 레이아웃(`.meta`) → 트리 |
 | `Import` | **외부 raw** → 트리 (port 가 발견, store 가 등록) |
 | `Merge` | 다른 store → 트리 (충돌은 skip/overwrite/merge) |
-| `Export` | 트리 → **학습 프레임워크 레이아웃** (파생만) |
 
 `Import` 는 이미 있는 stem 을 **건드리지 않는다** — 재수집이 검수 이력(staged/skipped)을 덮어써서는 안
 되므로 존재 검사가 payload write **앞**에 온다.
 
-**읽기/쓰기 창구** — `Resolve`(leaf → 값) · `Route`(값 → leaf) · `Param` · `Path_of`. 위 계층(process)이
-port 를 직접 부르지 않게 하는 자리이고, 그래서 **store 가 port 를 아는 유일한 계층**이다.
+**나가는 방향(내보내기)은 여기 없다** — 셋과 달리 트리를 **안 바꾸기** 때문이다(read + compute +
+external-write). 라이프사이클이 아니므로 binder 가 들고([`../export`](../export)), store 는 재료만 아래
+창구로 내준다.
+
+**읽기/쓰기 창구** — 값을 푸는 쪽 `Resolve`(컨테이너의 직속 leaf 전부) · `Load`(item 의 leaf 하나) ·
+`Param`, 값을 앉히는 쪽 `Route`(저장 + 서술자) · `Encode`(**인라인 서술자만 — 디스크 안 씀**) ·
+`Path_of`(leaf 를 받치는 파일 경로).
+
+이 창구가 **store 가 port 를 아는 유일한 계층**이라는 규칙을 지탱한다 — export 가 binder 로 나간 뒤에도
+그렇다: COCO 의 `segmentation` RLE 은 `Encode`, crop 복사는 `Path_of` 로 **store 를 통해** codec·경로를
+얻는다(port 직접 호출 없음). 그래서 위 계층은 파일 포맷도 경로 파생도 모른다.
+
+**`Trace` 는 창구의 형제이되 트리 밖이다** — 진단 payload 를 `.trace/{run}/…` 에 쓰고 **`Data_Ref` 를 안
+돌려준다.** 꽂을 ref 가 없으니 트리에 앉힐 수단이 구조적으로 없고, 그래서 사이드카에 안 실리고 전이·삭제·
+병합·내보내기가 아예 못 본다. **라이프사이클이 없다는 것이 이 sink 의 정의다**(지우려면 폴더째 —
+`Clear_trace`). 경로에 범주가 없는 것도 같은 이유다: 진단물은 검수 상태를 따라 옮겨다니지 않는다.
 
 ---
 
@@ -131,9 +151,12 @@ port 를 직접 부르지 않게 하는 자리이고, 그래서 **store 가 port
 의미를 갖는다 — ImageFolder(class-major)든 COCO(kind-major)든 학습 프레임워크 레이아웃은 **내보내기
 산출물**이지 store 구조가 아니다. task 마다 축이 배타적이라 store 가 하나를 고르면 다른 하나를 못 섬긴다.
 
-그래서 **task 축은 파생 안쪽에만 산다** — [`sample/export/`](sample/export) 에 task 하나 = 파일 하나.
+그래서 **task 축은 store 밖에 산다** — [`../export`](../export)(binder)가 `task × format` 으로 든다.
 class 도 구조가 아니라 sample 의 `class_id` **attr** 이다: 폴더로도 표현하면 같은 사실이 두 곳에 살고,
 재분류(라벨링 도구의 핵심 상호작용)가 attr 갱신이 아니라 파일 이동이 된다.
+
+**item 이 payload 를 갖나 정본 역참조만 갖나는 store 가 안 정한다** — `Place` 는 받은 ref 를 앉힐 뿐이고,
+그 판별(파생이 새 도메인을 만드나)은 빌드 정책이라 [`../process`](../process) 가 소유한다.
 
 ---
 
@@ -141,5 +164,6 @@ class 도 구조가 아니라 sample 의 `class_id` **attr** 이다: 폴더로�
 
 - [`../schema.py`](../schema.py) — 트리 노드 `Data_Ref` (BRANCH/LEAF 모델은 그 docstring 소유).
 - [`../port`](../port) — payload 실체화·외부 발견. 여기가 **유일한 소비자**다.
-- [`../process`](../process) — 이 데이터 위를 순회하며 값을 요청한다.
+- [`../process`](../process) — 이 데이터 위를 순회하며 값을 요청한다. 라벨맵 재도색(`func.mask`)도 여기.
+- [`../export`](../export) — 트리를 **읽어** 밖에 쓴다(binder). store 를 안 바꾸고, port 도 창구 경유로만 닿는다.
 - 상위 지도는 [`../README.md`](../README.md), 잔여·열린 논의는 [`TODO.md`](TODO.md).

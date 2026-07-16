@@ -26,7 +26,7 @@ from PySide6.QtWidgets import QApplication
 
 from core import Pipeline, Pipeline_config
 from core.constant import MODIFIED, STAGED
-from core.process.func.mask.instance import Erase, Merge_into
+from core.func.mask.instance import Erase, Merge_into
 
 _CONVERTER = {"globs": {"frame": {"pattern": "img_*", "ext": "png", "type": "image"}}}
 _FLOWS = [{
@@ -141,30 +141,29 @@ def test_mask_editor_singleton() -> None:
     _data = _v._data
     _canvas = _data._canvas
     _editor = _data._editor
-    _seg = _data.segment_node()
-    assert _seg is not None, "segment 가 체크돼 있어야 조준한다"
 
-    # 첫 객체를 조준 → 그 라벨로만 칠한다.
+    # 첫 객체를 조준 → 그 객체의 mask 를 겨눈다 (paint=1, 라벨맵 아님).
     _item0, _node0 = _objs[0]
+    _item1, _node1 = _objs[1]
     _v._obj_tree.setCurrentItem(_item0)
     _t = _editor.target()
-    assert _t is not None and _t.paint == int(_node0.name) + 1, "조준 라벨 = obj_id+1"
+    assert _t is not None and _t.paint == 1, "객체 mask 조준 = paint 1"
 
-    _label = _t.paint
-    _other = _label + 1 if _label == 1 else _label - 1
-    _before_other = int((_seg.value == _other).sum())
+    # 빈 mask 에 칠하면 그 객체에 mask(rle) 가 생긴다 — 다른 객체 mask 는 안 생긴다.
     _editor.set_tool("paint")
     _editor.set_tool("brush")
     _canvas.mouse_pressed.emit(20, 20)
     _canvas.mouse_moved.emit(60, 60)
     _canvas.mouse_released.emit(60, 60)
-    assert int((_seg.value == _label).sum()) > 0, "조준한 라벨로 칠해지지 않았다"
-    assert int((_seg.value == _other).sum()) == _before_other, "다른 객체의 라벨을 건드렸다"
+    _m0 = _node0.ref.Get("mask")
+    assert _m0 is not None and _m0.info.get("value"), "조준한 객체 mask 가 안 칠해졌다"
+    assert _node1.ref.Get("mask") is None, "다른 객체의 mask 를 건드렸다"
 
-    # undo 로 되돌아온다.
-    _painted = int((_seg.value == _label).sum())
+    # undo 로 되돌아온다 (빈 mask 로).
+    _painted = int((_editor.target().raster > 0).sum())
+    assert _painted > 0
     _editor.undo()
-    assert int((_seg.value == _label).sum()) < _painted, "undo 가 안 먹었다"
+    assert int((_editor.target().raster > 0).sum()) < _painted, "undo 가 안 먹었다"
 
     # bbox 드래그 → 그 객체의 attr 이 된다.
     _editor.set_tool("bbox")

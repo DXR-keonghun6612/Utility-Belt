@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Annotated
 
-from ...func.cv.geom import (
+from ....func.cv.geom import (
     Resize_by, Resize_to, DEFAULT_DOWN_INTERP, DEFAULT_LABEL_INTERP)
 from .. import PROCESS_REGISTRY, Base_Process, UI, IMAGE, GRAY_IMAGE
 

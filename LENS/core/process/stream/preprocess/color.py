@@ -5,7 +5,7 @@ from typing import Annotated
 
 import numpy as np
 
-from ...func.cv.color import (Clahe, Equalize_histogram, Flatten_brightness,
+from ....func.cv.color import (Clahe, Equalize_histogram, Flatten_brightness,
                               Stretch_contrast)
 from .. import PROCESS_REGISTRY, Base_Process, UI, IMAGE
 

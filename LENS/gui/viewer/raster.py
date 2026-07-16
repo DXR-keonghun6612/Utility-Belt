@@ -13,6 +13,7 @@ import cv2
 import numpy as np
 from PySide6.QtWidgets import QLabel, QWidget
 
+from core.format import polygon, rle
 from core.schema import Data_Ref
 
 from ._base import Node_viewer, Register
@@ -80,23 +81,39 @@ class Segmap_viewer(Node_viewer):
 
 @Register("mask")
 class Mask_viewer(Node_viewer):
-    """단일 객체 이진 mask — 포맷(rle·polygon·png…)과 무관하게 **디코드된 이진 배열**을 겹친다.
+    """단일 객체 이진 mask — 포맷(rle·polygon·png)을 **이진 배열로 디코드**해 겹친다.
 
-    port 가 어떤 포맷이든 도메인 정준형(이진 uint8)으로 풀어 주므로, 뷰어는 포맷을 몰라도 된다 —
-    새 포맷(SAM polygon 등)이 붙어도 여기는 안 고친다.
+    한때 port 가 대표 포맷(이진 배열)으로 풀어 줘 뷰어가 포맷을 몰라도 됐다. 대표 포맷을 걷은 뒤로는
+    ``Load`` 가 네이티브 구조(rle dict 등)를 그대로 주므로 — 폴리곤 truth 를 지키려면 그래야 한다 —
+    **뷰어가 그림용 배열로 디코드**한다. 포맷별 디코드는 [`core.format`](../../core/format) 이 안다.
     """
 
     RASTER = True
 
     @classmethod
     def layer(cls, value: Any, ref: Data_Ref) -> np.ndarray | None:
-        if not isinstance(value, np.ndarray) or value.ndim != 2:
-            return None
-        return (value > 0).astype(np.uint8)
+        return _mask_array(value, ref)
 
     @classmethod
     def summary(cls, value: Any, ref: Data_Ref) -> str:
         _fmt = ref.format[1] if len(ref.format) > 1 else "?"
-        if not isinstance(value, np.ndarray):
+        _arr = _mask_array(value, ref)
+        if _arr is None:
             return f"mask · {_fmt}"
-        return f"mask · {_fmt} · {int((value > 0).sum())}px"
+        return f"mask · {_fmt} · {int(_arr.sum())}px"
+
+
+def _mask_array(value: Any, ref: Data_Ref) -> np.ndarray | None:
+    """어떤 mask 포맷이든 그림용 이진 배열 ``(H, W)`` 로 (없으면 None).
+
+    편집 truth(rle 왕복)와 표시가 같은 디코드를 쓰도록 한곳에 둔다 — [`_data_view`](../meta_page/view/_data_view.py)
+    의 조준도 이걸 부른다.
+    """
+    _fmt = ref.format[1] if len(ref.format) > 1 else ""
+    if _fmt == "rle" and isinstance(value, dict):
+        return rle.To_mask(value)
+    if _fmt == "polygon" and isinstance(value, dict):
+        return polygon.Fill(value)
+    if isinstance(value, np.ndarray) and value.ndim == 2:
+        return (value > 0).astype(np.uint8)
+    return None

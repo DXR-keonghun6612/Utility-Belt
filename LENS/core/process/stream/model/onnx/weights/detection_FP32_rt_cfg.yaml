@@ -1,0 +1,15 @@
+onnx_file: detection_FP32.onnx
+precision: FP32
+workspace_size_mb: 4096
+input_profiles:
+-   name: image
+    dtype: uint8
+    min_shape: [1, 600, 800, 3]
+    opt_shape: [1, 600, 800, 3]
+    max_shape: [1, 600, 800, 3]
+output_profiles:
+-   name: mask_logits
+    dtype: float32
+    min_shape: [1, 1, 588, 798]
+    opt_shape: [1, 1, 588, 798]
+    max_shape: [1, 1, 588, 798]

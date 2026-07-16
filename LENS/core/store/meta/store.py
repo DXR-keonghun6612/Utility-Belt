@@ -10,8 +10,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar, Mapping
 
+import numpy as np
+
 from ...constant import META_STATES, MODIFIED, SKIPPED, STAGED
 from ..bucket_store import Bucket_Store
+from ...format import rle
 from ...schema import Data_Ref
 
 
@@ -22,6 +25,18 @@ def _union_box(boxes: list) -> list[float] | None:
         return None
     return [min(float(_b[0]) for _b in _bs), min(float(_b[1]) for _b in _bs),
             max(float(_b[2]) for _b in _bs), max(float(_b[3]) for _b in _bs)]
+
+
+def _union_mask(masks: list) -> dict | None:
+    """객체 mask(rle) 들을 픽셀 **OR** 로 합쳐 rle 로 (하나도 없으면 None).
+
+    라벨맵 시절엔 배타적이라 재도색이 곧 합집합이었지만, 객체별 mask 는 겹칠 수 있어 픽셀 OR 로 합친다.
+    """
+    _arrs = [rle.To_mask(_m.info["value"]) for _m in masks
+             if _m is not None and _m.info.get("value")]
+    if not _arrs:
+        return None
+    return rle.From_mask(np.logical_or.reduce(_arrs).astype(np.uint8))
 
 
 @dataclass
@@ -90,7 +105,12 @@ class Dataset_Meta(Bucket_Store):
             return
         _box = _union_box([_item.Get(_o).Attr("bbox", None) for _o in (into, *_ids)])
         if _box is not None:
-            _item.Get(into).Push("bbox", Data_Ref(format=("bbox", "list"), info={"value": _box}))
+            _item.Get(into).Push("bbox",
+                                 Data_Ref(format=("region", "bbox", "xyxy"), info={"value": _box}))
+        _mask = _union_mask([_item.Get(_o).Get("mask") for _o in (into, *_ids)])
+        if _mask is not None:                            # 객체 mask 는 배타적이지 않을 수 있어 픽셀 OR
+            _item.Get(into).Push("mask",
+                                 Data_Ref(format=("mask", "rle"), info={"value": _mask}))
         for _o in _ids:
             self.Delete_node(_p, _o)                     # 컨테이너 pop — 빈 자리는 구멍으로
 

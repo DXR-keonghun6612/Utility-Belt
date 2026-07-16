@@ -38,7 +38,6 @@ from PySide6.QtWidgets import (
 )
 
 from core import port
-from core.process.func.mask.instance import Erase, Merge_into
 
 from ._node_tree import Node, Node_tree
 
@@ -93,20 +92,16 @@ class Node_panel(QWidget):
     raster_edited = Signal(object, object)
 
     def __init__(self, scope: str, get_store: Callable[[], object | None],
-                 get_key: Callable[[], str],
-                 get_segment: Callable[[], Node | None] | None = None, parent=None) -> None:
+                 get_key: Callable[[], str], parent=None) -> None:
         """Args:
         scope:       ``leaves`` (데이터) 또는 ``objects`` (객체).
         get_store:   정본 store (없을 수 있다).
         get_key:     지금 열린 item(stem) key.
-        get_segment: 지금 캔버스에 뜬 라벨맵 노드 — 객체 삭제·병합이 **그 배열을** 고친다
-            (디스크에서 다시 읽으면 저장 안 한 붓질을 덮어쓴다).
         """
         super().__init__(parent)
         self._scope = scope
         self._get_store = get_store
         self._get_key = get_key
-        self._get_segment = get_segment or (lambda: None)
         self._editable = True
         self._buttons: list[QPushButton] = []
 
@@ -261,12 +256,8 @@ class Node_panel(QWidget):
             return
         _object = self._is_object(_store, _node)
         _key = self._get_key()
-        if _object:                                            # 객체 = 컨테이너 + segment 라벨
-            _seg = self._get_segment()
-            if _seg is not None:                               # 라벨맵 재도색은 호출 측(여기) 몫 — store 는 못 닿는다
-                Erase(_seg.value, _node.name)
-            _store.Remove_object(_key, _node.name)             # 컨테이너 pop
-            self._raster_touched(_seg)
+        if _object:                                            # 객체 = 컨테이너 (mask 도 그 안 자식이라 함께 pop)
+            _store.Remove_object(_key, _node.name)
         else:
             _store.Delete_node(_node.path, _node.name)         # leaf·객체 안 attr
             _store.Save(_key)                                  # 파일이 사라졌으니 서술자도 지금 맞춘다
@@ -289,23 +280,14 @@ class Node_panel(QWidget):
 
         _ids = sorted((_n.name for _n in _objs), key=int)
         _into, _others = _ids[0], _ids[1:]
-        _seg = self._get_segment()
         try:
-            _store.Merge_objects(_key, _into, _others)         # bbox 합집합 + 컨테이너 pop (검증 포함)
+            _store.Merge_objects(_key, _into, _others)         # bbox·mask 합집합 + 컨테이너 pop (검증 포함)
         except KeyError as _e:                                 # 조용히 삼키지 않는다
             QMessageBox.critical(self, "객체 병합", str(_e))
             return
-        if _seg is not None:                                   # 라벨맵 재도색은 호출 측 몫 — store 는 func 에 못 닿는다
-            Merge_into(_seg.value, _into, _others)             # 흡수 라벨 → into (검증 뒤라 안전)
-        self._raster_touched(_seg)
         self.load(_store, _key)
         self.tree.select_name(_into)                           # 생존자로 조준이 따라간다 (그 class 를 인스펙터가 보인다)
         self.changed.emit()
-
-    def _raster_touched(self, seg: Node | None) -> None:
-        """라벨맵을 제자리에서 고쳤다 — 저장 때 flush 하도록 상위에 알린다(디스크엔 아직 안 썼다)."""
-        if seg is not None:
-            self.raster_edited.emit(seg, seg.value)
 
     def _is_object(self, store, node: Node) -> bool:
         """이 노드가 stem 직속 객체(BRANCH)인가 — 그래야 segment 라벨을 함께 지운다(정본 전용)."""

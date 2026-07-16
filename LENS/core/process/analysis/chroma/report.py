@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from core.process.func.chroma._space import ChromaSpace
+from core.func.chroma._space import ChromaSpace
 
 from ._result import ChromaDiag
 

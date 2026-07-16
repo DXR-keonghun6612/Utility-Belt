@@ -5,15 +5,15 @@
 (읽기/쓰기는 store 가 소유하고 위 계층은 요청한다). 이 방향은 [`../test_layering.py`](../test_layering.py)
 가 강제한다.
 
-**축이 둘이다 — ``format = (domain, format)``:**
+**세 층이 ``format = (domain, format)`` 을 나눠 든다:**
 
-- **domain** ([`domain/`](domain)) — *무엇을 담는 데이터인가*. 유효 포맷 검증 + 정준형 + 정책(Claims·Blank).
-- **format** ([`codec/`](codec)) — *어떻게 직렬화하나*. 읽기/쓰기의 실제 범위는 도메인보다 훨씬 작다 —
-  png 를 읽는 법은 사진이든 마스크든 라벨맵이든 같다. 그래서 **I/O 는 포맷이 소유**하고 도메인을 넘어
-  재사용된다(``raster`` 하나를 image·mask·segmap 이 공유).
+- **domain** ([`domain/`](domain)) — *무엇으로 읽나*. 유효 포맷 검증 + 의미 보정(`Normalize`) +
+  포맷 편성(`To`) + 정책(Claims·Blank). **대표 포맷(정준형)은 없다** — 폴리곤은 폴리곤으로 산다.
+- **codec** ([`../codec`](../codec)) — *바이트 ↔ 값*. 어느 I/O 모듈이 읽나로 갈린다(cv2·numpy·yaml·사이드카).
+- **format** ([`../format`](../format)) — *값의 구조*. bbox·polygon·rle·segmap 과 그 사이 변환 계산.
 
-그래서 새 처리 구조는 **파일 하나 + 한 줄**이다 — codec 을 떨구고 도메인 ``FORMATS`` 에 이름을 더한다
-(SAM polygon 이 그렇게 붙었다). 20개 포맷이 와도 도메인당 파일이 늘지 않는다.
+*codec 은 바이트가 무슨 뜻인지 모르고, format 은 그게 어디 사는지 모르고, domain 만 둘 다 안다.* 그래서
+새 구조는 파일 하나(format)로 붙고, 그것을 무엇으로 읽을지는 도메인이 ``FORMATS`` 한 줄로 받아들인다.
 
 **``Data_Ref`` 를 재노출하지 않는다.** 소비처는 [`core.schema`](../schema.py) 에서 직접 가져간다 — 편의
 재노출이 있던 동안 데이터모델만 필요한 쪽까지 cv2·numpy 를 끌고 왔다(cv2-free 가 이론으로만 존재했다).
@@ -26,8 +26,8 @@ from typing import Any
 
 from ..constant import ROUTE_TARGETS, TO_META, TO_STORAGE
 from ..schema import Data_Ref
-from .codec import CODEC_REGISTRY, Codec, Codec_for, File_Codec, Inline_Codec
-from .codec.value import Inline, Python_type
+from ..codec import CODEC_REGISTRY, Codec, Codec_for, File_Codec, Inline_Codec
+from ..codec.inline import Inline, Python_type
 from .domain import ATTR, DOMAIN_REGISTRY, Domain, Domain_for, Domains, Infer_domain
 from ._structure import Structure
 
@@ -48,15 +48,14 @@ def Infer_type(ext: str) -> str | None:
 
 # ── 디스패치 — 도메인이 검증하고, codec 이 I/O 한다 ──────────────────────────────
 def _domain(ref: Data_Ref) -> tuple[str, type[Domain]]:
-    """이 ref 의 도메인 — **등록된 첫 칸이 아니면 개념이라 ``attr`` 로** 보낸다.
+    """이 ref 의 도메인 — 첫 칸이 등록된 도메인이 아니면(빈 칸 = 순수 파이썬 값) ``attr`` 로 보낸다.
 
-    첫 칸은 도메인 이름이거나 **도메인 개념**(``bbox``)이다. 개념은 파일 I/O 가 없어 도메인을 안 갖고,
-    갈리는 곳은 표현(gui viewer)이지 저장이 아니다 — 여기서 전부 인라인(attr)으로 흘려보내므로 **개념을
-    더해도 port 를 안 고친다**.
+    한때 ``bbox`` 는 여기서 개념이라며 ``attr`` 로 흘려보냈다 — 이제 [`region`](domain/region.py)
+    도메인이라 정식으로 라우팅된다. 남는 fallback 은 **개념 없는 인라인 값**(``("", "str")`` 등)뿐이다.
     """
     _key = ref.format[0] if ref.format else ""
     _cls = Domain_for(_key)
-    if _cls is None:                                     # 개념(bbox…) 또는 빈 칸 → 인라인 값
+    if _cls is None:                                     # 빈 칸 = 순수 파이썬 값 → attr
         return ATTR, Domain_for(ATTR)                    # type: ignore[return-value]
     return _key, _cls
 
@@ -77,11 +76,15 @@ def _codec(ref: Data_Ref) -> type[Codec]:
 
 
 def Load(root: str, path: tuple[str, ...], name: str, ref: Data_Ref) -> Any:
-    """payload 로드 (``path`` = leaf 조상 key 시퀀스) — codec 이 싣고, 도메인이 정준형으로 맞춘다."""
+    """payload 로드 (``path`` = leaf 조상 key 시퀀스) — codec 이 싣고, 도메인이 **의미만** 보정한다.
+
+    **구조를 뭉개지 않는다** — 폴리곤은 폴리곤으로, rle 는 rle 로 온다(대표 포맷 없음). 배열이 필요한
+    소비처는 도메인의 `To(value, "npy")` 로 **명시적으로** 요청한다 — 그래야 편집기가 꼭짓점을 본다.
+    """
     _value = _codec(ref).Load(root, path, name, ref)
     if _value is None:
         return None
-    return _domain(ref)[1].Canonicalize(_value)
+    return _domain(ref)[1].Normalize(_value)
 
 
 def _effective_format(dom: type[Domain], ref: Data_Ref, src: Any) -> str:
@@ -102,12 +105,12 @@ def _effective_format(dom: type[Domain], ref: Data_Ref, src: Any) -> str:
 
 
 def Save(root: str, path: tuple[str, ...], name: str, ref: Data_Ref, src: Any) -> Data_Ref:
-    """저장. 갱신된 ``Data_Ref`` 반환 (in-memory 값은 도메인 정준형으로 맞춰 쓴다)."""
+    """저장. 갱신된 ``Data_Ref`` 반환 (in-memory 값은 도메인이 목표 포맷 구조로 편성해 쓴다)."""
     _name, _dom = _domain(ref)
-    _ref = Data_Ref(format=(ref.format[0] if ref.format else "",
-                            _effective_format(_dom, ref, src)),   # ingest 의 빈 칸을 여기서 채운다
+    _fmt = _effective_format(_dom, ref, src)
+    _ref = Data_Ref(format=(ref.format[0] if ref.format else "", _fmt),  # ingest 의 빈 칸을 채운다
                     info=dict(ref.info))
-    _value = src if isinstance(src, (str, Path)) else _dom.Canonicalize(src)
+    _value = src if isinstance(src, (str, Path)) else _dom.To(src, _fmt)  # 도메인이 포맷 구조로 편성
     return _codec(_ref).Save(root, path, name, _ref, _value)
 
 

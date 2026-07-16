@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from core.process.func.chroma._core import Robust_mean_std   # 파이프라인과 동일 추정기
+from core.func.chroma._core import Robust_mean_std   # 파이프라인과 동일 추정기
 
 
 def per_pixel_stats(

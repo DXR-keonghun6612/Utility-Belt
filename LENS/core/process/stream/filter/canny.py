@@ -5,7 +5,7 @@ from typing import Annotated
 
 import numpy as np
 
-from ...func.cv.filter import Canny_edges
+from ....func.cv.filter import Canny_edges
 from .. import PROCESS_REGISTRY, Base_Process, UI
 
 

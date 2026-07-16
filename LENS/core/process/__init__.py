@@ -35,7 +35,7 @@ from .stream.chroma     import Convert_to_Chroma, Accumulate_Chroma_histogram, R
 from .stream.preprocess import Frame_crop, Normalize_color, Normalize_histogram, Downscale, Upscale  # noqa: E402
 from .stream.mask       import Threshold_score, Intensity_band, Normalize_mask, Morph_mask, Combine_mask, Split_objects, Radial_thickness, Carve_color_holes, Flood_background, Fill_edge, Edge_blob, Remove_edge_holes  # noqa: E402
 from .stream.filter     import Detect_edge, Close_edge  # noqa: E402
-from .stream.model      import Segment  # noqa: E402
+from .stream.model      import Segment, Detect_instances  # noqa: E402
 from .stream.select     import Center_distance, Attr_gate  # noqa: E402
 
 

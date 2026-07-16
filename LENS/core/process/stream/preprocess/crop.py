@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from ...func.cv.geom import Crop_to_mask
+from ....func.cv.geom import Crop_to_mask
 from .. import PROCESS_REGISTRY, Base_Process, GRAY_IMAGE
 
 

@@ -12,7 +12,7 @@ from typing import Annotated
 
 import numpy as np
 
-from ...func.cv.geom import Box_center, Center_offset, Mask_centroid
+from ....func.cv.geom import Box_center, Center_offset, Mask_centroid
 from .. import PROCESS_REGISTRY, Base_Process, UI, BBOX, GRAY_IMAGE
 
 

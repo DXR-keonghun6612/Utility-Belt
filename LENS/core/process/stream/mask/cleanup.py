@@ -3,10 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Annotated
 
-from ...func.cv.color import Scale_intensity
-from ...func.cv.filter import Morph_clean
-from ...func.cv.geom import Crop_square, Mask_padding
-from ...func.mask.combine import Area_change, Combine_regions
+from ....func.cv.color import Scale_intensity
+from ....func.cv.filter import Morph_clean
+from ....func.cv.geom import Crop_square, Mask_padding
+from ....func.mask.combine import Area_change, Combine_regions
 from .. import PROCESS_REGISTRY, Base_Process, UI, GRAY_IMAGE
 
 

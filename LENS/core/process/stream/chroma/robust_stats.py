@@ -5,8 +5,8 @@ from typing import Annotated
 
 import numpy as np
 
-from ...func.chroma._space import Get_space, DEFAULT_SPACE
-from ...func.chroma._core import Robust_mean_std
+from ....func.chroma._space import Get_space, DEFAULT_SPACE
+from ....func.chroma._core import Robust_mean_std
 from .. import PROCESS_REGISTRY, Base_Process, UI
 
 

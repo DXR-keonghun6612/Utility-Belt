@@ -24,7 +24,7 @@ import numpy as np
 from ..constant import STAGED, UNCLASSIFIED
 from ..schema import Data_Ref
 from ..store import SPLITS, Sample_Set
-from .func.mask.instance import Mask_of
+from ..func.mask.instance import Mask_of
 from ._base import Stage, Unit, inline_ctx
 
 UNLABELED = UNCLASSIFIED   # class_id 가 없는 unit 의 fallback class (정본 미분류 값과 통일)

@@ -16,7 +16,8 @@ from pathlib import Path
 
 import numpy as np
 
-from ..process.func.mask.instance import Mask_of
+from ..format import bbox as _bbox_fmt
+from ..func.mask.instance import Mask_of
 from ..schema import Data_Ref
 from ._base import Exporter
 
@@ -122,18 +123,19 @@ class Frame_exporter(Exporter):
     # ── 좌표·픽셀 파생 ───────────────────────────────────────────────────────────
     @staticmethod
     def _bbox(obj: Data_Ref) -> list[float] | None:
-        """객체 bbox → ``[x0, y0, x1, y1]`` 코너 (정본 규약). 없거나 형식이 아니면 실패/None.
+        """객체 bbox → ``[x0, y0, x1, y1]`` 코너. 없거나 형식이 아니면 실패/None.
 
-        정본은 코너 ``xyxy`` 로 든다(``format=("bbox","list")``). serializer 가 포맷 규약으로 변환한다 —
-        여기서 미리 바꾸지 않는다.
+        정본은 [`region`](../port/domain/region.py) 도메인 bbox 로 든다(``("region", "bbox", style)``).
+        저장 style 이 무엇이든 코너로 정규화한다 — [`format.bbox`](../format/bbox.py) 가 그 변환을 안다
+        (COCO ``bbox`` 필드용 xyxy→xywh 는 serializer 가 따로 한다).
         """
         _box = obj.Get("bbox")
         if _box is None:
             return None
         _v = _box.info.get("value") or []
-        if _box.format[:1] != ("bbox",) or len(_v) != 4:
-            raise ValueError(f"export: bbox 가 4-값 코너가 아니다 — format={_box.format} value={_v}")
-        return [float(_c) for _c in _v]
+        if _box.format[:2] != ("region", "bbox") or len(_v) != 4:
+            raise ValueError(f"export: bbox 가 region bbox 가 아니다 — format={_box.format} value={_v}")
+        return _bbox_fmt.To_xyxy(_v, _bbox_fmt.Style_of(_box.format))
 
     def _frame_segment(self, stem: str) -> np.ndarray | None:
         """segmentation task 면 프레임의 ``segment`` 인스턴스 라벨맵을 푼다 (아니면 None).

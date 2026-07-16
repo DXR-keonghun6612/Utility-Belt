@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from typing import Annotated
 
 from ....schema import Build, Data_Ref
-from ...func.cv.geom import Roi_to_mask
-from ...func.mask.instance import Split_components
+from ....func.cv.geom import Roi_to_mask
+from ....func.mask.instance import Split_components
 from .. import PROCESS_REGISTRY, Base_Process, UI, GRAY_IMAGE, BBOX
 
 
@@ -47,8 +47,8 @@ class Split_objects(Base_Process, outputs=("segment", "object"), category="마�
 
         _objs = [                               # obj_id = 리스트 순번 (sink 가 info key 로 씀)
             Data_Ref(info=Build({
-                "class_id": {"format": ("", "str"),      "info": {"value": _cls}},
-                "bbox":     {"format": ("bbox", "list"), "info": {"value": _box}},
+                "class_id": {"format": ("", "str"),                "info": {"value": _cls}},
+                "bbox":     {"format": ("region", "bbox", "xyxy"), "info": {"value": _box}},
             }))
             for _box in _boxes
         ]

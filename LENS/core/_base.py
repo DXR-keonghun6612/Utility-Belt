@@ -26,14 +26,17 @@ from .process import Build_flow, Sample_stage
 from .process.stream.mask.order import Order_objects
 from .store import SAMPLE_DIR, Dataset_Meta, Sample_Set
 from .tasker import Load_taskers, Save_taskers
-from .process.stream.model._sam3 import Sam3_runner
+from .process.stream.model.onnx import Onnx_segmenter
+from .process.stream.model.torch import Sam3_runner
 
 
 # ── 모델 풀 ───────────────────────────────────────────────────────────────────
 
 # prediction 모델 빌더 — type → 빌더 클래스. registry 가 아니라 그냥 작은 dict(단순 데이터).
+# type 은 **기능**을 고르고, 그 기능의 어떤 모델을 쓸지는 빌더 파라미터가 정한다(onnx 는 ``onnx_file``).
 MODEL_BUILDERS: dict[str, Any] = {
     "sam3": Sam3_runner,
+    "onnx_seg": Onnx_segmenter,
 }
 
 

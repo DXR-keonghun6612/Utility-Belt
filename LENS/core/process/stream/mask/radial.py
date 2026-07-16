@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Annotated
 
-from ...func.mask.polar import Hollowness
+from ....func.mask.polar import Hollowness
 from .. import PROCESS_REGISTRY, Base_Process, UI, GRAY_IMAGE
 
 

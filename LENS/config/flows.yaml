@@ -1,0 +1,25 @@
+flows:
+-   object_type: flow
+    name: Refine_segment_by_sam3
+    unit: frame
+    processes:
+    -   object_type: downscale
+        ratio: 0.5
+        interp: area
+    -   object_type: segment
+        text: Bright elongated reflectionstripes, repeating glare in the dark
+        conf: 0.0
+        min_area: 200
+        model:
+            type: sam3
+            bpe_path: ''
+            checkpoint: ''
+            device: cuda
+        outputs:
+            segment:
+                to: storage
+                level: frame
+                type: segmap
+                format: png
+    -   object_type: upscale
+        interp: nearest

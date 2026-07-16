@@ -5,15 +5,21 @@
 
 ```text
 schema   Data_Ref — 순수 재귀 트리                      (의존 0 · cv2-free)
+func     배열↔배열 순수 계산 (cv·chroma·mask)          (core 를 아무것도 모른다 — numpy·cv2 뿐)
   ↑
 port     handler · sidecar · scan(ingest)               (디스크·포맷만 안다 — store 를 모른다)
   ↑
 store    Bucket_Store · Dataset_Meta · Sample_Set       (범주·item 주소 + 라이프사이클)
   ↑
-process  engine(Stage) · stream · func                  (계산)
+process  engine(Stage) · stream                         (계산의 흐름)
   ↑
 binder   Pipeline                                       (셋을 잇는다)
 ```
+
+**`func` 가 `process` 밑에 있지 않은 이유** — 소속은 출처가 아니라 **아는 타입**으로 정한다. `func` 는
+core 에서 아무것도 import 하지 않고(numpy·cv2 뿐), 정작 당기는 쪽은 gui(3곳)·export·process 다. `process`
+밑에 두면 "process·gui·binder 가 자유롭게 부른다"는 결정이 계층상 거짓이 된다 — 실제로 `port` 는 func 을
+**docstring 으로만 가리킬** 수 있었다(역방향이라 import 불가). 올라오니 그 기형이 풀린다.
 
 **왜 이 검사가 있나.** 예전엔 `Bucket_Store` 가 cv2-free 인 척하려고 handler 를 함수 본문 안에서 지연
 import 했고, 그 위장의 어색함이 *"라이프사이클이 store 에 있으면 안 되나 보다"* 라는 오진을 낳아 같은
@@ -34,10 +40,13 @@ CORE = Path(__file__).resolve().parent
 # 계층 번호 — 위 계층은 아래를 알아도 되고, 아래는 위를 몰라야 한다.
 LAYER: dict[str, int] = {
     "schema": 0, "typing": 0, "constant": 0,   # 횡단 primitive (의존 0)
-    "port":    1,
-    "store":   2,
-    "process": 3,
-    "_base":   4, "tasker": 4, "__init__": 4, "export": 4,  # binder (export = read+compute+external-write)
+    "func":    0,                              # 순수 계산 — core 를 모른다 (numpy·cv2 뿐). 누구나 부른다.
+    "format":  0,                              # 데이터 구조 + 그 연산 — Data_Ref 도 I/O 도 모른다.
+    "codec":   1,                              # 직렬화 — 구조를 디스크·사이드카에 싣고 내린다.
+    "port":    2,                              # domain — 무엇으로 읽나 + 검증·정책 + 디스패치.
+    "store":   3,
+    "process": 4,
+    "_base":   5, "tasker": 5, "__init__": 5, "export": 5,  # binder (export = read+compute+external-write)
 }
 
 
