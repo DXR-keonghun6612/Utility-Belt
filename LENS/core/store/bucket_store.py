@@ -8,7 +8,7 @@
 store 가 bare key 로 주소지정하지 않는다 — 그건 ``Data_Ref`` 몫이다. 사이드카 입도도 같은 자리라
 **한 item = 한 사이드카**이고, 그래서 save/restore/delete 가 서로 어긋나지 않는다.
 
-영속 경로는 트리 위치에서 파생 — 사이드카 ``{root}/.meta/{범주}/{key}.json``, payload 는 handler 가
+영속 경로는 트리 위치에서 파생 — 사이드카 ``{root}/.meta/{범주}/{key}.json``, payload 는 ``port`` 가
 kind-major 로(``{root}/{범주}/{종류}/{stem}.{ext}`` — 경로 규칙은 [`../port/README.md`](../port/README.md)).
 """
 
@@ -241,7 +241,7 @@ class Bucket_Store(Data_Schema):
         """값을 spec 의 **인라인** 서술자로 인코딩해 ``Data_Ref`` 로 (디스크 안 씀 — 트리에도 안 꽂는다).
 
         위 계층(내보내기 등)이 codec 을 **store 경유**로 얻는 창구다 — port 는 소비자가 store 하나라 위
-        계층이 직접 못 부른다. inline handler(``rle`` 등) 전용이라 위치가 필요 없다(파일 handler 를 주면
+        계층이 직접 못 부른다. inline codec(``rle`` 등) 전용이라 위치가 필요 없다(파일 codec 을 주면
         경로 파생에서 실패한다). 예: export 의 COCO ``segmentation`` RLE (``mask → rle Data_Ref → value``).
         """
         return port.Route(self.root, (), "", spec, value)

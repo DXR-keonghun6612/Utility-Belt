@@ -10,12 +10,12 @@
 무슨 일을 하느냐가 아니라 **무슨 타입을 아느냐**가 이 층을 정의한다.
 
 > `func/` 는 도메인 자료형만 안다 — 배열, 박스, id, 스칼라, 색공간 spec.
-> **`Data_Ref`·`Dataset_Meta`·`handler` 를 모른다.**
+> **`Data_Ref`·`Dataset_Meta`·`port` 를 모른다.**
 
 이게 지켜지면 모든 계산은 store 없이, 파이프라인 없이, 단독으로 호출·검증된다. 어기는 순간 그 계산은
 저장 표현에 묶여 재사용도 테스트도 불가능해진다 — **객체가 개념 앞에 서는 것**이다.
 
-반대 방향의 경계는 [`../stream/README.md`](../stream/README.md)가 갖는다: stream 은 저장 표현을 알고
+반대 방향의 경계는 [`../process/stream/README.md`](../process/stream/README.md)가 갖는다: stream 은 저장 표현을 알고
 계산을 모른다. 해체와 조립이 stream 의 유일한 일감이다.
 
 ## 도메인 경계

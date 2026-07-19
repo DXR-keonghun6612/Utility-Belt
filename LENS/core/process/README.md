@@ -43,14 +43,18 @@ flow 의 *종류*는 서브클래스도 코드 preset 도 아니라 **config 가
 
 ## 계산은 두 층이다 — 경계는 "무엇을 아는가"
 
-| 층 | 아는 것 |
-|---|---|
-| `stream/` | **저장 표현**(`Data_Ref`)을 알고 **계산을 모른다** |
-| `func/` | **도메인 자료형**(배열·박스·id)만 알고 `Data_Ref` 를 모른다 |
+process 가 든 것은 **배선(`stream/`)뿐이고, 계산(`func/`)은 top-level 로 나가 있다** — 축 정리로 `func`
+가 core 밑바닥(의존 0)으로 올라갔기 때문이다(process·gui·export 가 다 부른다 → [`../README.md`](../README.md)).
+두 층은 사는 곳이 아니라 **아는 타입**으로 갈린다:
+
+| 층 | 사는 곳 | 아는 것 |
+|---|---|---|
+| `stream/` | process 안 | **저장 표현**(`Data_Ref`)을 알고 **계산을 모른다** |
+| `func/` | top-level (`core/func`) | **도메인 자료형**(배열·박스·id)만 알고 `Data_Ref` 를 모른다 |
 
 `stream` 유닛이 하는 일은 ctx 에서 값을 꺼내고 → `func` 를 부르고 → 결과를 조립하는 것뿐이다. 이 방향이
 지켜지면 **모든 계산이 store 없이 단독으로 호출·검증된다.** 각 층의 규칙은 그 층의 README 가 갖는다
-([`stream/`](stream/README.md) · [`func/`](func/README.md)).
+([`stream/`](stream/README.md) · [`../func/`](../func/README.md)).
 
 **프로세스는 입력이 아니라 출력의 도메인에 속한다** — edge 를 읽어 mask 를 내는 유닛은 mask 유닛이다
 (입력은 어느 도메인에서 와도 된다. 그게 데이터흐름이다). 여러 도메인을 엮는 일(combine·gate·wiring)은
@@ -109,13 +113,14 @@ process/
 ├── _base.py      Base_Process(유닛 계약) · Stage(엔진) · Flow(Run 구성)
 ├── sample.py     Sample_stage — 같은 엔진, 양 끝만 다름 (staged 순회 → 파생 store 배치)
 ├── stream/       배선 — 저장 표현을 알고 계산을 모른다     → stream/README.md
-├── func/         계산 — 도메인 자료형만 안다               → func/README.md
 └── analysis/     ⚠ 아직 흡수되지 않은 덩어리 (계층이 아니다)
+
+계산(`func/`)은 process 밖 top-level 이다 — stream 이 부른다   → ../func/README.md
 ```
 
 **`analysis/` 는 계층이 아니다.** 옛 `Analysis` 계약(analyze/report/figure + 레지스트리)은 **구현자 0·등록
 0·호출 0** 이라 삭제했다 — 아무도 구현하지 않는 추상이었고, 실제 소비처는 계약을 무시하고 모듈 함수를 직접
-import 했다. 남은 모듈의 갈 곳은 [`TODO.md`](TODO.md) 가 소유한다(계산은 `func/` 로, 군집 분석은 **산출물
+import 했다. 남은 모듈의 갈 곳은 [`TODO.md`](TODO.md) 가 소유한다(계산은 top-level `../func/` 로, 군집 분석은 **산출물
 소비자**로 — 파이프라인과 수명이 다르므로 엔진에 접히지 않는다).
 
 무거운 모델은 유닛이 소유하지 않는다. pipeline 이 스펙당 한 번 빌드해 주입하고, 유닛은 핸들만 든다.

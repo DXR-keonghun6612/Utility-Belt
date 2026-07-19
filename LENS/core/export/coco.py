@@ -81,7 +81,7 @@ class Coco_exporter(Frame_exporter):
     def _segmentation(self, mask) -> dict:
         """인스턴스 mask → COCO ``segmentation`` RLE — codec 은 store 경유로 얻는다.
 
-        pycocotools RLE 라 detectron2·mmdet 등이 그대로 먹는다. RLE 코덱은 port(`rle` handler)가 소유하는데,
+        pycocotools RLE 라 detectron2·mmdet 등이 그대로 먹는다. RLE 코덱은 port(`rle` codec)가 소유하는데,
         export 는 binder 라 port 를 직접 못 부른다(소비자는 store 하나) — ``source.Encode`` 로 mask 를 인라인
         ``rle`` ``Data_Ref`` 로 만들어(디스크 안 씀) 그 값을 읽는다. 같은 인코딩을 두 곳에서 안 짠다.
         """

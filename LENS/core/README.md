@@ -11,17 +11,24 @@ LENS 코어 — raw 데이터에서 **정본 annotation** 을 만들고, 그로�
 
 하는 일이 아니라 **아는 타입**이 계층을 정한다. 이 기준을 크기·편의로 바꾸면 경계가 무너진다.
 
+계층 번호의 **단일 진실원천은 [`test_layering.py`](test_layering.py) 의 `LAYER` dict** 다 — 이 표는 그 지도다.
+
 | 계층 | 아는 것 | 내부 설계 |
 |---|---|---|
-| [`schema.py`](schema.py) | **아무것도 모른다** — 디스크도 포맷도 store 도 (의존 0) | 심볼 docstring |
-| [`port/`](port) | 디스크와 포맷. 데이터 **하나**의 읽기/쓰기 + 외부 발견 | [`port/README.md`](port/README.md) |
+| [`schema.py`](schema.py) · `typing` · `constant` | **아무것도 모른다** — 횡단 primitive (의존 0) | 심볼 docstring |
+| [`func/`](func) | 배열↔배열 순수 계산 — core 를 모른다 (numpy·cv2 뿐) | [`func/README.md`](func/README.md) |
+| [`format/`](format) | 데이터 **구조** + 그 연산 (bbox·polygon·rle) — `Data_Ref` 도 I/O 도 모른다 | 패키지 docstring |
+| [`codec/`](codec) | 포맷 단위 **직렬화** (raster·npy·inline·docs) — 도메인을 모른다 | 패키지 docstring |
+| [`port/`](port) | **domain** — 무엇으로 읽나 + 검증·정책 + 디스패치. 데이터 **하나** 읽기/쓰기 + 발견 | [`port/README.md`](port/README.md) |
 | [`store/`](store) | 범주와 item 주소. 데이터 **여럿**의 관리 + 라이프사이클 | [`store/README.md`](store/README.md) |
 | [`process/`](process) | 연산과 결과의 흐름 | [`process/README.md`](process/README.md) |
-| [`_base.py`](_base.py) | 위 셋을 잇는다 (`Pipeline`) — 계산 단계 조율만 | 심볼 docstring |
+| [`_base.py`](_base.py) · [`export/`](export) | 위를 잇는다 (`Pipeline`·export) — 계산 조율 + read+compute+external-write | 심볼 docstring |
 
 ```text
-schema  ←  port  ←  store  ←  process  ←  _base
-                     └── port 의 유일한 소비자
+schema · func · format          아무것도 안 당기는 밑바닥 (의존 0)
+      ↑
+    codec  ←  port  ←  store  ←  process  ←  _base
+                       └── port 의 유일한 소비자는 store
 ```
 
 - **`store` 만이 `port` 를 부른다.** 읽기/쓰기는 store 가 소유하고 위 계층은 **요청**한다

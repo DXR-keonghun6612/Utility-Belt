@@ -1,6 +1,6 @@
 """외부 fs 발견 — 흩어진 raw 파일을 glob 로 묶어 stem 그룹으로 찾는다.
 
-**pathlib 만 안다.** port 안의 어떤 것도 import 하지 않는다 — handler 도, registry 도, ``Data_Ref`` 도.
+**pathlib 만 안다.** port 안의 어떤 것도 import 하지 않는다 — domain 도, codec 도, registry 도, ``Data_Ref`` 도.
 그래야 ``__init__`` 의 자동등록 순회가 이 모듈을 집어와도 순환이 나지 않는다.
 
 발견(어떤 파일이 있나)과 등록(어느 범주에 어떻게 넣나)은 다른 일이다. 여기는 **발견만** 한다 —

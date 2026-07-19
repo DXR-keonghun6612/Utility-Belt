@@ -1,7 +1,7 @@
 # stream — 배선
 
 `Stage` 체인을 흐르는 연산 유닛(`Base_Process`)이 사는 층. 프레임·객체 단위로 ctx 를 받아 ctx 를 낸다.
-엔진은 [`../README.md`](../README.md), 계산은 [`../func/README.md`](../func/README.md).
+엔진은 [`../README.md`](../README.md), 계산은 [`../../func/README.md`](../../func/README.md).
 
 ---
 

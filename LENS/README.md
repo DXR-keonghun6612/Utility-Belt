@@ -27,12 +27,13 @@ raw 파일
                                                     └─ Verify ─→ 검수 (미구현)
 ```
 
-세 스테이지(Convert/Run/Sample)는 모두 `process` 의 **`Stage` 엔진**(source→체인→sink)이고, source/sink 만
-다르다 — Convert=raw 발견/정본 등록, Run=정본 순회/정본 라우팅, Sample=정본 순회/파생 배치.
+Run·Sample 은 `process` 의 **`Stage` 엔진**(source→체인→sink)이고 양 끝(source/sink)만 다르다 —
+Run=정본 순회/정본 라우팅, Sample=정본 순회/파생 배치. **Convert 는 Stage 가 아니다** — 체인이 비어
+엔진을 안 쓰고 `store.Import` 를 부를 뿐이다(들이기는 라이프사이클이라 store 소유).
 
-- 모든 데이터는 **단일 재귀 노드 `Data_Ref(type, format, info)`** 로 기술된다 — `type="stem"` 이면
-  컨테이너(`info` = 자식 `Data_Ref` 들), 아니면 leaf(payload). 로드/저장은 dataset 핸들러가 담당한다
-  (계산 계층은 위치·타입만 정함).
+- 모든 데이터는 **단일 재귀 노드 `Data_Ref(format, info)`** 로 기술된다 — `bool(format)` 이
+  BRANCH(컨테이너, `info` = 자식 `Data_Ref` 들)/LEAF(payload 서술자, `format` = `(도메인, 포맷)`)를 가른다.
+  로드/저장·경로 파생은 `port` 가 맡는다 (계산 계층은 위치·타입만 정함).
 - **flow 간 데이터는 오직 `dataset_meta` 만 경유** — 앞 flow 가 남긴 키 = 뒤 flow 의 입력.
 - 무거운 prediction 모델(SAM3 등)은 config 에 nested 된 스펙(`model: {type: sam3, …}`)을 pipeline 이
   빌드해 process 에 주입한다 (같은 스펙은 한 번만 빌드해 공유).
@@ -72,23 +73,30 @@ flows:                                               # flow 엔트리 시퀀스
 verify: {}
 ```
 
-flow 작성 템플릿은 [`core/process/presets.example.yaml`](core/process/presets.example.yaml).
+flow 작성 템플릿은 [`config/flows.yaml`](config/flows.yaml) (전체 세션 예시는 [`config/example_session.yaml`](config/example_session.yaml)).
 
 ## 모듈 구성
 
+계층은 **아는 타입**으로 갈린다(상세 지도는 [`core/README.md`](core/README.md)):
+
 ```text
 core/           ← pipeline binder
-├── _base.py    Pipeline (Convert→Run→Sample→Verify + 모델 풀) · __init__.py = Load_pipeline 진입점
-├── data/       Data_Ref(재귀 노드) · Bucket_Store · handler · meta(정본 store) · sample(파생 store)
-├── process/    Base_Process 유닛 + Stage 엔진(source→체인→sink) + Run(Flow) — 계산 계층
-├── converter/  Convert 스테이지 — Raw_source(raw 발견) → Register_sink(정본 등록)
-└── sampler/    Sample 스테이지 — Staged_source(정본 순회) → Sample_sink[task](파생 배치)
+├── schema.py   Data_Ref (재귀 트리 노드 — cv2-free 코어)
+├── func/       배열↔배열 순수 계산 (cv·chroma·mask) — core 를 모른다
+├── format/     데이터 구조 + 그 연산 (bbox·polygon·rle)
+├── codec/      포맷 단위 직렬화 (raster·npy·inline·docs)
+├── port/       domain — 무엇으로 읽나 + 검증·정책 + 디스패치 + 발견(scan)
+├── store/      Bucket_Store · Dataset_Meta(정본) · Sample_Set(파생) + 라이프사이클
+├── process/    Base_Process 유닛 + Stage 엔진(source→체인→sink) — 계산 계층
+├── export/     정본·파생 → 외부 레이아웃(coco/yolo/mask) 내보내기 (binder)
+└── _base.py    Pipeline (Convert→Run→Sample→Verify + 모델 풀) · __init__.py = Load_pipeline 진입점
 cli.py          CLI 진입점
-gui/            dataset_meta 중심 GUI — core Pipeline 구동 (converter/run/meta_view/verify, gui/README.md)
-analysis/       크로마 진단 (core 로 흡수 예정 — Verify 연계)
+gui/            dataset_meta 중심 GUI — core Pipeline 구동 (gui/README.md)
+analysis/       크로마 진단 (core 로 흡수 예정 — analysis→flow)
 ```
 
-세 스테이지는 단위 계약(`Base_Process`)이 같고 source/sink 만 다르다 — `process` 의 `Stage` 엔진을 공유한다.
+Run·Sample 은 단위 계약(`Base_Process`)이 같고 source/sink 만 달라 `process` 의 `Stage` 엔진을 공유한다
+(Convert 는 엔진을 안 쓴다). **경계는 산문이 아니라 [`core/test_layering.py`](core/test_layering.py) 가 강제**.
 
 남은 작업은 [`core/TODO.md`](core/TODO.md).
 

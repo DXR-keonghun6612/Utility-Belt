@@ -1,19 +1,23 @@
 """계층 경계 검사 — 산문이 아니라 **실행되는 규칙**으로 못박는다.
 
-`core` 는 **아는 타입**으로 4계층이다. 경계를 README 문단으로만 두면 조용히 무너지므로, import 방향을
-여기서 검사한다. 이 파일이 통과하는 한 계층은 살아 있다.
+`core` 는 **아는 타입**으로 계층이 갈린다. 경계를 README 문단으로만 두면 조용히 무너지므로, import 방향을
+여기서 검사한다. 아래 `LAYER` dict 가 그 번호의 **단일 진실원천**이고, 이 다이어그램은 그 지도다. 이
+파일이 통과하는 한 계층은 살아 있다.
 
 ```text
-schema   Data_Ref — 순수 재귀 트리                      (의존 0 · cv2-free)
-func     배열↔배열 순수 계산 (cv·chroma·mask)          (core 를 아무것도 모른다 — numpy·cv2 뿐)
+schema·typing·constant  횡단 primitive (Data_Ref 등)         (의존 0 · cv2-free)
+func     배열↔배열 순수 계산 (cv·chroma·mask)               (core 를 아무것도 모른다 — numpy·cv2 뿐)
+format   데이터 구조 + 그 연산 (bbox·polygon·rle)           (Data_Ref 도 I/O 도 모른다)
   ↑
-port     handler · sidecar · scan(ingest)               (디스크·포맷만 안다 — store 를 모른다)
+codec    포맷 단위 직렬화 (raster·npy·inline·docs)          (구조를 디스크·사이드카에 싣는다)
   ↑
-store    Bucket_Store · Dataset_Meta · Sample_Set       (범주·item 주소 + 라이프사이클)
+port     domain — 무엇으로 읽나 + 검증·정책 + 디스패치 + scan (디스크·포맷만 안다 — store 를 모른다)
   ↑
-process  engine(Stage) · stream                         (계산의 흐름)
+store    Bucket_Store · Dataset_Meta · Sample_Set          (범주·item 주소 + 라이프사이클)
   ↑
-binder   Pipeline                                       (셋을 잇는다)
+process  engine(Stage) · stream                            (계산의 흐름)
+  ↑
+binder   Pipeline · export                                 (셋을 잇는다)
 ```
 
 **`func` 가 `process` 밑에 있지 않은 이유** — 소속은 출처가 아니라 **아는 타입**으로 정한다. `func` 는
@@ -21,7 +25,7 @@ core 에서 아무것도 import 하지 않고(numpy·cv2 뿐), 정작 당기는 
 밑에 두면 "process·gui·binder 가 자유롭게 부른다"는 결정이 계층상 거짓이 된다 — 실제로 `port` 는 func 을
 **docstring 으로만 가리킬** 수 있었다(역방향이라 import 불가). 올라오니 그 기형이 풀린다.
 
-**왜 이 검사가 있나.** 예전엔 `Bucket_Store` 가 cv2-free 인 척하려고 handler 를 함수 본문 안에서 지연
+**왜 이 검사가 있나.** 예전엔 `Bucket_Store` 가 cv2-free 인 척하려고 `port` 를 함수 본문 안에서 지연
 import 했고, 그 위장의 어색함이 *"라이프사이클이 store 에 있으면 안 되나 보다"* 라는 오진을 낳아 같은
 경계를 두 바퀴 돌았다. 순수해야 하는 건 `schema` 한 모듈이지 계층 전체가 아니다 — 그걸 밖으로 꺼낸 뒤로
 `store → port` 는 떳떳한 top-level import 다. 이 검사는 그 결론을 고정한다.

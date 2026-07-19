@@ -1,10 +1,10 @@
 """**재귀 트리 스키마** — 유일 노드 ``Data_Ref`` (데이터모델의 순수 코어).
 
 노드 클래스가 없다. 트리는 ``Data_Ref`` 하나로 재귀하고, kind 는 **``format`` 이 비었는지**로 갈린다:
-BRANCH(비었음 — ``info`` = 자식 dict) / LEAF(``(handler, detail)`` — payload 서술자). 모델·범주·영속
+BRANCH(비었음 — ``info`` = 자식 dict) / LEAF(``(도메인, 포맷)`` — payload 서술자). 모델·범주·영속
 전모는 [`README.md`](README.md).
 
-이 모듈은 **저장·정책을 모른다** — ``handler`` 를 import 하지 않아(단방향) 데이터모델만 필요한 소비자가
+이 모듈은 **저장·정책을 모른다** — ``port`` 를 import 하지 않아(단방향) 데이터모델만 필요한 소비자가
 cv2·registry 없이 이 파일 하나만 들일 수 있다(cv2-free 코어). 범주·영속·컬렉션은 forest 파사드
 ``Bucket_Store`` ([`store/`](store)) 소유 — 경계는 "한 노드의 자기 범위 vs 컬렉션·정책 범위".
 """
@@ -24,9 +24,10 @@ class Data_Ref(Data_Schema):
     직렬화 왕복에서 list→tuple 정규화).
 
     Attributes:
-        format: LEAF ``(handler, detail)`` (handler = 디스패치 키, detail = ext/dtype); BRANCH 는 ``()``.
+        format: LEAF ``(도메인, 포맷)`` (도메인 = 디스패치 키, 포맷 = ext/dtype; bbox 는 셋째 칸 style);
+            BRANCH 는 ``()``.
         info:   BRANCH = 자식 ``dict[str, Data_Ref]`` / LEAF = 인라인 payload(``value``; 파일 LEAF 는
-            비어 있다 — 경로는 트리 위치와 leaf 이름에서 handler 가 파생한다).
+            비어 있다 — 경로는 트리 위치와 leaf 이름에서 ``port`` 가 파생한다).
     """
 
     format: tuple[str, ...] = ()
@@ -104,7 +105,7 @@ class Data_Ref(Data_Schema):
         """이 컨테이너 아래 모든 **LEAF** 를 ``(path, name, ref)`` 로 재귀 순회 (branch 는 파고든다).
 
         ``path`` 는 조상 branch 의 key 시퀀스 — payload 파일 경로(``{root}/{*path}/{name}.{ext}``)의 **유일한
-        출처**다. 인라인 LEAF(attr/rle)도 함께 나오지만 handler 가 파일 연산 때 no-op 이라 순회에 안전하다.
+        출처**다. 인라인 LEAF(attr/rle)도 함께 나오지만 ``port`` 가 파일 연산 때 no-op 이라 순회에 안전하다.
         """
         for _name, _entry in self.info.items():
             if _entry.Is_branch():
@@ -157,7 +158,7 @@ class Data_Ref(Data_Schema):
 
 
 #: 인라인 LEAF 의 detail(둘째 칸)에 오는 **파이썬 타입** 이름 — 값이 파일이 아니라 ``info["value"]`` 에 산다.
-#: 값→이름 판정은 [`port/attr.py`](port/attr.py) 가 한다 (읽고 쓰는 쪽의 일이다).
+#: 값→이름 판정은 [`codec/inline.py`](codec/inline.py) 의 ``Python_type`` 이 한다 (읽고 쓰는 쪽의 일이다).
 PYTHON_TYPES: tuple[str, ...] = ("str", "int", "float", "list")
 
 
@@ -167,14 +168,14 @@ def Build(data: dict) -> dict[str, Data_Ref]:
     값이 이미 ``Data_Ref`` 면 그대로 두고, 선언 dict(``{format, info}``)면 노드로 세운다. **key 는 이름
     (경로)일 뿐이고, 그 노드가 무엇인지는 언제나 ``format`` 이 말한다** — 이름에서 종류를 되짚지 않는다.
 
-    LEAF 의 ``format`` = ``(개념, detail)``:
+    LEAF 의 ``format`` = ``(도메인, 포맷)`` (bbox 는 셋째 칸이 style):
 
-    - **파일** — ``("segmap", "png")`` · ``("image", "jpg")``. 첫 칸이 등록된 handler, detail 은 확장자.
-    - **인라인** — 값에 개념이 없으면 첫 칸이 비고 detail 이 파이썬 타입이다: ``("", "str")`` ·
-      ``("", "int")`` · ``("", "list")``. 개념이 있을 때만 첫 칸이 찬다 — ``("bbox", "list")``: 첫 칸이
-      원소 규약(int 4개)을 말하고 detail 은 그저 파이썬 타입이다. 원소 타입은 **검사하지 않는다**.
+    - **파일** — ``("segmap", "png")`` · ``("image", "jpg")``. 첫 칸이 등록된 도메인, 둘째가 확장자.
+    - **인라인** — 값에 도메인이 없으면 첫 칸이 비고 둘째가 파이썬 타입이다: ``("", "str")`` ·
+      ``("", "int")`` · ``("", "list")``. 도메인이 있으면 첫 칸이 찬다 — bbox 는 ``("region", "bbox", "xyxy")``:
+      첫 칸이 도메인(region), 둘째가 포맷(bbox), 셋째가 style. 원소 타입은 **검사하지 않는다**.
 
-    ``port`` 는 **등록된 handler 가 아닌 첫 칸을 전부 인라인**으로 보므로, 개념을 더해도 port 를 안 고친다.
+    ``port`` 는 **등록된 도메인이 아닌 첫 칸을 전부 인라인(attr)**으로 보므로, 도메인을 더해도 안 고친다.
     (예전엔 인라인이 전부 ``("attr", <아무 문자열>)`` 이었다 — 값이 list 인데 detail 은 ``"str"`` 이라고
     적혀 있었고, 소비처마다 그 문자열을 손으로 지어 복제했다.)
 

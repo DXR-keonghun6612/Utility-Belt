@@ -81,7 +81,7 @@ class Inline_Codec(Codec):
 class File_Codec(Codec):
     """디스크 파일 codec 공통 베이스 — 경로 파생 + 복사/이동/삭제. 서브클래스는 ``_Read``/``_Write`` 만.
 
-    경로 규칙(kind-major)은 [`../README.md`](../README.md) 소유 — ``_path`` 가 그 단일 구현이다.
+    경로 규칙(kind-major)은 [`../port/README.md`](../port/README.md) 소유 — ``_path`` 가 그 단일 구현이다.
     """
 
     @classmethod

@@ -7,7 +7,7 @@
   (무엇을 ctx 로 풀고, 출력을 어디에 앉히나)만 override 한다: Run=``Flow``, Sample=``Sample_stage``.
 
 **source/sink 계약은 없다** — 순회는 ``store.Bucket(범주)`` 한 줄, resolve 는 자유함수(:func:`resolve`),
-route 는 ``handler`` 직접 호출이라 클래스로 세울 것이 없었다. 세 stage 의 진짜 변주는 traversal 기계가
+route 는 ``store`` 창구 직접 호출이라 클래스로 세울 것이 없었다. 세 stage 의 진짜 변주는 traversal 기계가
 아니라 양 끝이고, 그건 **파라미터와 두어 개의 훅**이다. Convert 는 체인을 아예 안 써서 엔진을 떠났다
 (→ ``store.Import``). 설계 근거는 [`README.md`](README.md).
 
@@ -203,7 +203,7 @@ class Stage(Base_Config):
             {to: "meta"|"storage", level?: "frame"|"object", type?: str, format?: str, as?: str}
 
         ``to`` = 보관 방식(인라인 / 파일), ``level`` = 위치(기본 ``"object"``), ``format`` = 확장자
-        override. **파일 경로는 spec 이 안 정한다** — 트리 위치(범주·stem·obj_id)와 출력키에서 handler 가
+        override. **파일 경로는 spec 이 안 정한다** — 트리 위치(범주·stem·obj_id)와 출력키에서 ``port`` 가
         파생한다(kind-major). 값 → ``Data_Ref`` 타입 결정도 spec 이 아니라
         :func:`core.port.Template` 가 값·맥락으로 정한다.
 

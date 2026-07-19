@@ -67,7 +67,7 @@ write-back + 파생 attr). **파일이 안 움직인다.** 트리의 class 그�
 
 **지금 어긋난 곳 (도메인 유지인데 생성처럼 군다)** — detection/seg:
 - `Sample_stage._sample_ref` 가 정본 객체를 **clone** 해 담는다(스냅샷 복제) — 새로 만드는 건 split 뿐인데.
-- export([`sample/export/coco.py`](sample/export/coco.py))가 bbox·class 는 그 클론(스냅샷)에서, segment 는
+- export([`../export/coco.py`](../export/coco.py))가 bbox·class 는 그 클론(스냅샷)에서, segment 는
   정본(live)에서 읽어 **불일치** — 재라벨하면 박스 옛것·마스크 새것.
 - `gui/meta_page/sample/_sample_view` 의 class-그룹 트리는 생성형 전용인데 재표현형에도 씌운다
   (frame 마다 객체가 달라 안 맞음).
