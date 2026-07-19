@@ -36,7 +36,7 @@
 stream/
 ├── preprocess/  프레임 다듬기 — crop · color
 ├── filter/      edge 를 만든다 — canny(탐색) · edge(닫기)
-├── mask/        이진 영역·인스턴스 — threshold · cleanup · reflect · separate · order ·
+├── mask/        이진 영역·인스턴스 — threshold · cleanup · reflect · separate · order · roi ·
 │                from_edge · flood · carve · radial
 ├── chroma/      크로마 배경모델 — convert_to · accumulate · robust_stats(finalize) · distance
 ├── model/       무거운 모델에 기대는 유닛 — detect·segment(정책) + onnx·torch(backend)

@@ -167,6 +167,22 @@ def Mask_within_roi(mask: GRAY_IMAGE, roi: BBOX | GRAY_IMAGE) -> GRAY_IMAGE | No
     return _out
 
 
+def Box_within_roi(box: BBOX | None, roi: BBOX | GRAY_IMAGE | None) -> bool:
+    """bbox(XYXY)가 ``roi`` 의 **외접 박스** 안에 완전히 드는지 (한 변이라도 벗어나면 False).
+
+    roi 가 마스크로 주어져도 그 모양이 아니라 외접 박스로 본다(``Roi_to_box`` 규약 — roi 는 관심 영역의
+    대략적 한정이지 정밀 경계가 아니다). ``roi`` 가 None(미지정)이거나 비었으면, 또는 ``box`` 가 None
+    (판정 근거 없음)이면 True — 이 함수는 "roi 밖에 걸친 것"만 걸러내지 그 밖의 이유로 떨구지 않는다.
+    """
+    if roi is None or box is None:
+        return True
+    _rb = Roi_to_box(roi)                       # (y0, y1, x0, x1) — 마스크/BBOX 모두 외접 박스로
+    if _rb is None:                             # 빈 roi = 사실상 미지정
+        return True
+    _y0, _y1, _x0, _x1 = _rb
+    return box[0] >= _x0 and box[1] >= _y0 and box[2] <= _x1 and box[3] <= _y1
+
+
 def Crop_to_mask(image: np.ndarray, mask: GRAY_IMAGE) -> np.ndarray | None:
     """``mask`` 전경의 외접 박스로 ``image`` 를 자른다. 전경이 없으면 None."""
     _coords = np.argwhere(mask > 0)

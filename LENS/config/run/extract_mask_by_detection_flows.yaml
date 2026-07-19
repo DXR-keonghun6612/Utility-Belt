@@ -3,13 +3,19 @@ flows:
     name: Extract_mask_by_detection
     unit: frame
     processes:
+    # ① ONNX 전경-분할 → 객체 검출. min_area 로 일정 크기 이하(잡음) 컴포넌트를 버린다.
     -   object_type: detect_instances
         threshold: 0.5
-        min_area: 200
+        min_area: 800
         merge_gap: 0
         bbox_gap: 0.0
         model:
             type: onnx_seg
             onnx_file: detection.onnx
+        outputs:
+            object: {}
+    # ② params 의 roi 밖에 걸친 객체를 통째 제거 (bbox 가 roi 외접박스에 완전히 들 때만 유지).
+    #    roi 는 세션 params(converter.params.roi)에서 엔진이 ctx 로 얹는다 — 여기 인자로 안 적는다.
+    -   object_type: filter_by_roi
         outputs:
             object: {}
