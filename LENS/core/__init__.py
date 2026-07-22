@@ -5,7 +5,7 @@
 **바인더는 지연 노출한다** (PEP 562 ``__getattr__``). `from core import Pipeline` 은 그대로 되지만,
 import 자체는 무거운 것(cv2·sam3)을 안 끌고 온다 — 안 그러면 ``import core.schema`` 만 하려는 소비자도
 부모 패키지 실행에 걸려 전부를 들이게 되고, 순수 트리 코어를 따로 뺀 의미가 사라진다. 이 성질은
-[`test_layering.py`](test_layering.py) 가 검사한다.
+[`README.md`](README.md) 의 불변식 ③이다.
 """
 
 from __future__ import annotations

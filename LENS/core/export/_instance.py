@@ -1,9 +1,13 @@
 """프레임 단위 export 공통 base — 이미지 + 인스턴스(bbox·class·±mask) 중간표현.
 
 detection 과 segmentation 이 **같은 프레임 빌드**(``unit=frame``)에서 나오고, 차이는 딱 하나 —
-segmentation 은 인스턴스마다 **mask** 를 더 싣는다(정본 ``segment`` 라벨맵에서 파생). 그래서 둘은
-serializer(``coco``/``yolo``/``mask``)를 공유하고, ``Frame_exporter`` 가 그 공유 지점이다:
-sample 을 순회해 :class:`Frame_record` 목록으로 정규화하고, serializer 는 그 중간표현만 쓴다.
+segmentation 은 인스턴스마다 **mask** 를 더 싣는다. 그래서 둘은 serializer(``coco``/``yolo``/``mask``)를
+공유하고, ``Frame_exporter`` 가 그 공유 지점이다: sample 을 순회해 :class:`Frame_record` 목록으로
+정규화하고, serializer 는 그 중간표현만 쓴다.
+
+**mask 는 [`mask` 도메인](../port/domain/mask.py)에서 온다 — 객체가 자기 mask 를 든다.** 각 객체가
+``mask`` 를 rle·polygon·png 어느 포맷으로든 들고, 그게 곧 그 인스턴스의 픽셀이다(정본). export 는
+포맷을 손으로 풀지 않고 ``store.Decode`` 로 배열을 받는다(binder 는 port 직접 호출 금지 — store 창구).
 
 **mask 를 켜는 건 task 다** — ``TASKS[task].needs_mask``. 같은 ``Coco_exporter`` 가 ``detection`` 이면
 bbox 만, ``segmentation`` 이면 annotation 에 ``segmentation`` 필드까지 낸다.
@@ -17,7 +21,7 @@ from pathlib import Path
 import numpy as np
 
 from ..format import bbox as _bbox_fmt
-from ..func.mask.instance import Mask_of
+from ..format import rle as _rle_fmt
 from ..schema import Data_Ref
 from ._base import Exporter
 
@@ -44,11 +48,16 @@ class Instance:
 
 @dataclass
 class Frame_record:
-    """프레임 하나 = 원본 이미지 + 그 인스턴스들 — serializer(coco/yolo/mask)의 입력 단위."""
+    """프레임 하나 = 원본 이미지 + 그 인스턴스들 — serializer(coco/yolo/mask)의 입력 단위.
+
+    ``size_hw`` 는 COCO ``images`` 의 width/height 이자 YOLO 좌표 정규화의 분모다 — 즉 **좌표를 읽는
+    쪽이 반드시 필요로 하는 값**이라 중간표현이 든다(serializer 가 파일을 다시 열지 않게).
+    """
 
     stem:      str
     image_src: Path | None            # 정본 프레임 원본 파일 (복사 원천; 없으면 None)
     instances: list[Instance] = field(default_factory=list)
+    size_hw:   tuple[int, int] | None = None   # 프레임 (H, W) — 못 구하면 None
 
 
 @dataclass
@@ -94,31 +103,62 @@ class Frame_exporter(Exporter):
     def _records(self, split: str) -> list[Frame_record]:
         """한 split 의 프레임 sample 들을 :class:`Frame_record` 로 (정본 이미지 경로 + 인스턴스).
 
-        객체(bbox·class)·segment 모두 **정본에서 live** 로 읽는다(한 출처 — 재라벨 불일치 제거).
-        segmentation 이면 프레임의 ``segment`` 라벨맵을 **프레임당 1회** 풀어 객체마다 나눠 쓴다(객체
-        수만큼 다시 읽지 않는다 — resolve-once). segment 가 없으면 조용히 bbox 로 떨어지지 않고 실패한다.
+        객체(bbox·class·mask) 모두 **정본에서 live** 로 읽는다(한 출처 — 재라벨 불일치 제거).
+        segmentation 이면 객체별 mask 를 싣는다 — 각 객체가 자기 ``mask``(mask 도메인)를 든다. 없으면
+        조용히 bbox 로 떨어지지 않고 실패한다(:meth:`_instance`).
         """
         _out: list[Frame_record] = []
         for _sid, _ref in sorted(self.source.Bucket(split).items()):
-            _item = self._source_item(_ref)                 # 정본 프레임 (객체·segment live)
+            _item = self._source_item(_ref)                 # 정본 프레임 (객체 live)
             if _item is None:
                 continue
             _stem = _ref.Attr("source_stem") or _sid
-            _seg = self._frame_segment(_stem)               # segmentation 이면 라벨맵, 아니면 None
             _out.append(Frame_record(
                 stem=_stem,
                 image_src=self._frame_src(_stem),
-                instances=[self._instance(_seg, _oid, _obj)
-                           for _oid, _obj in _item.Branches().items()]))
+                instances=[self._instance(_stem, _oid, _obj)
+                           for _oid, _obj in _item.Branches().items()],
+                size_hw=self._frame_size(_stem, _item)))
         return _out
 
-    def _instance(self, seg, obj_id: str, obj: Data_Ref) -> Instance:
-        """객체 컨테이너 → :class:`Instance` (bbox·class, ``seg`` 있으면 obj mask 도)."""
+    def _frame_size(self, stem: str, item: Data_Ref) -> tuple[int, int] | None:
+        """프레임 ``(H, W)`` — **파일을 안 여는 경로부터** 차례로 (못 구하면 None).
+
+        ① 프레임 leaf 서술자의 ``height``/``width``(정본에 적혀 있다) → ② 객체 mask 가 인라인 rle 면 그
+        ``size``(rle 는 캔버스 크기를 들고 있다) → ③ 그래도 없으면 이미지를 로드해 shape 을 본다.
+        앞의 둘은 디스크를 안 건드리므로, 프레임 수가 많아도 크기 때문에 파일을 다시 열지 않는다.
+        """
+        _leaf = item.Get(self.image_key)
+        if _leaf is not None:
+            _h, _w = _leaf.info.get("height"), _leaf.info.get("width")
+            if _h and _w:
+                return int(_h), int(_w)
+        for _obj in item.Branches().values():           # 객체 mask 는 프레임 해상도 위에 산다
+            _mref = _obj.Get("mask")
+            _val = _mref.info.get("value") if _mref is not None else None
+            if isinstance(_val, dict) and _val.get("size"):
+                return _rle_fmt.Size(_val)
+        _img = self.meta.Load(stem, self.image_key) if self.meta is not None else None
+        return (int(_img.shape[0]), int(_img.shape[1])) if _img is not None else None
+
+    def _instance(self, stem: str, obj_id: str, obj: Data_Ref) -> Instance:
+        """객체 컨테이너 → :class:`Instance` (bbox·class, segmentation 이면 그 객체 mask 도).
+
+        mask 는 **객체 자기 것(mask 도메인)** 이다 — rle·polygon·png 무관하게 store 가 배열로 준다. 없는데
+        segmentation 이면 실패한다 — 조용히 bbox-only 로 떨어뜨리지 않는다.
+        """
+        _mask = None
+        if self._needs_mask():
+            _mask = self._obj_mask(stem, obj_id, obj)
+            if _mask is None:
+                raise ValueError(
+                    f"segmentation 내보내기: '{stem}' 객체 '{obj_id}' 에 mask 가 없다 — segmentation "
+                    "task 는 객체마다 mask 가 필요하다 (bbox-only 로 안 떨어뜨림)")
         return Instance(
             obj_id=obj_id,
             class_id=obj.Attr("class_id") or None,          # 없으면 class-agnostic
             bbox=self._bbox(obj),
-            mask=self._obj_mask(seg, obj_id) if seg is not None else None)
+            mask=_mask)
 
     # ── 좌표·픽셀 파생 ───────────────────────────────────────────────────────────
     @staticmethod
@@ -137,28 +177,18 @@ class Frame_exporter(Exporter):
             raise ValueError(f"export: bbox 가 region bbox 가 아니다 — format={_box.format} value={_v}")
         return _bbox_fmt.To_xyxy(_v, _bbox_fmt.Style_of(_box.format))
 
-    def _frame_segment(self, stem: str) -> np.ndarray | None:
-        """segmentation task 면 프레임의 ``segment`` 인스턴스 라벨맵을 푼다 (아니면 None).
+    def _obj_mask(self, stem: str, obj_id: str, obj: Data_Ref) -> np.ndarray | None:
+        """객체 자기 ``mask`` 를 이진 배열로 (mask 도메인, 포맷 무관) — 없으면 None.
 
-        segment 는 frame-level 한 장(픽셀=obj_id+1)이고 프레임 해상도라 COCO 로 복사하는 원본 이미지와
-        정렬된다. **segmentation 인데 segment 가 없으면 실패** — 조용히 bbox 로 떨어지지 않는다.
+        객체가 자기 mask 를 든다(rle·polygon·png…). ``store.Decode`` 가 그 포맷을 손으로 풀지 않고
+        도메인 경유로 배열을 준다 — export 는 binder 라 port 를 직접 못 부르고 store 창구를 쓴다.
+        leaf 파일 경로 파생용으로 트리 위치 ``(범주, stem, obj_id)`` 를 넘긴다(인라인이면 안 쓰인다).
         """
-        if not self._needs_mask():
+        _leaf = obj.Get("mask")
+        _ip = self.meta.Item_path(stem) if self.meta is not None else None
+        if _leaf is None or _ip is None:
             return None
-        _item = self.meta.Find(stem) if self.meta is not None else None
-        _leaf = _item.Get("segment") if _item is not None else None
-        if _leaf is None:
-            raise ValueError(f"segmentation 내보내기: '{stem}' 에 segment 라벨맵이 없다 — "
-                             "segmentation task 는 정본 segment 가 필수다 (bbox-only 로 떨어뜨리지 않음)")
-        return self.meta.Load(stem, "segment")
-
-    @staticmethod
-    def _obj_mask(seg: np.ndarray, obj_id: str) -> np.ndarray | None:
-        """프레임 ``segment`` 라벨맵에서 한 obj 의 이진 mask — 라벨↔id 규약·gather 는 ``func.mask`` 소유.
-
-        export 가 binder 계층이라 이제 func 에 닿는다 — 손으로 ``int(id)+1`` 을 짓지 않고 ``Mask_of`` 를 부른다.
-        """
-        return Mask_of(seg, obj_id)
+        return self.meta.Decode((*_ip, obj_id), "mask", _leaf)
 
     def _copy_image(self, rec: Frame_record, dst_dir: Path) -> str | None:
         """record 의 정본 프레임 원본 파일을 ``dst_dir`` 로 복사 (파일명 반환; 없으면 None)."""

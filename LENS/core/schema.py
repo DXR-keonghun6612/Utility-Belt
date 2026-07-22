@@ -88,7 +88,7 @@ class Data_Ref(Data_Schema):
     def Replace_branches(self, refs: "list[Data_Ref]") -> None:
         """BRANCH 자식을 통째로 갈아끼운다 — **LEAF 는 보존**, 새 이름은 순번(``"0"``, ``"1"`` …).
 
-        프로세스가 낸 객체 리스트로 프레임의 객체 집합을 교체하는 자리. LEAF(rgb·segmap 등)는 객체와 같은
+        프로세스가 낸 객체 리스트로 프레임의 객체 집합을 교체하는 자리. LEAF(frame·mask 등)는 객체와 같은
         ``info`` 에 살지만 교체 대상이 아니라, 그 보존이 이 연산의 **불변식**이다(소비처가 손으로 지키지 않게).
         """
         self.info = {**self.Leaves(),
@@ -170,7 +170,7 @@ def Build(data: dict) -> dict[str, Data_Ref]:
 
     LEAF 의 ``format`` = ``(도메인, 포맷)`` (bbox 는 셋째 칸이 style):
 
-    - **파일** — ``("segmap", "png")`` · ``("image", "jpg")``. 첫 칸이 등록된 도메인, 둘째가 확장자.
+    - **파일** — ``("mask", "png")`` · ``("image", "jpg")``. 첫 칸이 등록된 도메인, 둘째가 확장자.
     - **인라인** — 값에 도메인이 없으면 첫 칸이 비고 둘째가 파이썬 타입이다: ``("", "str")`` ·
       ``("", "int")`` · ``("", "list")``. 도메인이 있으면 첫 칸이 찬다 — bbox 는 ``("region", "bbox", "xyxy")``:
       첫 칸이 도메인(region), 둘째가 포맷(bbox), 셋째가 style. 원소 타입은 **검사하지 않는다**.

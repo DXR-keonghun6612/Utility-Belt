@@ -12,9 +12,9 @@ from .embed import embed, cluster
 def analyze(
     root: Path, *,
     pattern: str = "*.png",
-    resolution: int = 256,
+    resolution: int = 512,
     n_harmonics: int = 20,
-    normalize: bool = False,
+    batch_size: int = 64,
     n_components: int = 2,
     n_neighbors: int = 15,
     min_dist: float = 0.1,
@@ -25,7 +25,7 @@ def analyze(
     """mask 폴더를 형상 특징화 → UMAP 임베딩 → HDBSCAN 클러스터까지 한 번에."""
     _X, _labels, _stems, _names = process_masks(
         root, pattern=pattern, resolution=resolution,
-        n_harmonics=n_harmonics, normalize=normalize)
+        n_harmonics=n_harmonics, batch_size=batch_size)
 
     _emb = embed(_X, n_components=n_components, n_neighbors=n_neighbors,
                  min_dist=min_dist, random_state=random_state)

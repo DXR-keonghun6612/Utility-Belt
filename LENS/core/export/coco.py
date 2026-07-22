@@ -3,6 +3,10 @@
 ``{dest}/{split}/images/{stem}.{ext}`` + ``{split}/instances_{split}.json``. COCO 는 **원본 이미지 +
 annotation** 이라 픽셀은 sample 이 아니라 정본 프레임에서 복사한다. task 가 ``segmentation`` 이면 각
 annotation 에 ``segmentation`` 필드(인스턴스 mask)를 더 낸다 — 그 외엔 bbox 만(detection).
+
+``images`` 엔트리는 ``width``/``height`` 를 함께 낸다 — pycocotools·detectron2·mmdet 이 요구하는 규약이라
+빠지면 로드가 깨진다. 크기는 ``Frame_record.size_hw``(중간표현)에서 오고, 그건 정본 서술자에서 얻는다
+(파일을 다시 열지 않는다 → [`_instance.Frame_exporter._frame_size`](_instance.py)).
 """
 
 from __future__ import annotations
@@ -35,7 +39,10 @@ class Coco_exporter(Frame_exporter):
             _anns:   list[dict] = []
             for _iid, _rec in enumerate(self._records(_split), start=1):
                 _file = self._copy_image(_rec, _out / _split / "images")
-                _images.append({"id": _iid, "file_name": _file or f"{_rec.stem}.png"})
+                _entry = {"id": _iid, "file_name": _file or f"{_rec.stem}.png"}
+                if _rec.size_hw is not None:            # COCO 규약 — 소비자(pycocotools 등)가 요구한다
+                    _entry["height"], _entry["width"] = _rec.size_hw
+                _images.append(_entry)
                 for _inst in _rec.instances:
                     _anns.append(self._annotation(_inst, _iid, len(_anns) + 1, _ids))
             Write_to(_out / _split / f"instances_{_split}.json", {
@@ -43,7 +50,7 @@ class Coco_exporter(Frame_exporter):
                 "annotations": _anns,
                 "categories":  [{"id": _i, "name": _n} for _n, _i in _ids.items()],
             })
-        Write_to(_out / "id_map.json", _ids)
+        Write_to(_out / "id_map.yaml", self._id_map_document(_ids))
 
     # ── annotation 조립 ─────────────────────────────────────────────────────────
     def _annotation(self, inst: Instance, image_id: int, ann_id: int,

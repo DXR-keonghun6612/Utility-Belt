@@ -29,6 +29,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QLabel, QSplitter, QVBoxLayout, QWidget
 
 from core.format import rle
+from core.func.cv.geom import Clip_to_box
 from core.func.mask.instance import Compose
 from core.schema import Data_Ref
 from gui.editor.format import bbox
@@ -283,7 +284,12 @@ class Data_view(QWidget):
         사이드카). roi 같은 파일 mask 는 제자리 배열이라 store 가 파일로 write 한다(``raster_edited``).
         """
         if self._aim_obj is not None:                    # 객체 mask → rle 인라인 (사이드카)
-            _value = rle.From_mask(target.raster)
+            _raster = target.raster
+            _box = self._aim_obj.ref.Get("bbox")         # region 이 있으면 그 안 픽셀만 남긴다
+            if _box is not None and _box.info.get("value"):
+                _raster = Clip_to_box(_raster, _box.info["value"])
+                self._edit_arr[...] = _raster            # 편집 배열도 잘린 상태로 (display 일관)
+            _value = rle.From_mask(_raster)
             _ref = self._aim_obj.ref.Get("mask")
             if _ref is None:
                 self._aim_obj.ref.Push("mask", Data_Ref(format=("mask", "rle"),
@@ -311,6 +317,11 @@ class Data_view(QWidget):
                                                     info={"value": _value}))
         else:
             _ref.info["value"] = _value
+        if self._edit_arr is not None:                   # 새 box 밖 mask 는 이 객체 것이 아니다 → 자른다
+            self._edit_arr[...] = Clip_to_box(self._edit_arr, _value)
+            _mref = self._aim_obj.ref.Get("mask")        # 저장 rle 도 잘린 상태로 (display·영속 일관)
+            if _mref is not None and _mref.info.get("value"):
+                _mref.info["value"] = rle.From_mask(self._edit_arr)
         self._redraw()
         self.edited.emit(self._aim_obj)
 

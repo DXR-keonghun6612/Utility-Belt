@@ -6,7 +6,8 @@
 
 남은 모듈은 자유함수 묶음이고, 갈 곳이 정해져 있다 ([`../TODO.md`](../TODO.md)):
 
-- **계산**(align·features·polar·stats) → [`../func/`](../func) — 배열만 아는 primitive.
+- **형상 계산**(align·features·polar) → **끝났다.** `torch_toolbox.modules.transform.mask` 로 승격해
+  학습과 같은 모듈을 쓴다. 남은 계산(`chroma/stats`)만 [`../func/`](../func) 대상이다.
 - **chroma 진단** → params(누산기)를 읽는 자유함수. 누산기는 이미 영속이라 엔진이 필요 없다.
 - **shape 군집**(umap/hdbscan) → **산출물 소비자**로 남는다. sample export 폴더를 훑어 군집하고 GUI 가
   파라미터를 바꿔 **재실행**한다 — finalize 로 접으면 "재군집하려면 파이프라인을 다시 돌려야" 하는

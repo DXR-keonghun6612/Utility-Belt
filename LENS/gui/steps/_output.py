@@ -58,7 +58,7 @@ class _Output_row(List_row):
         self._type.setPlaceholderText("type")
         self._type.setFixedWidth(84)
         self._type.setToolTip(
-            "핸들러 (segmap·image·array 등) — 비우면 값과 맥락으로 추론한다.\n"
+            "핸들러 (mask·image·array 등) — 비우면 값과 맥락으로 추론한다.\n"
             "추론이 안 되면 조용한 기본값 없이 실패하므로 그때 명시한다.")
 
         self._format = QLineEdit(str(spec.get("format", "")))

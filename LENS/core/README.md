@@ -11,18 +11,18 @@ LENS 코어 — raw 데이터에서 **정본 annotation** 을 만들고, 그로�
 
 하는 일이 아니라 **아는 타입**이 계층을 정한다. 이 기준을 크기·편의로 바꾸면 경계가 무너진다.
 
-계층 번호의 **단일 진실원천은 [`test_layering.py`](test_layering.py) 의 `LAYER` dict** 다 — 이 표는 그 지도다.
+**계층 번호(`lv`)는 이 표가 소유한다** — 낮은 번호가 아래다. 같은 번호끼리는 서로를 부르지 않는다.
 
-| 계층 | 아는 것 | 내부 설계 |
-|---|---|---|
-| [`schema.py`](schema.py) · `typing` · `constant` | **아무것도 모른다** — 횡단 primitive (의존 0) | 심볼 docstring |
-| [`func/`](func) | 배열↔배열 순수 계산 — core 를 모른다 (numpy·cv2 뿐) | [`func/README.md`](func/README.md) |
-| [`format/`](format) | 데이터 **구조** + 그 연산 (bbox·polygon·rle) — `Data_Ref` 도 I/O 도 모른다 | 패키지 docstring |
-| [`codec/`](codec) | 포맷 단위 **직렬화** (raster·npy·inline·docs) — 도메인을 모른다 | 패키지 docstring |
-| [`port/`](port) | **domain** — 무엇으로 읽나 + 검증·정책 + 디스패치. 데이터 **하나** 읽기/쓰기 + 발견 | [`port/README.md`](port/README.md) |
-| [`store/`](store) | 범주와 item 주소. 데이터 **여럿**의 관리 + 라이프사이클 | [`store/README.md`](store/README.md) |
-| [`process/`](process) | 연산과 결과의 흐름 | [`process/README.md`](process/README.md) |
-| [`_base.py`](_base.py) · [`export/`](export) | 위를 잇는다 (`Pipeline`·export) — 계산 조율 + read+compute+external-write | 심볼 docstring |
+| lv | 계층 | 아는 것 | 내부 설계 |
+|---|---|---|---|
+| 0 | [`schema.py`](schema.py) · `typing` · `constant` | **아무것도 모른다** — 횡단 primitive (의존 0) | 심볼 docstring |
+| 0 | [`func/`](func) | 배열↔배열 순수 계산 — core 를 모른다 (numpy·cv2 뿐). 누구나 부른다 | [`func/README.md`](func/README.md) |
+| 0 | [`format/`](format) | 데이터 **구조** + 그 연산 (bbox·polygon·rle) — `Data_Ref` 도 I/O 도 모른다 | 패키지 docstring |
+| 1 | [`codec/`](codec) | 포맷 단위 **직렬화** (raster·npy·inline·docs) — 도메인을 모른다 | 패키지 docstring |
+| 2 | [`port/`](port) | **domain** — 무엇으로 읽나 + 검증·정책 + 디스패치. 데이터 **하나** 읽기/쓰기 + 발견 | [`port/README.md`](port/README.md) |
+| 3 | [`store/`](store) | 범주와 item 주소. 데이터 **여럿**의 관리 + 라이프사이클 | [`store/README.md`](store/README.md) |
+| 4 | [`process/`](process) | 연산과 결과의 흐름 | [`process/README.md`](process/README.md) |
+| 5 | [`_base.py`](_base.py) · [`export/`](export) · `tasker` · `__init__` | 위를 잇는다 (`Pipeline`·export) — 계산 조율 + read+compute+external-write | 심볼 docstring |
 
 ```text
 schema · func · format          아무것도 안 당기는 밑바닥 (의존 0)
@@ -36,11 +36,13 @@ schema · func · format          아무것도 안 당기는 밑바닥 (의존 0
 - **`schema` 는 모두의 어휘다.** `Split_objects` 가 `Data_Ref` 를 만들고 store 의 트리가 그걸로 서 있다 —
   서술은 어느 계층의 소유물도 아니다.
 
-**이 경계는 산문이 아니라 [`test_layering.py`](test_layering.py) 가 강제한다** — ① 아래 계층이 위 계층을
-import 하면 실패 ② `port` 의 소비자는 `store` 뿐 ③ `core.schema` 만 들였을 때 cv2 가 안 딸려와야 통과.
-검사가 사는 한 계층은 살아 있다.
+**지켜야 할 불변식은 셋이다** — ① 아래 계층(`lv` 작은 쪽)이 위 계층을 import 하지 않는다 ② `port` 의
+소비자는 `store` 뿐이다 ③ `core.schema` 만 들였을 때 cv2 가 딸려오지 않는다.
 
-### 왜 검사까지 두는가 — 같은 경계를 두 바퀴 돌았다
+> ⚠ **지금 이 셋은 산문으로만 있다.** 이걸 `import 방향 검사`로 못박던 `test_layering.py` 는 테스트 전면
+> 재구성을 위해 걷어냈다 — 재작성 대상이다([`TODO.md`](TODO.md)). 그때까지 경계는 사람이 지킨다.
+
+### 왜 검사까지 뒀었나 — 같은 경계를 두 바퀴 돌았다
 
 `cv2-free` 는 **`Data_Ref` 한 모듈**의 성질인데, 그걸 **계층 전체의 계약**으로 요구했다. 그러자
 `Bucket_Store` 가 영속을 하면서 영속을 모르는 척해야 했고(메서드 본문 안 지연 import), 그 위장의 어색함이

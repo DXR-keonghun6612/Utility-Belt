@@ -25,10 +25,10 @@ tree
 ├─ staged
 │   └─ frame0        # item = staged/frame0
 │       ├─ frame     : LEAF (image,png)               # 프레임 payload (base)
-│       ├─ segment   : LEAF (segmap,png)              # 모든 객체 mask 한 장 (픽셀 = obj_id+1)
-│       ├─ "0"       : BRANCH                         # 객체 0 — 인라인 값만 (payload 없음)
+│       ├─ "0"       : BRANCH                         # 객체 0
 │       │   ├─ class_id : LEAF ("",str)    value=dog  # 개념 없는 값 — detail = 파이썬 타입
-│       │   └─ bbox     : LEAF (bbox,list)            # 개념이 있으면 첫 칸이 찬다
+│       │   ├─ bbox     : LEAF (region,bbox,xyxy)     # 개념이 있으면 첫 칸이 찬다
+│       │   └─ mask     : LEAF (mask,rle)             # 이 객체가 덮는 픽셀 — 포맷은 자유(rle·png·npy…)
 │       └─ "1"       : BRANCH …
 └─ skipped
 ```

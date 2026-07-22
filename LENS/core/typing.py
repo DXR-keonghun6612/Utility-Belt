@@ -23,7 +23,7 @@ from numpy import dtype, ndarray, uint8
 BBOX       = tuple[int, int, int, int]
 #: **채널 무관** 이미지 배열 — gray ``(H,W)`` · 3ch ``(H,W,3)`` · 4ch ``(H,W,4)`` 를 한 타입으로 담는다.
 #: 채널 수는 **런타임에** 구분한다(``func`` 가 배열 shape 를 본다) — 타입을 채널별로 쪼개지 않는 게
-#: 제일 깔끔하다는 판단. 단일채널이 계약인 자리(mask·edge·segmap)만 ``GRAY_IMAGE`` 로 좁힌다.
+#: 제일 깔끔하다는 판단. 단일채널이 계약인 자리(mask·edge·라벨맵)만 ``GRAY_IMAGE`` 로 좁힌다.
 IMAGE      = ndarray
 GRAY_IMAGE = ndarray[tuple[int, int], dtype[uint8]]
 

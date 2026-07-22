@@ -4,7 +4,7 @@
 
 `schema` 는 서술자만 들고, 실제 파일은 여기가 오간다. 아는 것은 **디스크와 포맷뿐** — `Bucket_Store` 를
 모른다. **`store` 만이 여기를 부른다**(읽기/쓰기는 store 가 소유하고 위 계층은 요청한다). 이 방향과
-"소비자는 store 하나"는 [`../test_layering.py`](../test_layering.py) 가 강제한다.
+"소비자는 store 하나"는 [`../README.md`](../README.md) 의 불변식 ②다.
 
 각 심볼의 인자·반환은 그 심볼의 docstring 에 있다. 이 문서는 **심볼·계층 사이에 걸치는 것**만 다룬다.
 
@@ -65,7 +65,7 @@ format[0] = 도메인 이름     format[1] = codec 이 맡는 포맷 이름     
 - **`to` 는 요청이지 힌트가 아니다** — 그릇(`meta`=인라인 / `storage`·`trace`=파일)과 확정된 포맷의
   `INLINE` 이 어긋나면 실패한다. 같은 mask 라도 `to` 에 따라 rle(인라인)/png(파일)로 갈린다.
 - **`Template_for_file` 은 그 자매다** — 담을 그릇을 정하는 일은 같고, ingest 는 값을 읽기 *전*이라
-  **확장자가 아니라 `type`(도메인)을 필수로 명시**한다(png 하나가 image·segmap·mask 라 추론은 조용한 선택).
+  **확장자가 아니라 `type`(도메인)을 필수로 명시**한다(png 하나가 image·mask 라 추론은 조용한 선택).
 
 `spec` 스키마는 port 소유가 아니다 — `Stage._route`([`../process/_base.py`](../process/_base.py)) docstring 이
 소유하고, 여기는 담을 그릇을 정하는 키(`to`·`type`·`format`)만 읽는다.

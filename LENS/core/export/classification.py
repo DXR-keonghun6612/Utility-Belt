@@ -41,4 +41,4 @@ class ImageFolder_exporter(Exporter):
                 _dir = _out / _split / _class if _class is not None else _out / _split
                 self._copy(_src, _dir / f"{_sid}{_src.suffix}")
         if _classes:                                     # class-agnostic 이면 id_map 자체가 없다
-            Write_to(_out / "id_map.json", self._resolve_id_map(_classes))
+            Write_to(_out / "id_map.yaml", self._id_map_document(self._resolve_id_map(_classes)))

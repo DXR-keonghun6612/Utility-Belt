@@ -5,11 +5,10 @@ from .separate  import Split_objects
 from .order     import Order_objects
 from .roi       import Filter_by_roi
 from .radial    import Radial_thickness
-from .carve     import Carve_color_holes
 from .flood     import Flood_background
 from .from_edge import Fill_edge, Edge_blob, Remove_edge_holes
 
 __all__ = ["Threshold_score", "Intensity_band", "Normalize_mask", "Morph_mask",
            "Combine_mask", "Reflection_gate", "Split_objects", "Order_objects",
-           "Filter_by_roi", "Radial_thickness", "Carve_color_holes", "Flood_background",
+           "Filter_by_roi", "Radial_thickness", "Flood_background",
            "Fill_edge", "Edge_blob", "Remove_edge_holes"]

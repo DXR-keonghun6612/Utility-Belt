@@ -1,9 +1,12 @@
 """segment — 프레임 객체 bbox 들을 backend 로 분할하는 모델-무관 프로세스.
 
 **Segment** 는 backend(``model``: ``encode``/``run`` 프리미티브)를 config 로 주입받아 이미지 인코딩
-1회 + box 별 디코드로 인스턴스 ``segment`` 라벨맵을 만든다. SAM3 등 특정 모델을 몰라도 되는 층 —
+1회 + box 별 디코드로 **객체마다 자기 mask** 를 만든다. SAM3 등 특정 모델을 몰라도 되는 층 —
 같은 계약(``infer_ctx``/``encode``/``run``)을 만족하는 promptable segmenter 면 backend 만 갈아끼운다.
-plain box→best mask 만 하고, 영역 제거(구멍/슬릿 carve 등)는 downstream process 로 조합한다.
+
+**프롬프트는 point·box·text 뿐 — mask 는 입력이 아니라 출력이다.** 이 유닛은 box 프롬프트를 받아
+box 하나당 best mask 하나를 내고, 그 mask 를 객체의 ``mask``(rle)로 인라인한다(mask 도메인, 겹침 허용).
+사후 mask 수술(구멍 carve 등)은 두지 않는다 — 필요하면 SAM3 프롬프트(text·negative point)로 푼다.
 """
 
 from __future__ import annotations
@@ -14,8 +17,8 @@ from typing import Annotated, Any
 import numpy as np
 
 from core.schema import Build, Data_Ref
+from .....format import rle
 from .....func.cv.geom import Mask_to_box
-from .....func.mask.instance import Paint
 from ... import PROCESS_REGISTRY, Base_Process, GRAY_IMAGE, UI
 
 
@@ -39,18 +42,19 @@ def _bbox_of(obj: Data_Ref) -> list | None:
 
 @PROCESS_REGISTRY.Register_module()
 @dataclass
-class Segment(Base_Process, outputs=("segment", "object"), category="모델/분할"):
+class Segment(Base_Process, outputs=("object",), category="모델/분할"):
     """프레임 객체 bbox 들을 backend 로 분할하는 정책 프로세스 (plain box→best mask).
 
-    ``unit: frame`` — ctx 의 ``object``(프레임의 객체 목록)에서 객체별 box 를 프롬프트로 준다. backend
-    이미지 인코딩은 프레임당 1회(``encode``), box 마다 가벼운 ``run`` 디코드. best mask 로 (1) 인스턴스
-    라벨맵 ``segment``(픽셀=obj_id+1) 재칠 (2) bbox 재계산. ``class_id`` 는 SAM3 가 정하지 않고 기존 객체
-    값을 그대로 유지한다. 결과 없으면 빈 dict("스킵").
+    ``unit: frame`` — ctx 의 ``object``(프레임의 객체 목록)에서 객체별 box 를 **프롬프트**로 준다(mask 는
+    프롬프트가 아니다). backend 이미지 인코딩은 프레임당 1회(``encode``), box 마다 가벼운 ``run`` 디코드.
+    box 하나당 best mask 하나를 내 (1) 객체의 ``mask``(rle)로 인라인 (2) 그 mask 로 bbox 재계산.
+    ``class_id`` 는 SAM3 가 정하지 않고 기존 객체 값을 그대로 유지한다. 결과 없으면 빈 dict("스킵").
 
     ``object`` 는 입력이자 출력이다 — engine 이 store 에서 seed 하고, 앞 step(``split_objects``)이 있으면
     그 출력이 ctx 에서 이긴다. 유닛은 store 를 모른다.
 
-    영역 제거(구멍/슬릿 carve)는 여기 넣지 않고 downstream process(edge·fill·combine)로 조합한다.
+    **사후 mask 수술을 여기(또는 downstream)에 두지 않는다** — 이 층은 순수 SAM3 다. 구멍/슬릿 제거가
+    필요하면 별도 유닛이 아니라 SAM3 프롬프트(text·negative point)로 푼다.
     """
 
     # model: pipeline 이 config 의 ``{type: sam3, …}`` 스펙을 빌드해 주입한 backend.
@@ -67,18 +71,19 @@ class Segment(Base_Process, outputs=("segment", "object"), category="모델/분�
         # 객체마다 box 프롬프트 + 프레임 공유 text concept → 프레임 인코딩 1회 위에서 box 별 디코드.
         _masks = self._predict(frame, [_bbox_of(_o) for _o in _objs])
 
-        _seg      = np.zeros(frame.shape[:2], dtype=np.uint8)   # 인스턴스 라벨맵 (0 = 배경)
         _new: list[Data_Ref] = []                              # obj_id = 리스트 순번(_route info key)
         for _o, _m in zip(_objs, _masks):
             if _m is None or int((_m > 0).sum()) < self.min_area:
                 continue
-            _oid = len(_new)                                   # 정제 후 재부여한 0-based obj_id
-            Paint(_seg, _oid, _m)                              # 라벨맵에 그 객체 라벨로 도색 (규약은 func)
             _box = Mask_to_box(_m)                             # 정제 mask 기준 bbox 재계산
             if _box is None:
                 continue
-            _data: dict = {"bbox": {"format": ("region", "bbox", "xyxy"),
-                                    "info": {"value": [float(_v) for _v in _box]}}}
+            _data: dict = {
+                "bbox": {"format": ("region", "bbox", "xyxy"),
+                         "info": {"value": [float(_v) for _v in _box]}},
+                "mask": {"format": ("mask", "rle"),
+                         "info": {"value": rle.From_mask((_m > 0).astype(np.uint8))}},  # 이 box 의 best mask
+            }
             _cid = _o.Get("class_id")                          # 기존 class 유지 (SAM3 는 class 안 정함)
             if _cid is not None:
                 _data["class_id"] = _cid
@@ -86,7 +91,7 @@ class Segment(Base_Process, outputs=("segment", "object"), category="모델/분�
 
         if not _new:
             return {}
-        return {"segment": _seg, "object": _new}
+        return {"object": _new}
 
     def _predict(self, frame_bgr: np.ndarray, boxes: list) -> list[GRAY_IMAGE | None]:
         """프레임 1장 + box 리스트 → box 별 best mask. 이미지 인코딩 1회 + box 별 ``_segment_box``.

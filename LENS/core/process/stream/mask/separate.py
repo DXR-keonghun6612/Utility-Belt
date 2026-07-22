@@ -4,19 +4,21 @@ from dataclasses import dataclass
 from typing import Annotated
 
 from ....schema import Build, Data_Ref
+from ....format import rle
 from ....func.cv.geom import Roi_to_mask
-from ....func.mask.instance import Split_components
+from ....func.mask.instance import Split_components, Mask_of
 from .. import PROCESS_REGISTRY, Base_Process, UI, GRAY_IMAGE, BBOX
 
 
 @PROCESS_REGISTRY.Register_module()
 @dataclass
-class Split_objects(Base_Process, outputs=("segment", "object"), category="마스크/분리"):
-    """이진 mask 를 연결 요소로 쪼개 인스턴스 ``segment`` 맵 + ``object`` 리스트를 만든다.
+class Split_objects(Base_Process, outputs=("object",), category="마스크/분리"):
+    """이진 mask 를 연결 요소로 쪼개 **객체마다 자기 mask 를 든** ``object`` 리스트를 만든다.
 
-    분할 계산은 ``func.mask.instance.Split_components``. 이 유닛은 roi/반전 적용과 결과 bbox 를 객체
-    컨테이너(``Data_Ref``)로 조립하는 일만 한다. ``class_id`` 는 프레임 ctx 값을 그대로 물려주고,
-    없으면 ``__unclassified__``. 살아남은 객체가 없으면 빈 dict("스킵").
+    분할 계산은 ``func.mask.instance.Split_components``. 라벨맵은 그 계산의 내부 표현일 뿐이라 **저장하지
+    않고**, 컴포넌트마다 ``Mask_of`` 로 잘라 객체의 ``mask``(rle)로 인라인한다 — 객체별 mask 가 정본이다
+    (mask 도메인). ``bbox``·``class_id`` 도 같은 객체 컨테이너에 담는다. ``class_id`` 는 프레임 ctx 값을
+    그대로 물려주고, 없으면 ``__unclassified__``. 살아남은 객체가 없으면 빈 dict("스킵").
     """
 
     min_area:     Annotated[int,  UI(label="최소 객체 면적 (px²)", min=0, max=100000)] = 200
@@ -49,7 +51,9 @@ class Split_objects(Base_Process, outputs=("segment", "object"), category="마�
             Data_Ref(info=Build({
                 "class_id": {"format": ("", "str"),                "info": {"value": _cls}},
                 "bbox":     {"format": ("region", "bbox", "xyxy"), "info": {"value": _box}},
+                "mask":     {"format": ("mask", "rle"),
+                             "info": {"value": rle.From_mask(Mask_of(_seg, _i))}},   # 라벨맵 조각 = 객체 mask
             }))
-            for _box in _boxes
+            for _i, _box in enumerate(_boxes)
         ]
-        return {"segment": _seg, "object": _objs}
+        return {"object": _objs}                # 라벨맵은 위에서 mask 로 분산 — 저장/전달 안 함

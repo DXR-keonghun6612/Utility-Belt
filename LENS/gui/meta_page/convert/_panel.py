@@ -29,7 +29,7 @@ from gui.widgets import List_editor, List_row, Pair_list_editor
 
 # 등록된 핸들러가 진실원천 — 새 핸들러를 떨구면 여기가 따라온다(하드코딩하면 조용히 뒤처진다).
 # 첫 항목 ""(미지정)은 **유효하지 않다** — Convert 가 "type 을 명시하세요"로 실패한다.
-# 추론하지 않는 이유: 같은 png 라도 image 일 수도 segmap 일 수도 있다.
+# 추론하지 않는 이유: 같은 png 라도 image 일 수도 mask 일 수도 있다.
 _GLOB_TYPES = ["", *port.Types()]
 
 
@@ -45,7 +45,7 @@ _GLOB_COLUMNS = [
                         "저장 확장자도 이걸 따라간다(ingest 는 복사이지 변환이 아니다).\n"
                         "패턴에 이미 확장자를 썼다면 비워둔다."),
     ("type",       92, "핸들러 — **필수**. 확장자로 추론하지 않는다:\n"
-                        "같은 png 라도 image(색 이미지)일 수도 segmap(라벨맵)일 수도 있다.\n"
+                        "같은 png 라도 image(색 이미지)일 수도 mask(객체 마스크)일 수도 있다.\n"
                         "attr = 파일을 안 남기고 텍스트를 값으로 읽는다."),
 ]
 
@@ -133,7 +133,7 @@ _PARAM_COLUMNS = [
     ("종류 (key)", 110, "dataset-wide 값의 이름 (예: roi · id_map). 범주에 안 속하고 stem 축도 없다."),
     ("파일 경로",    0, "glob 이 아니라 **단일 파일 경로**다 (프레임마다 있는 게 아니므로)."),
     ("type",       92, "핸들러 — **필수**. 확장자로 추론하지 않는다:\n"
-                        "같은 png 라도 image 일 수도 segmap 일 수도 있다."),
+                        "같은 png 라도 image 일 수도 mask 일 수도 있다."),
 ]
 
 

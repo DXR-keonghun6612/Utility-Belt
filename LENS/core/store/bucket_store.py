@@ -133,7 +133,7 @@ class Bucket_Store(Data_Schema):
         Args:
             name: params key (= 종류. 저장 폴더도 이 이름이다).
             src: 들일 파일 경로.
-            type: 핸들러 (image/segmap/array/docs …) — **추론하지 않는다**.
+            type: 도메인 (image/mask/array/docs …) — **추론하지 않는다**.
         """
         _ref = port.Save(self.root, (self.PARAMS,), name,
                          port.Template_for_file({"pattern": str(src), "type": type}), Path(src))
@@ -192,9 +192,24 @@ class Bucket_Store(Data_Schema):
 
     # ── 순회 — 범주 정책(CATEGORIES; params 제외) ────────────────────────────────
     def Bucket(self, category: str) -> Mapping[str, Data_Ref]:
-        """그 범주 branch 의 자식(``{key: item}``) 읽기 전용 뷰."""
+        """그 범주 branch 의 자식(``{key: item}``)을 **key 오름차순**으로 정렬한 읽기 전용 뷰.
+
+        정렬을 여기(단일 소스)서 하므로 소비처(gui 목록·flow 순회·export)가 안정된 순서를 공짜로 얻는다 —
+        전이(``Move``)는 target 범주 끝에 append 하지만(삽입순), 순회는 늘 이름순이다. 그래서 flow 의
+        carry·cluster-id 도 전이 이력과 무관하게 결정적이다.
+        """
         _b = self.tree.Get(category)
-        return MappingProxyType(_b.info if _b is not None else {})
+        _info = _b.info if _b is not None else {}
+        return MappingProxyType({_k: _info[_k] for _k in sorted(_info)})
+
+    def Params(self) -> Mapping[str, Data_Ref]:
+        """``params`` 의 leaf 들(``{이름: ref}``) 읽기 전용 뷰 — 범주 무관 dataset-wide 값 목록.
+
+        ``Bucket(범주)`` 의 params 판이다. 값 하나를 풀려면 :meth:`Param`, 파일 경로는
+        ``Path_of((PARAMS,), name, ref)``. 위 계층(export 등)이 "무엇이 있나"를 물을 창구.
+        """
+        _b = self.tree.Get(self.PARAMS)
+        return MappingProxyType(dict(_b.Leaves()) if _b is not None else {})
 
     def _iter(self, cats: Iterable[str] | None = None) -> Iterator[tuple[str, str, Data_Ref]]:
         """전 범주(``cats`` 주면 그것만) 항목을 ``(category, key, item)`` 로 순회 (params 제외).
@@ -245,6 +260,19 @@ class Bucket_Store(Data_Schema):
         경로 파생에서 실패한다). 예: export 의 COCO ``segmentation`` RLE (``mask → rle Data_Ref → value``).
         """
         return port.Route(self.root, (), "", spec, value)
+
+    def Decode(self, path: tuple[str, ...], name: str, ref: Data_Ref, fmt: str = "npy") -> Any:
+        """leaf ``ref`` 를 payload 로 풀어 도메인 ``fmt`` 구조(기본 배열)로 — :meth:`Encode` 의 역.
+
+        위 계층이 codec·도메인을 **store 경유**로 얻는 창구(port 는 소비자가 store 하나). ``port.Load`` 로
+        파일/인라인을 풀어 구조를 얻고 ``port.To`` 로 목표 포맷에 편성한다 — 그래서 소비처(export mask·
+        crop)가 객체 mask 를 **rle·polygon·png 무관하게 배열**로 받는다(포맷을 손으로 안 푼다).
+
+        ``path`` 는 leaf 조상 key 시퀀스(예 ``(범주, stem, obj_id)``) — 파일 payload 위치 파생용, 인라인
+        이면 안 쓴다. 값이 없으면 None.
+        """
+        _val = port.Load(self.root, path, name, ref)
+        return None if _val is None else port.To(ref, _val, fmt)
 
     def Trace(self, run: str, path: tuple[str, ...], name: str, spec: dict, value: Any,
               *, params: bool = False) -> None:

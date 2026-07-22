@@ -33,7 +33,7 @@ Converter_panel
 | `type` | **핸들러** — **필수**. 확장자로 추론하지 않는다 |
 | `format` | **서술자 detail** (선택) — 파일이면 비운다. 인라인(`attr`)은 `Save` 가 값의 파이썬 타입으로 채운다 |
 
-**`type` 을 추론하지 않는 이유** — 같은 `png` 라도 `image`(색 이미지)일 수도 `segmap`(라벨맵)일 수도 있다.
+**`type` 을 추론하지 않는 이유** — 같은 `png` 라도 `image`(색 이미지)일 수도 `mask`(객체 마스크)일 수도 있다.
 추론은 **둘 중 하나를 말없이 고르는 것**이라 한 줄 더 쓰게 한다.
 
 **`format` 을 파일에 주지 마라** — 저장은 복사(`shutil.copy2`)라 **변환이 아니다.** 소스가 `.jpg` 인데
@@ -58,7 +58,7 @@ Converter_panel
         "globs": {
             "frame":    {"pattern": "*_rgb",   "ext": "png", "type": "image"},
             "class_id": {"pattern": "*_label", "ext": "txt", "type": "attr"},   # 인라인 값
-            "mask":     {"pattern": "*_mask",  "ext": "png", "type": "segmap"}, # png 지만 라벨맵!
+            "mask":     {"pattern": "*_mask",  "ext": "png", "type": "mask"},   # png 지만 마스크!
         },
         "params": {"roi": "/path/to/roi.png"},
     }

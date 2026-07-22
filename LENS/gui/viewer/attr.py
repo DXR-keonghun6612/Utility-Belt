@@ -28,7 +28,10 @@ from ._base import Node_viewer, Register
 
 #: 개념 없는 인라인 값의 등록 key — format 첫 칸이 비어 있다 (``("", "str")``).
 PLAIN = ""
+#: region 도메인 — bbox 는 ``("region", "bbox", style)`` 이라 **개념이 format[1]** 에 있다(도메인이 [0]).
+#: 옛 ``("bbox", "list")``(개념이 [0])도 아직 받는다 — 판정은 [0]·[1] 둘 다 본다.
 BBOX = "bbox"
+REGION = "region"
 
 
 def _python_type(ref: Data_Ref) -> str:
@@ -83,7 +86,7 @@ class _Number_row(QWidget):
         _lay.addWidget(_sp)
 
 
-@Register(PLAIN, BBOX)
+@Register(PLAIN, BBOX, REGION)
 class Attr_viewer(Node_viewer):
     """인라인 값 — 개념(``bbox``) → 없으면 파이썬 타입으로 위젯을 고른다."""
 
@@ -103,7 +106,7 @@ class Attr_viewer(Node_viewer):
         호출 측이 정한다** — 뷰어는 "후보가 있으면 고르게 한다"만 안다(class_id 를 여기서 알면 도메인
         지식이 뷰어로 샌다).
         """
-        if ref.format[:1] == (BBOX,):
+        if ref.format[:1] == (BBOX,) or ref.format[1:2] == (BBOX,):   # 옛 [bbox,…] · 새 [region,bbox,…]
             return _Bbox_row(value, on_change)
 
         _type = _python_type(ref)

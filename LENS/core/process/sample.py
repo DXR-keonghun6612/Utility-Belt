@@ -24,21 +24,9 @@ import numpy as np
 from ..constant import STAGED, UNCLASSIFIED
 from ..schema import Data_Ref
 from ..store import SPLITS, Sample_Set
-from ..func.mask.instance import Mask_of
 from ._base import Stage, Unit, inline_ctx
 
 UNLABELED = UNCLASSIFIED   # class_id 가 없는 unit 의 fallback class (정본 미분류 값과 통일)
-
-
-def _obj_mask(segment: np.ndarray | None, obj_id: str | None) -> np.ndarray | None:
-    """``segment`` 인스턴스 라벨맵에서 한 obj 의 이진 mask 를 뽑는다 (frame-unit 이라 obj 가 없으면 None).
-
-    라벨↔id 규약과 gather 는 ``func.mask.instance`` 가 소유한다 — 여기선 obj 부재(frame 단위)만 거르고
-    ``Mask_of`` 에 위임한다. crop 은 이 mask 의 bbox 로 프레임을 자른다.
-    """
-    if segment is None or obj_id is None:
-        return None
-    return Mask_of(segment, obj_id)
 
 
 @dataclass
@@ -74,18 +62,31 @@ class Sample_stage(Stage):
     def _block_ctx(self, store, category: str, stem: str, frame: Data_Ref) -> dict:
         if not self._materialize:
             return {}
-        _ctx: dict = {"stem": stem}                     # 프레임 leaf(base image·segment) 1회 resolve
+        _ctx: dict = {"stem": stem}                     # 프레임 leaf(base image) 1회 resolve
         _ctx.update(store.Resolve((category, stem), frame))
         return _ctx
 
     def _unit_ctx(self, store, category: str, stem: str, bctx: dict,
                   obj_id: str | None, obj: Data_Ref | None) -> dict:
         _ctx = {**bctx, "obj_id": obj_id, **(inline_ctx(obj) if obj is not None else {})}
-        if self._materialize:
-            _mask = _obj_mask(bctx.get("segment"), obj_id)   # segment→obj mask (frame-단위는 obj_id 없음)
+        if self._materialize and obj is not None:
+            _mask = self._obj_mask(store, category, stem, obj_id, obj)
             if _mask is not None:
                 _ctx["mask"] = _mask                         # Frame_crop 입력
         return _ctx
+
+    @staticmethod
+    def _obj_mask(store, category: str, stem: str, obj_id: str | None,
+                  obj: Data_Ref) -> np.ndarray | None:
+        """객체 자기 ``mask`` 를 이진 배열로 (mask 도메인, 포맷 무관) — 없으면 None.
+
+        객체가 자기 mask 를 든다(rle·polygon·png…). ``store.Decode`` 가 포맷을 손으로 안 풀고 도메인
+        경유로 배열을 준다. crop 은 이 mask 의 bbox 로 프레임을 자른다. obj_id 없으면(frame 단위) None.
+        """
+        _leaf = obj.Get("mask")
+        if _leaf is None or obj_id is None:
+            return None
+        return store.Decode((category, stem, obj_id), "mask", _leaf)
 
     # ── 출력: 파생 store 에 sample 하나로 배치 ─────────────────────────────────
     def _emit(self, store, unit: Unit, ctx: dict) -> None:

@@ -14,9 +14,4 @@ flows:
             checkpoint: ''
             device: cuda
         outputs:
-            segment:
-                to: storage
-                level: frame
-                type: segmap
-                format: png
-                dir: raw_sam3_mask
+            object: {}          # box 하나당 best mask → 객체의 mask(rle). 라벨맵 저장 안 함

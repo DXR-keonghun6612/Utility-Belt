@@ -23,7 +23,6 @@ from python_toolbox.project.config import Base_Config
 
 from .constant import MODIFIED
 from .process import Build_flow, Sample_stage
-from .process.stream.mask.order import Order_objects
 from .store import SAMPLE_DIR, Dataset_Meta, Sample_Set
 from .tasker import Load_taskers, Save_taskers
 from .process.stream.model.onnx import Onnx_segmenter
@@ -153,58 +152,9 @@ class Pipeline:
             _flow(self.meta, progress=progress)
         self.meta.Save()
 
-    def Order(self, stems: list[str] | None = None,
-              progress: Callable[[str, int, int], None] | None = None) -> int:
-        """지정 stem 들의 객체를 중심-거리 순으로 재정렬 — obj_id 재부여 + segment 재라벨 + 저장.
-
-        편집이 남긴 **어긋남을 되찾는 자리**다. 편집(``meta.Remove_object``/``Merge_objects``)은 정합만
-        지키고 순번을 안 매기므로(store 는 process 를 모른다), 압축은 여기(binder)가 ``Order_objects``
-        (process)를 돌려 한다 — 저장·병합 직후 호출한다. ``stems=None`` 이면 전 범주.
-
-        되찾는 것은 둘이다: obj_id 의 **구멍 압축**, 그리고 라벨맵에 자리가 없는 **유령 객체 제거**
-        (빈 mask·bbox 없는 객체). 후자는 데이터가 사라지는 일이라 **몇 개였는지 돌려준다** — 호출 측이
-        사용자에게 알리라고.
-
-        Args:
-            stems: 재정렬할 item key 들 (None 이면 모든 범주의 전 stem).
-            progress: 진행 콜백 ``(label, i, total)``.
-
-        Returns:
-            제거된 객체 수 (라벨맵에 자리가 없던 것들).
-        """
-        _keys = (list(stems) if stems is not None
-                 else [_k for _c in self.meta.CATEGORIES for _k in self.meta.Bucket(_c)])
-        _dropped = 0
-        for _i, _stem in enumerate(_keys, start=1):
-            _dropped += self._order_stem(_stem)
-            if progress is not None:
-                progress("order", _i, len(_keys))
-        return _dropped
-
-    def _order_stem(self, stem: str) -> int:
-        """한 stem 의 segment + 객체를 재정렬해 되꽂고 저장한다 — **제거된 객체 수** 반환 (대상 없으면 0)."""
-        _item = self.meta.Find(stem)
-        if _item is None:
-            return 0
-        _name, _ref = next(((_n, _r) for _n, _r in _item.Leaves().items()
-                            if _r.format[:1] == ("segmap",)), (None, None))
-        _objs = list(_item.Branches().values())
-        if _ref is None or not _objs:
-            return 0
-        _seg = self.meta.Load(stem, _name)
-        if _seg is None:
-            return 0
-        _out = Order_objects().Run(segment=_seg, object=_objs)
-        if not _out:
-            return 0
-        _path = self.meta.Item_path(stem)
-        _spec = {"to": "storage", "type": _ref.format[0]}
-        if len(_ref.format) > 1 and _ref.format[1]:
-            _spec["format"] = _ref.format[1]
-        _item.Push(_name, self.meta.Route(_path, _name, _spec, _out["segment"]))
-        _item.Replace_branches(_out["object"])
-        self.meta.Save(stem)
-        return len(_objs) - len(_out["object"])          # 라벨 자리가 없어 떨어져 나간 객체들
+    # 객체 재정렬(mask 무게중심 순)은 binder 가 아니라 ``order_objects`` **process**(flow)의 몫이다 —
+    # binder 는 오케스트레이터라 segment·mask 픽셀을 직접 로드하지 않는다. obj_id 도 라벨맵 픽셀값이
+    # 아니라 이제 **그냥 트리 key** 라(라벨맵 제거) 연속일 필요가 없어 "구멍 압축"도 불필요해졌다.
 
     # ── 파생(Sample) — 이름 붙은 tasker ({root}/sample/{name} + taskers.yaml) ────
     def Taskers(self) -> dict[str, dict]:

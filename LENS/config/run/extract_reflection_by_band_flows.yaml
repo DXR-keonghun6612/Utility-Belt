@@ -43,5 +43,5 @@ flows:
             mask:
                 to: storage
                 level: frame
-                type: segmap
+                type: mask
                 format: png

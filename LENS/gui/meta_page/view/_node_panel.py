@@ -42,7 +42,7 @@ from core import port
 from ._node_tree import Node, Node_tree
 
 # 새로 만들 수 있는 데이터 leaf — raster 는 빈 캔버스로 나서 바로 그릴 수 있다.
-_RASTER_TYPES = ("segmap", "image")
+_RASTER_TYPES = ("mask", "image")
 
 
 class _New_leaf_dialog(QDialog):
@@ -60,7 +60,7 @@ class _New_leaf_dialog(QDialog):
 
         self._type = QComboBox()
         self._type.addItems(port.Types())
-        self._type.setToolTip("segmap/image = 빈 mask 로 나서 캔버스에서 그린다 · attr = 인라인 값")
+        self._type.setToolTip("mask/image = 빈 캔버스로 나서 그린다 · attr = 인라인 값")
         _form.addRow("type", self._type)
 
         self._value = QLineEdit()
@@ -119,7 +119,7 @@ class Node_panel(QWidget):
                              "(class 는 가장 작은 obj_id 것이 이긴다)  [M]", self.merge_selected)
         else:
             self._add_button(_tool, "+ 데이터",
-                             "stem 레벨 데이터 leaf — segmap/image 는 **빈 mask** 로 나서 바로 그린다",
+                             "stem 레벨 데이터 leaf — mask/image 는 **빈 라스터** 로 나서 바로 그린다",
                              self._add_leaf)
         self._add_button(_tool, "✕ 삭제", "선택한 노드를 지운다 (payload 파일까지)", self.delete_selected)
         _tool.addStretch(1)

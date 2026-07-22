@@ -3,10 +3,11 @@
 # 프레임마다:
 #   1. flood_background — params `roi`(벨트) 안에서 벨트색 seed 로 floodFill 하고 반전 = 객체.
 #                         LoG edge 와 roi 바깥이 벽. Canny 윤곽을 이어 닫을 필요가 없다.
-#   2. split_objects    — mask 를 인스턴스로 분리해 객체 bbox 생성.
-#   3. order_objects    — 객체 순서 정렬(id 안정화).
+#   2. split_objects    — mask 를 인스턴스로 분리해 **객체마다 자기 mask(rle) + bbox** 생성.
+#   3. order_objects    — 객체를 mask 무게중심이 이미지 중심에 가까운 순으로 정렬.
 #
-# 이 flow 의 산출물은 실루엣이 아니라 **객체 bbox** — 뒤따르는 SAM3 flow 가 box 프롬프트로 쓴다.
+# 라벨맵(segment)은 저장하지 않는다 — 객체별 mask 가 정본이고, 라벨맵이 필요한 소비처는 Compose 로
+# 즉석에서 만든다. 이 flow 의 산출물은 실루엣이 아니라 **객체 bbox** — 뒤따르는 SAM3 flow 가 box 프롬프트로 쓴다.
 # 근거는 core/process/mask/flood.py · core/process/utils/fill.py 참조.
 
 flows:
@@ -32,7 +33,7 @@ flows:
                 level: frame
                 format: png
 
-    # 2. mask 를 인스턴스로 분리 → 객체 bbox
+    # 2. mask 를 인스턴스로 분리 → 객체마다 자기 mask(rle) + bbox (라벨맵은 저장 안 함)
     -   object_type: split_objects
         min_area: 500
         mask_reverse: false
@@ -40,18 +41,8 @@ flows:
         bbox_gap: 0.15
         outputs:
             object: {}
-            segment:
-                to: storage
-                level: frame
-                type: segmap
-                format: png
 
-    # 3. 객체 순서 정렬 (id 안정화)
+    # 3. mask 무게중심이 이미지 중심에 가까운 순으로 정렬
     -   object_type: order_objects
         outputs:
             object: {}
-            segment:
-                to: storage
-                level: frame
-                type: segmap
-                format: png

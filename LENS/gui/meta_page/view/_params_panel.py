@@ -65,7 +65,7 @@ class _Add_dialog(QDialog):
         self._type = QComboBox()
         self._type.addItems(port.Types())
         self._type.setToolTip("핸들러 — 확장자로 추론하지 않는다 "
-                              "(png 는 image 일 수도 segmap 일 수도 있다)")
+                              "(png 는 image 일 수도 mask 일 수도 있다)")
         _form.addRow("type", self._type)
 
         self._value = QLineEdit()
@@ -85,7 +85,7 @@ class _Add_dialog(QDialog):
         _is_file = _txt == "파일"
         _is_blank = _txt == "빈 라스터"
         self._path_row.setVisible(_is_file)
-        self._type.setVisible(_is_file or _is_blank)      # 빈 라스터도 handler(segmap/image) 필요
+        self._type.setVisible(_is_file or _is_blank)      # 빈 라스터도 handler(mask/image) 필요
         self._value.setVisible(not _is_file and not _is_blank)
 
     def _browse(self) -> None:

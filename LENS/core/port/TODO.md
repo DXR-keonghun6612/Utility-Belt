@@ -3,7 +3,7 @@
 완료 이력은 git, 최종 설계는 [`README.md`](README.md). 상위 계획은 [`../TODO.md`](../TODO.md) "★ 축 정리".
 
 **이 계층의 계약** — 데이터 **하나**의 실체화(읽기/쓰기)와 외부 세계 발견. `schema` 만 안다.
-**`store` 를 모르고, `store` 만이 부른다.** ([`../test_layering.py`](../test_layering.py) 가 강제)
+**`store` 를 모르고, `store` 만이 부른다.** (불변식은 [`../README.md`](../README.md) 소유)
 
 ---
 

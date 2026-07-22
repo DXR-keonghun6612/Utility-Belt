@@ -48,7 +48,11 @@ _LOG_FILE = "reassign_log.yaml"    # tasker 폴더 재배정 로그 ({sid: [처�
 
 
 def _merged_base(meta, stem: str) -> np.ndarray | None:
-    """정본 stem 의 이미지 leaf(segmap 제외)들을 평균 블렌딩한 base BGR — crop 없을 때 미리보기용.
+    """정본 stem 의 ``image`` leaf 들을 평균 블렌딩한 base BGR — crop 없을 때 미리보기용.
+
+    **화이트리스트다** — base 가 될 자격은 `image` 도메인에만 있다. 한때 `segmap` 만 제외하는
+    블랙리스트였는데, 그 도메인이 사라지면서(라벨맵→객체 mask) 조건이 아무것도 안 걸러 프레임 레벨
+    `mask` 가 base 에 섞였다. 도메인이 늘 때 조용히 새는 쪽은 블랙리스트다.
 
     payload 는 ``meta.Load(stem, key)`` 에 요청한다(경로는 store 가 안다). 없으면 None.
     """
@@ -57,7 +61,7 @@ def _merged_base(meta, stem: str) -> np.ndarray | None:
         return None
     _imgs: list[np.ndarray] = []
     for _key, _ref in _frame.Leaves().items():
-        if _ref.format[:1] == ("segmap",):              # 인스턴스 라벨맵은 base 아님
+        if _ref.format[:1] != ("image",):               # base 가 될 자격은 image 도메인에만
             continue
         _val = meta.Load(stem, _key)
         if isinstance(_val, np.ndarray) and _val.ndim >= 2:

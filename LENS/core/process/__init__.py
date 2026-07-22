@@ -33,7 +33,7 @@ def Build_process(name: str, param: dict | None = None) -> Base_Process:
 # 유닛 등록 트리거 (PROCESS_REGISTRY 정의 후 import) — 각 모듈이 @PROCESS_REGISTRY.Register_module.
 from .stream.chroma     import Convert_to_Chroma, Accumulate_Chroma_histogram, Robust_Chroma_Stats, Chroma_distance  # noqa: E402
 from .stream.preprocess import Frame_crop, Normalize_color, Normalize_histogram, Downscale, Upscale  # noqa: E402
-from .stream.mask       import Threshold_score, Intensity_band, Normalize_mask, Morph_mask, Combine_mask, Split_objects, Radial_thickness, Carve_color_holes, Flood_background, Fill_edge, Edge_blob, Remove_edge_holes  # noqa: E402
+from .stream.mask       import Threshold_score, Intensity_band, Normalize_mask, Morph_mask, Combine_mask, Split_objects, Radial_thickness, Flood_background, Fill_edge, Edge_blob, Remove_edge_holes  # noqa: E402
 from .stream.filter     import Detect_edge, Close_edge  # noqa: E402
 from .stream.model      import Segment, Detect_instances  # noqa: E402
 from .stream.select     import Center_distance, Attr_gate  # noqa: E402
@@ -67,6 +67,6 @@ __all__ = [
     "Downscale", "Upscale", "Split_objects",
     "Threshold_score", "Intensity_band", "Morph_mask", "Detect_edge", "Close_edge", "Fill_edge",
     "Edge_blob", "Remove_edge_holes", "Combine_mask", "Radial_thickness",
-    "Carve_color_holes", "Flood_background",
+    "Flood_background",
     "Center_distance", "Attr_gate",
 ]

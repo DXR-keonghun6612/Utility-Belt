@@ -38,8 +38,7 @@ write-back + 파생 attr). **파일이 안 움직인다.** 트리의 class 그�
 ## ✅ 결론 난 논의 — cv2-free 경계 (2026-07-12)
 
 **→ README 로 승격됨.** 왜 `Data_Ref` 를 `core/schema` 로 꺼냈고 왜 라이프사이클은 store 소유 그대로인지는
-[`../README.md`](../README.md) "왜 검사까지 두는가" 가 소유한다. 결론을 지키는 장치는
-[`../test_layering.py`](../test_layering.py).
+[`../README.md`](../README.md) "왜 검사까지 뒀었나" 가 소유한다.
 
 ---
 

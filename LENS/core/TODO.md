@@ -6,7 +6,7 @@
 
 ---
 
-## ★ 축 정리 잔여 — port 이름 · segmap 접기 · format/mask
+## ★ 축 정리 잔여 — port 이름 · format/mask · bbox
 
 축 정리(`format`·`codec`·`func` 를 top-level 로 분리 + **대표 포맷 제거** + bbox 1급 포맷)는 **코드에
 들어왔고 계층 검사도 통과한다.** 그 설계는 [`port/README.md`](port/README.md) 와 [`format`](format)·
@@ -15,21 +15,39 @@
 - [ ] **⑤ port 파사드 정리** — `scan.py`·`_structure.py`(`Structure`)를 port 밖 제자리로 옮길지.
       scan 은 fs 발견(pathlib 만), `Structure` 는 `Data_Ref` 트리 사이드카(codec 에 가깝다).
       **`port → domain` 개명은 미결** (❓ 아래).
-- [ ] **segmap 접기** — `raster_domains.Segmap_Domain`(형제 도메인) → `mask` 도메인의 한 포맷.
-      라벨맵은 mask 여럿을 겹쳐 담은 저장 표현일 뿐이라 카디널리티가 도메인을 안 가른다. 대표 포맷이
-      있을 때 "라벨맵을 rle 로"가 정의 불가로 보였던 건 인자 받을 자리가 없어서였고, 이제 `Mask_of(맵,
-      obj_id)` 로 선다. 남은 `int(id)+1`(store/meta·export·gui 렌더)을 이때 `func.mask` 단일 소유로.
 - [ ] **`format/mask`** — `func/mask/instance.py`(라벨맵↔obj mask 합성)를 `format/mask/` 로.
       구조 연산이라 format 소속이 맞다(`func` 는 구조 무관 계산).
 - [ ] **bbox 마이그레이션 검증** — 옛 `("bbox","list")` → `("region","bbox","xyxy")` 가 정본 데이터에
       남았는지 확인 (`scripts/migrate_format_taxonomy.py`).
 
-## ★ `analysis/` 를 flow 로
+## ✅ segmap 접기 — 완료 (저장 라벨맵 제거 → 객체별 mask 정본)
 
-계약은 죽였지만 **모듈 이사는 안 했다** — 계산 → `func/`, feature/cluster 두 flow 로. 다중 범주 순회는
-준비됐다(carry 가 split 경계를 넘는다). → [`process/TODO.md`](process/TODO.md)
+저장 segmap(`segment` png, 픽셀=id+1)을 없애고 **객체마다 자기 mask 를 truth 로** 들게 하는 전환이
+①~⑤ 전부 끝났다. 설계 결론(mask 는 도메인·포맷과 직교 / 배타성 포기 = 객체 mask 는 겹칠 수 있다 /
+라벨맵은 transient 로만 생존)은 [`port/domain/mask.py`](port/domain/mask.py)·
+[`port/domain/raster_domains.py`](port/domain/raster_domains.py) docstring 이 소유한다. 실행 이력은 git
+(`carve`·`fill.py`·`Segmap_Domain` 삭제, `Pipeline.Order` 제거, 소비자 `store.Decode` 전환 등).
+**남은 segmap 은 GUI 뷰어의 transient 합성 라벨맵뿐** — port 도메인과 별개 registry 라 정당.
 
----
+## ★ id_map 정본화 — 상위 분류(`category_id`) 편집
+
+`export` 가 내는 `id_map.yaml` 이 학습 측 정본이다(형식은 [`export/_base.py`](export/_base.py)
+`_id_map_document` docstring 이 소유). 번호 체계는 이미 맞다 — `_resolve_id_map` 이 1부터 매기고
+0 을 비워 두며, 그 자리를 `no_label` 항목이 채운다.
+
+**막힌 곳은 상위 분류다.** LENS 에 그 개념이 없어 `category_id` 를 전부 0 으로 낸다.
+
+- [ ] **`category_id` 를 LENS 가 소유** — 부품 class 를 묶는 상위 분류를 params 에 두고 GUI 에서
+      편집. 그래야 "LENS 산출물이 정본" 이 성립한다. 지금은 학습 측 `id_map.yaml` 의 상위 분류가
+      LENS 밖에서 수동으로 붙은 값이라 **재export 하면 전부 0 으로 덮인다** (재export 전에 그
+      값을 따로 보존해야 한다).
+- [ ] **id 공간마다 int↔str map** — `category_id: 2` 같은 맨 숫자를 두지 않는다. class 가
+      `{호출번호: {class_id, name, ...}}` 를 갖는 것처럼 category 도 자기 이름 map 을 갖게 한다.
+      id 공간이 늘어도 같은 모양이 반복되도록.
+
+학습 측이 이 값을 어떻게 쓰는지: `num_categories` 와 `class_to_category` 가 여기서 도출되고,
+ArcFace 헤더의 category marginalization 이 그걸 쓴다. 상위 분류를 안 쓰기로 하면 그 분기를 끄는
+것이 맞지, 0 으로 채우고 학습시키는 것은 아니다.
 
 ## 문서 소유권 (누가 무엇을 적는가)
 

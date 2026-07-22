@@ -10,41 +10,37 @@
 
 ---
 
-## ▶ 진행 중 — `analysis/` 해체 → 계산은 `func/`, 나머지는 flow
+## ▶ 진행 중 — 검사(inspection)를 `process` 밖으로
 
-**"엔진에 안 접힌다"던 판단은 철회됐다.** 근거였던 *"재군집하려면 파이프라인을 다시 돌려야 한다"* 는
-**feature 를 leaf 로 route 해 영속하면** 성립하지 않는다. flow 를 둘로 가르면 된다:
+**검사는 flow 가 아니다.** 계산을 외부에서 빌려오고(`torch_toolbox.modules.transform.mask`),
+`process` 의 어떤 유닛도 그 결과를 소비하지 않는다. `stream/` 에 유닛으로 두면 flow 인 척하게
+되므로 두지 않는다 — 시도했다가 걷어냈다(git).
 
-| flow | per-unit | finalize | 비용 |
-|---|---|---|---|
-| **feature** | crop → `shape_feat` (array leaf 로 route) | — | 비싸다. 한 번만 |
-| **cluster** | 영속된 `shape_feat` 를 carry 에 누산 | umap/hdbscan → `params` | 싸다. **파라미터 바꿔 재실행** |
+지금 `analysis/mask/shape/` 가 그 자리에 임시로 있고, **export 산출물 폴더를 glob** 한다.
+그래서 검사가 sampling 뒤에 묶여 있다 — 내보내기를 해야만 분석이 된다. 분리하면서 store 에서
+바로 읽게 한다.
 
-지금보다 **낫다** — 현재 `shape/batch.py` 는 **export 산출물 폴더를 glob** 해서 내보내기를 해야만 분석이
-된다. flow 는 store 에서 바로 읽는다. (다중 범주 순회는 구현·검증 완료 — `carry` 가 split 경계를 넘는다.)
+- [ ] **검사 패키지 분리** — `core/` 밖(또는 `core/inspect/`)으로. 파이프라인과 **수명이 다르다**:
+      파라미터를 바꿔 몇 번이고 재실행하는 것이지, 한 번 돌고 끝나는 stage 가 아니다.
+- [ ] **store 에서 읽기** — 폴더 glob 대신. task(classification/detection)와 무관해진다.
+- [ ] `Pipeline.Verify` 가 그것을 부르는 형태로. 지금은 `NotImplementedError` 다.
+- [ ] `gui/meta_page/sample/_tab.py` 의 깊은 직접 import 정리 (`core.process.analysis.mask.shape`).
 
-**이사 지도**
+**남은 process 쪽 정리**
 
-```text
-계산 → func/                       유닛 → stream/                  소멸
-  mask/align.py    (PCA 정렬)        mask/shape.py    feature        chroma/io.py     (누산기는 store.Param)
-  mask/shape.py    (Fourier)         mask/cluster.py  finalize       shape/batch.py   (폴더 glob → flow)
-  mask/embed.py    (umap/hdbscan)    chroma/diagnose.py finalize     shape/__main__.py
-  chroma/stats.py  (per_pixel·IQR)                                   sample_extractor · compare_misdetect
-```
-
-- [ ] 계산 모듈을 `func/` 로 (배열만 알게).
-- [ ] `stream/` 유닛 3개 + flow config.
-- [ ] **`report`·`figure` 는 계산이 아니다** — `matplotlib` 를 `func/` 에 들이지 마라. `process/__init__` 이
-      유닛을 eager import 하므로 **모든 process import 가 matplotlib 를 끌고 온다**(오늘 두 번 고친 그 병).
-      flow 는 **숫자 결과만 `params` 로 route** 하고, report/figure 는 그걸 읽는 **소비처(gui/CLI)** 로.
-- [ ] **`umap`/`hdbscan`/`sklearn` 도 같은 함정** — `func/mask/embed.py` 를 `func/mask/__init__` 이 eager
-      import 하면 동일하게 오염된다. `__init__` 이 안 건드리게 두거나 유닛이 지연 import 한다.
+- [ ] `chroma/stats` 계산을 `func/` 로 (배열만 알게).
+- [ ] **`report`·`figure` 는 계산이 아니다** — `matplotlib` 를 `func/` 에 들이지 마라.
+      `process/__init__` 이 유닛을 eager import 하므로 **모든 process import 가 matplotlib 를 끌고 온다**.
+      숫자 결과만 `params` 로 route 하고, report/figure 는 그걸 읽는 소비처(gui/CLI)로.
+- [ ] **`umap`/`hdbscan`/`sklearn`/`torch` 도 같은 함정** — 검사 패키지를 분리해도 eager import 는
+      막아야 한다. (형상 계산은 `torch` 를 끌고 온다 — 지연 import 필수.)
 - [ ] **vestigial `window` 제거** — `Robust_mean_std` 는 안 받는데 `stats`·`analyze`·`_result` 가 아직
-      인자로 나른다(지금은 **조용히 무시된다**). 이사하면서 걷어낸다.
-- [ ] `gui/meta_page/sample/_tab.py` 가 `core.process.analysis.mask.shape` 를 깊게 직접 import 한다 —
-      함께 손본다(gui sweep 중이라 부담은 적다).
-- [ ] `Pipeline.Verify` 재설계 — "stream/analysis 두 종류를 다 소비"라는 전제는 무너졌다(계약은 죽었다).
+      인자로 나른다(지금은 **조용히 무시된다**).
+
+**끝난 것** — 형상 계산을 `torch_toolbox` 로 승격했다. 학습이 쓰는 것과 **같은 모듈**이어야 분석이
+학습과 같은 것을 본다. numpy 사본(`sample_extractor` · `align.py` · `shape/polar.py` ·
+`shape/features.py` · `compare_misdetect`)은 426차원·`fill_holes` 버전이라 inner 계열 70차원이 죽은
+채였다(표본 56%에 관통 구멍인데 처리 후 1%만 잔존) — 전부 삭제했다.
 
 ## ✅ 합의됨 — 빌드 `unit` ↔ 내보내기 task 의 짝을 config 가 검증하지 않는다
 
@@ -79,8 +75,9 @@ box(물체 전체를 물어옴) 대신 **DT 최댓점 양성 point + 반사 blob
 - [ ] **`analysis/chroma` 의 vestigial `window`** — 옛 mode-window 추정기의 잔재. `Robust_mean_std` 는
       받지 않는데 `stats.py`·`analyze.py`·`_result.py` 가 여전히 인자로 나른다. 크래시는 고쳤으나
       **지금은 조용히 무시된다.** report 까지 걷어내야 한다.
-- [ ] **라벨맵 `uint8` 한계** — `func/mask/instance.py` 의 `segment` 와 재라벨 LUT 가 `uint8` 이라 인스턴스
-      255개를 넘으면 **조용히 wrap** 한다. `uint16` 승격은 `segmap` 핸들러의 PNG 저장과 얽힌다.
+- [ ] **transient 라벨맵 `uint8` 한계** — `func/mask/instance.py` 의 라벨맵 산술(`Compose`·`Split_components`
+      등)과 `export/mask.py` 의 내보내기 라벨맵이 `uint8` 이라 인스턴스 255개를 넘으면 **조용히 wrap** 한다.
+      (저장 라벨맵은 사라졌으니 이제 이건 **계산 중간물·내보내기 레이아웃** 한계일 뿐, 정본 한계가 아니다.)
       **근본 해소 방향** — 프레임 raster 라벨맵을 **obj 폴리곤 집합**으로 승격하면 255 한계와 **겹침**(픽셀당
       라벨 하나)이 동시에 사라진다(→ [`../../gui/TODO.md`](../../gui/TODO.md) "폴리곤 편집기" deferred).
       마이그레이션은 미룸.

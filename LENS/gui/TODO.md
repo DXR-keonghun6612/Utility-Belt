@@ -24,8 +24,8 @@ gui 는 **상호작용 계층** — core 기능을 포장해 상호작용 도구
   공간(페이지) + core 소유·배선. **representation** = 그 사이 — core 값을 화면 표현·편집으로 옮기되
   세션은 모르는, 페이지를 넘나들며 공유되는 재사용 층(`steps` 는 run·sample 공유, `viewer` 는 트리 전체,
   `editor` 는 앱 싱글턴, `form` 은 파라미터 폼 공용).
-- 의존은 한 방향 — `widgets ← representation ← app`. 산문이 아니라 `core/test_layering.py` 처럼
-  **import 검사**로 못박는다(위 표의 두 검사).
+- 의존은 한 방향 — `widgets ← representation ← app`. 산문이 아니라 **import 검사**로 못박는다(위 표의
+  두 검사). core 쪽 짝(`test_layering.py`)도 테스트 재구성으로 함께 걷혔으니, 재작성할 때 **한 벌로** 짓는다.
 
 ```
 gui/
@@ -144,10 +144,12 @@ app 이 표현을 **아래로 부르는** 지점이 곧 표현 티어의 공개 
 - **(1) 값→표현 — 위 재편이 이 축을 티어로 승격한다.** [`viewer/`](viewer/README.md) 레지스트리(core
   `HANDLER_REGISTRY` 짝)가 그 자리 — 새 handler 를 떨구면 UI 가 따라온다. 재편 후엔 이 축이 **표현 티어**
   전체로 명시된다.
-- **(2) store-API — 여전히 흩어져 있다**(`view/`·`sample/` 가 `Data_Ref`/`Dataset_Meta` 직접 사용). 방어는
-  검사 — [`test_surfaces.py`](test_surfaces.py) 가 offscreen 으로 **모든 surface 를 실제로 띄운다**(죽은
-  API 는 실행돼야 터져 compile·import 로 못 잡는다). 진짜 seam(뷰모델 껍데기)이 필요해지는 신호는
-  "core API 가 바뀔 때마다 위젯 N개를 고친다"가 **반복될 때**다 — 지금은 (b)+검사로 선다.
+- **(2) store-API — 여전히 흩어져 있다**(`view/`·`sample/` 가 `Data_Ref`/`Dataset_Meta` 직접 사용).
+  **방어가 지금 없다.** 그 자리를 `test_surfaces.py` 가 맡고 있었다 — offscreen 으로 모든 surface 를 실제로
+  띄워, compile·import 로 못 잡는 **죽은 store-API 호출**을 실행시켜 터뜨리는 검사였다. 테스트 재구성으로
+  걷혀서, 흩어진 호출이 core API 변경에 뒤처져도 **알아차릴 방법이 없는 상태**다(직접 띄워 보는 것 말고는).
+  → 재작성 1순위. 진짜 seam(뷰모델 껍데기)이 필요해지는 신호는 "core API 가 바뀔 때마다 위젯 N개를
+  고친다"가 **반복될 때**이고, 그 판단도 검사가 돌아와야 관측된다.
 
 ---
 

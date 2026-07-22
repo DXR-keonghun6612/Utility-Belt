@@ -16,10 +16,6 @@ flows:
             checkpoint: ''
             device: cuda
         outputs:
-            segment:
-                to: storage
-                level: frame
-                type: segmap
-                format: png
+            object: {}          # box 하나당 best mask → 객체의 mask(rle)
     -   object_type: upscale
         interp: nearest

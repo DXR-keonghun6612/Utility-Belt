@@ -37,7 +37,8 @@ class Mask_exporter(Frame_exporter):
     def _label_map(instances: list[Instance]) -> np.ndarray | None:
         """인스턴스들 → 라벨맵 ``(H,W)`` uint8 (픽셀=obj_id+1). mask 가 하나도 없으면 None.
 
-        uint8 이라 인스턴스 255개까지 — 정본 ``segmap`` 규약과 같은 한계(그 이상은 별도 승격 필요).
+        uint8 이라 인스턴스 255개까지 (그 이상은 uint16 승격이 든다). 이건 **내보내기 레이아웃의 한계**일
+        뿐 정본의 한계가 아니다 — 정본은 객체마다 자기 mask 를 들어 개수 제한이 없다.
         """
         _with_mask = [(_i.obj_id, _i.mask) for _i in instances if _i.mask is not None]
         if not _with_mask:

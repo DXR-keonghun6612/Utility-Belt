@@ -95,7 +95,11 @@ def Run_export(source: Sample_Set, dest: str | Path, *, task: str, format: str |
         raise ValueError(f"task {task!r} 에 format {_format!r} 조합이 없다 "
                          f"(가능: {', '.join(Formats_for(task))})") from None
     _out = Path(dest)
-    _cls(source=source, meta=meta, id_map=id_map, task=task).Export(_out)
+    _exporter = _cls(source=source, meta=meta, id_map=id_map, task=task)
+    _exporter.Export(_out)
+    # dataset-wide params(roi 등)는 어느 split 에도 안 속하므로 split 폴더의 **형제**로 앉힌다
+    # (`{dest}/params/` — store 레이아웃과 같다). 여기서 부르므로 format 마다 잊을 일이 없다.
+    _exporter._export_params(_out)
     return _out
 
 

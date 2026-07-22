@@ -167,20 +167,60 @@ def Mask_within_roi(mask: GRAY_IMAGE, roi: BBOX | GRAY_IMAGE) -> GRAY_IMAGE | No
     return _out
 
 
-def Box_within_roi(box: BBOX | None, roi: BBOX | GRAY_IMAGE | None) -> bool:
-    """bbox(XYXY)가 ``roi`` 의 **외접 박스** 안에 완전히 드는지 (한 변이라도 벗어나면 False).
+def Box_roi_overlap(box: BBOX | None, roi: BBOX | GRAY_IMAGE | None) -> float:
+    """bbox(XYXY) 면적 중 ``roi`` 의 **외접 박스** 안에 드는 비율 ``[0, 1]``.
 
-    roi 가 마스크로 주어져도 그 모양이 아니라 외접 박스로 본다(``Roi_to_box`` 규약 — roi 는 관심 영역의
-    대략적 한정이지 정밀 경계가 아니다). ``roi`` 가 None(미지정)이거나 비었으면, 또는 ``box`` 가 None
-    (판정 근거 없음)이면 True — 이 함수는 "roi 밖에 걸친 것"만 걸러내지 그 밖의 이유로 떨구지 않는다.
+    "roi 안에 든 정도"라 겹침 넓이를 **bbox 면적**으로 나눈다(IoU 아님 — roi 가 커도 작은 객체가
+    불리해지지 않게). roi 가 마스크로 주어져도 그 모양이 아니라 외접 박스로 본다(``Roi_to_box`` 규약 —
+    roi 는 대략적 한정이지 정밀 경계가 아니다).
+
+    ``roi`` 가 None(미지정)·빈 것이거나, ``box`` 가 None(판정 근거 없음)이거나, bbox 면적이 0 이면
+    ``1.0`` — 이 함수는 "roi 밖으로 나간 비율"만 재지 그 밖의 이유로 떨구지 않는다.
+
+    Args:
+        box: ``[x0, y0, x1, y1]`` (XYXY).
+        roi: BBOX 또는 마스크 (외접 박스로 환원). None 이면 제약 없음.
+
+    Returns:
+        bbox 면적 대비 roi 외접 박스와 겹치는 면적 비율 ``[0, 1]``.
     """
     if roi is None or box is None:
-        return True
+        return 1.0
     _rb = Roi_to_box(roi)                       # (y0, y1, x0, x1) — 마스크/BBOX 모두 외접 박스로
     if _rb is None:                             # 빈 roi = 사실상 미지정
-        return True
+        return 1.0
     _y0, _y1, _x0, _x1 = _rb
-    return box[0] >= _x0 and box[1] >= _y0 and box[2] <= _x1 and box[3] <= _y1
+    _area = max(box[2] - box[0], 0.0) * max(box[3] - box[1], 0.0)
+    if _area <= 0.0:                            # 면적 0 bbox — 나눌 수 없다
+        return 1.0
+    _iw = max(min(box[2], _x1) - max(box[0], _x0), 0.0)
+    _ih = max(min(box[3], _y1) - max(box[1], _y0), 0.0)
+    return (_iw * _ih) / _area
+
+
+def Clip_to_box(mask: GRAY_IMAGE, box: list[float] | BBOX) -> GRAY_IMAGE:
+    """``box``(XYXY) 밖 전경을 지운다 — box 안 픽셀만 남긴 같은 크기 mask.
+
+    객체의 bbox(region)가 "그 객체가 여기 있다"는 경계라, 그 밖의 mask 픽셀은 그 객체 것이 아니다.
+    ``Mask_within_roi`` 와 같은 일이되 roi 규약이 아니라 **xyxy bbox** 를 직접 받는다(객체 bbox 규약).
+    bbox 가 mask 의 tight 외접박스면 no-op, 더 작으면 그만큼 깎인다.
+
+    Args:
+        mask: ``(H, W)`` mask (0/비0).
+        box: ``[x0, y0, x1, y1]`` (XYXY).
+
+    Returns:
+        box 안만 남긴 같은 dtype·크기 mask.
+    """
+    _h, _w = mask.shape[:2]
+    _x0 = max(int(round(box[0])), 0)
+    _y0 = max(int(round(box[1])), 0)
+    _x1 = min(int(round(box[2])), _w)
+    _y1 = min(int(round(box[3])), _h)
+    _out = np.zeros_like(mask)
+    if _x1 > _x0 and _y1 > _y0:
+        _out[_y0:_y1, _x0:_x1] = mask[_y0:_y1, _x0:_x1]
+    return _out
 
 
 def Crop_to_mask(image: np.ndarray, mask: GRAY_IMAGE) -> np.ndarray | None:

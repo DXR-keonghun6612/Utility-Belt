@@ -15,9 +15,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--root", type=Path, required=True,
                    help="mask 폴더 (root/<class>/*.png 또는 flat root/*.png)")
     p.add_argument("--pattern", default="*.png", help="mask 파일 glob (예: *_mask.png)")
-    p.add_argument("--resolution", type=int, default=256, help="θ bin 수(각도 해상도)")
+    p.add_argument("--resolution", type=int, default=512, help="θ bin 수(각도 해상도)")
     p.add_argument("--n-harmonics", type=int, default=20, help="Fourier harmonic 수")
-    p.add_argument("--normalize", action="store_true", help="형상 프로파일 scale-free 정규화")
+    p.add_argument("--batch-size", type=int, default=64, help="한 번에 태울 mask 수")
     p.add_argument("--n-components", type=int, default=2, help="UMAP 임베딩 차원")
     p.add_argument("--n-neighbors", type=int, default=15, help="UMAP n_neighbors")
     p.add_argument("--min-dist", type=float, default=0.1, help="UMAP min_dist")
@@ -34,7 +34,7 @@ def main() -> None:
     print(f"[analyze] root={args.root}  pattern={args.pattern}")
     res = analyze(
         args.root, pattern=args.pattern, resolution=args.resolution,
-        n_harmonics=args.n_harmonics, normalize=args.normalize,
+        n_harmonics=args.n_harmonics, batch_size=args.batch_size,
         n_components=args.n_components, n_neighbors=args.n_neighbors,
         min_dist=args.min_dist, min_cluster_size=args.min_cluster_size)
 

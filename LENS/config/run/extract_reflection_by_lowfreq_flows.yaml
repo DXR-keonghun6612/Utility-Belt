@@ -33,7 +33,7 @@ flows:
             mask:
                 to: storage
                 level: frame
-                type: segmap
+                type: mask
                 format: png
                 dir: reflection_raw
 
@@ -46,7 +46,7 @@ flows:
             mask:
                 to: storage
                 level: frame
-                type: segmap
+                type: mask
                 format: png
                 dir: reflection_clean
 
@@ -57,10 +57,4 @@ flows:
         merge_gap: 0
         bbox_gap: 0.15
         outputs:
-            object: {}
-            segment:
-                to: storage
-                level: frame
-                type: segmap
-                format: png
-                dir: reflection_mask
+            object: {}          # 객체마다 자기 mask(rle) — 라벨맵은 저장 안 함

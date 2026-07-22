@@ -1,7 +1,7 @@
 """raster codec — 이미지 파일(png/jpg/…) ↔ ndarray. cv2 입출력.
 
-**도메인을 모른다** — png 를 읽는 법은 그게 사진이든 마스크든 라벨맵이든 같다. 그래서 image·mask·segmap
-도메인이 이 codec 하나를 공유한다(도메인별 의미 보정 — 단일채널 강제 등 — 은 도메인의 ``Normalize`` 몫).
+**도메인을 모른다** — png 를 읽는 법은 그게 사진이든 마스크든 같다. 그래서 image·mask 도메인이 이 codec
+하나를 공유한다(도메인별 의미 보정 — 단일채널 강제 등 — 은 도메인의 ``Normalize`` 몫).
 """
 
 from __future__ import annotations

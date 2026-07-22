@@ -238,12 +238,17 @@ class Meta_view(QWidget):
         node.value 에만 있어 트리를 다시 로드하면 사라지기 때문이다.
         """
         if self._dirty and self._key and self._key != key:
-            _old = self._key
-            self._flush()
-            if self._pipeline is not None:
-                self._pipeline.Order(stems=[_old])
-        _meta = self._meta()
+            self._flush()                               # 넘어가기 전에 편집 영속 (대기 라스터는 메모리에만)
         self._key = key
+        self._show_stem(key)
+
+    def _show_stem(self, key: str) -> None:
+        """선택된 stem 의 데이터·객체 패널을 펼치고 캔버스를 다시 그린다 — **stem 목록은 안 건드린다**.
+
+        저장·stem 전환처럼 목록 구성(이름·상태·개수)은 그대로고 **한 stem 의 내용만** 바뀔 때 쓴다.
+        6.5만 개짜리 목록을 통째 재구축하는 ``refresh`` 와 달리 비용이 O(이 stem 의 객체 수)다.
+        """
+        _meta = self._meta()
         if not key or _meta is None:
             self._leaf_panel.clear()
             self._obj_panel.clear()
@@ -316,26 +321,20 @@ class Meta_view(QWidget):
             return
         self._mark_dirty(node)
 
-    # ── 명시적 저장 (auto-save 대신) — 저장 = flush + obj_id 압축(Order) ───────────
+    # ── 명시적 저장 (auto-save 대신) — 저장 = flush (사이드카 write) ─────────────────
     def _on_save(self) -> None:
-        """이 stem 의 편집을 flush 하고 객체를 재정렬한다 — obj_id 구멍 압축 + **유령 객체 제거**.
+        """이 stem 의 편집을 flush 한다 (대기 라스터 Route + 사이드카 Save).
 
-        제거는 데이터가 사라지는 일이라 **말해준다**. 라벨맵에 자리가 없는 객체(mask 가 비었거나 bbox 를
-        안 그린 것)는 객체로 성립하지 않아 여기서 떨어져 나간다 — 조용히 없어지면 사용자는 자기가 만든
-        객체가 왜 사라졌는지 알 수 없다.
+        객체 재정렬·유령 제거는 여기서 안 한다 — obj_id 는 라벨맵 픽셀값이 아니라 트리 key 라 연속일
+        필요가 없고(구멍 압축 불필요), mask 무게중심 정렬은 ``order_objects`` process(flow)의 몫이다.
+        저장은 편집을 디스크에 영속할 뿐이다.
         """
         if self._pipeline is None or not self._editable or not self._dirty:
             return
         _key = self._key
         self._flush()                                   # 대기 라스터 Route + 사이드카 Save
-        _dropped = self._pipeline.Order(stems=[_key]) if _key else 0
-        self.refresh(keep=_key)                         # 재정렬 결과를 다시 그린다
+        self._show_stem(_key)                           # 현재 stem 만 다시 그린다 (65k 목록 재구축 없음)
         self.meta_changed.emit()
-        if _dropped:
-            QMessageBox.information(
-                self, "저장",
-                f"라벨이 없는 객체 {_dropped}개를 제거했습니다 — 객체로 남으려면 mask 를 칠하고 "
-                f"bbox 를 그려야 합니다.")
 
     def _on_revert(self) -> None:
         """저장 안 한 편집을 **버리고 디스크에서 다시 읽는다** — 편집의 취소는 되돌리기가 아니다.

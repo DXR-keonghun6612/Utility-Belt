@@ -96,7 +96,7 @@ analysis/       크로마 진단 (core 로 흡수 예정 — analysis→flow)
 ```
 
 Run·Sample 은 단위 계약(`Base_Process`)이 같고 source/sink 만 달라 `process` 의 `Stage` 엔진을 공유한다
-(Convert 는 엔진을 안 쓴다). **경계는 산문이 아니라 [`core/test_layering.py`](core/test_layering.py) 가 강제**.
+(Convert 는 엔진을 안 쓴다). 계층 번호와 그 불변식은 [`core/README.md`](core/README.md) 가 소유한다.
 
 남은 작업은 [`core/TODO.md`](core/TODO.md).
 

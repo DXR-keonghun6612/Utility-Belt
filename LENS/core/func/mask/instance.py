@@ -1,6 +1,6 @@
 """인스턴스 primitive — 이진 mask ↔ 인스턴스 라벨맵·bbox 목록.
 
-연결 요소 분할(``Split_components``)과 중심 기준 정렬(``Order_by_center``)의 순수 계산. 입출력은
+연결 요소 분할(``Split_components``)·중심 기준 정렬(``Order_by_center``)의 순수 계산. 입출력은
 배열과 박스 리스트뿐이라 저장 표현(``Data_Ref``)이나 store 를 모른다 — 객체 컨테이너 조립은 이 계산을
 쓰는 ``stream/mask`` 유닛의 몫이다.
 
@@ -13,7 +13,7 @@ import cv2
 import numpy as np
 
 from ...typing import GRAY_IMAGE
-from ..cv.geom import Box_center
+from ..cv.geom import Box_center, Center_offset
 
 BOX = list[float]
 
@@ -194,63 +194,23 @@ def Split_components(
     return _seg, _boxes
 
 
-def Label_in_box(segment: GRAY_IMAGE, box: BOX | None) -> int:
-    """``box`` 안의 최빈 non-zero 라벨(= 그 인스턴스의 현재 라벨). 없으면 ``0``."""
-    if box is None:
-        return 0
-    _h, _w = segment.shape[:2]
-    _x0 = max(int(round(box[0])), 0)
-    _y0 = max(int(round(box[1])), 0)
-    _x1 = min(int(round(box[2])), _w)
-    _y1 = min(int(round(box[3])), _h)
-    if _x1 <= _x0 or _y1 <= _y0:
-        return 0
-    _crop = segment[_y0:_y1, _x0:_x1]
-    _vals = _crop[_crop > 0]
-    return int(np.bincount(_vals).argmax()) if _vals.size else 0
-
-
 def Order_by_center(
-    segment: GRAY_IMAGE, boxes: list[BOX | None],
-) -> tuple[np.ndarray, list[int]]:
-    """인스턴스를 **이미지 중심에서 가까운 순**으로 정렬하고 라벨맵을 재라벨한다.
+    shape: tuple[int, int], centers: list[tuple[float, float] | None],
+) -> list[int]:
+    """인스턴스를 **이미지 중심에서 가까운 순**으로 정렬한 원본 인덱스를 돌려준다.
 
-    **라벨 매칭은 인덱스 산술이 아니라 bbox 위치로 한다** — 각 bbox 안의 최빈 라벨을 그 인스턴스의
-    현재 라벨로 본다. 그래서 순서와 라벨맵이 어긋난(예: 목록만 재정렬되고 라벨맵은 안 써진) desync
-    상태도 한 번 돌리면 위치 기준으로 다시 맞는다(self-heal).
-
-    **라벨맵에 자리가 없는 인스턴스는 떨어져 나간다** — bbox 가 없거나(``None``), 그 bbox 안에 라벨이
-    하나도 없거나(빈 mask), 이미 더 가까운 인스턴스가 그 라벨을 가져갔으면 살아남지 못한다. 객체는
-    라벨맵 위에서만 성립하므로, 라벨을 못 받은 것은 **객체가 아니라 유령**이다 — 남겨두면 다음 편집·
-    crop 이 빈 mask 를 들고 돈다. **bbox 가 진실**이라, 칠하기만 하고 bbox 를 안 그린 객체도 여기서 진다.
+    순서는 각 인스턴스의 중심점과 이미지 중심 사이 거리(대각선 정규화 ``Center_offset``)로만 정한다 —
+    라벨맵을 보지 않으므로 객체가 각자 mask 를 드는 계열에서도 쓴다. 중심점을 mask 무게중심으로 구했든
+    bbox 중앙으로 구했든 이 함수는 **점만 본다**(그 판단은 호출 측 몫). ``None``(위치를 못 구한 것)은
+    정렬 근거가 없어 드롭한다.
 
     Args:
-        segment: ``(H, W)`` 라벨맵 (픽셀 = 인덱스+1, 0 = 배경).
-        boxes: 인스턴스별 XYXY bbox (``None`` 이면 라벨을 찾을 근거가 없다 → 드롭).
+        shape: ``(H, W)`` — 거리 기준인 이미지 중심을 얻을 프레임 크기.
+        centers: 인스턴스별 중심점 ``(cx, cy)`` (``None`` 이면 드롭).
 
     Returns:
-        ``(segment, order)`` — 재라벨된 라벨맵과, **살아남은** 원본 인덱스들(가까운 순). ``order[k]`` 는
-        새 인덱스 ``k`` 가 된 원본 인스턴스의 인덱스다 — 드롭이 있으면 순열이 아니라 부분열이다.
+        가까운 순으로 정렬된 **원본 인덱스** 리스트 (위치 없는 것 제외).
     """
-    _h, _w   = segment.shape[:2]
-    _cx, _cy = _w / 2.0, _h / 2.0
-
-    # (중심까지 제곱거리, 현재 라벨, 원본 인덱스). bbox 없으면 inf → 맨 뒤.
-    _info: list[tuple[float, int, int]] = []
-    for _i, _b in enumerate(boxes):
-        if _b is None:
-            _d = float("inf")
-        else:
-            _bx, _by = Box_center(_b)
-            _d = (_bx - _cx) ** 2 + (_by - _cy) ** 2
-        _info.append((_d, Label_in_box(segment, _b), _i))
-    _info.sort(key=lambda _t: _t[0])
-
-    _lut = np.zeros(int(segment.max()) + 1, np.uint8)   # old 라벨 → 새 라벨(순위+1)
-    _order: list[int] = []
-    for _d, _old, _i in _info:
-        if _old <= 0 or _lut[_old]:                     # 라벨 자리가 없다(또는 이미 뺏겼다) → 드롭
-            continue
-        _lut[_old] = np.uint8(Obj_label(len(_order)))   # 새 라벨은 **살아남은 것들**로만 매긴다
-        _order.append(_i)
-    return _lut[segment], _order
+    _ranked = [_i for _i, _c in enumerate(centers) if _c is not None]
+    _ranked.sort(key=lambda _i: Center_offset(shape, centers[_i]))
+    return _ranked

@@ -2,15 +2,14 @@
 
 데이터 **하나**의 읽기/쓰기와 외부 레이아웃의 **발견**(glob). 아는 것은 **디스크와 포맷뿐** —
 ``Bucket_Store`` 를 모른다. 의존은 한 방향 — ``schema ← port ← store``. **store 만이 여기를 부른다**
-(읽기/쓰기는 store 가 소유하고 위 계층은 요청한다). 이 방향은 [`../test_layering.py`](../test_layering.py)
-가 강제한다.
+(읽기/쓰기는 store 가 소유하고 위 계층은 요청한다). 이 방향은 [`../README.md`](../README.md) 가 소유한다.
 
 **세 층이 ``format = (domain, format)`` 을 나눠 든다:**
 
 - **domain** ([`domain/`](domain)) — *무엇으로 읽나*. 유효 포맷 검증 + 의미 보정(`Normalize`) +
   포맷 편성(`To`) + 정책(Claims·Blank). **대표 포맷(정준형)은 없다** — 폴리곤은 폴리곤으로 산다.
 - **codec** ([`../codec`](../codec)) — *바이트 ↔ 값*. 어느 I/O 모듈이 읽나로 갈린다(cv2·numpy·yaml·사이드카).
-- **format** ([`../format`](../format)) — *값의 구조*. bbox·polygon·rle·segmap 과 그 사이 변환 계산.
+- **format** ([`../format`](../format)) — *값의 구조*. bbox·polygon·rle 와 그 사이 변환 계산.
 
 *codec 은 바이트가 무슨 뜻인지 모르고, format 은 그게 어디 사는지 모르고, domain 만 둘 다 안다.* 그래서
 새 구조는 파일 하나(format)로 붙고, 그것을 무엇으로 읽을지는 도메인이 ``FORMATS`` 한 줄로 받아들인다.
@@ -85,6 +84,16 @@ def Load(root: str, path: tuple[str, ...], name: str, ref: Data_Ref) -> Any:
     if _value is None:
         return None
     return _domain(ref)[1].Normalize(_value)
+
+
+def To(ref: Data_Ref, value: Any, fmt: str) -> Any:
+    """``ref`` 의 도메인으로 ``value`` 를 ``fmt`` 구조로 편성한다 (``Load`` 가 낸 구조 → 배열 등).
+
+    ``Load`` 는 구조를 뭉개지 않고 그대로 준다(rle 는 rle). 배열이 필요한 소비처는 이걸로 **명시적으로**
+    요청한다 — 도메인이 rle·polygon·배열 무엇으로 왔든 목표 포맷(``"npy"`` = 배열)으로 바꾼다. ``Save``
+    가 값을 포맷 구조로 편성하는(``_dom.To``) 것의 읽기쪽 대칭.
+    """
+    return _domain(ref)[1].To(value, fmt)
 
 
 def _effective_format(dom: type[Domain], ref: Data_Ref, src: Any) -> str:
@@ -211,7 +220,7 @@ def Template_for_file(spec: dict | str) -> Data_Ref:
     ``Template`` 의 자매 — 담을 그릇을 정하는 일은 같지만, ingest 는 파일이 아직 디스크에만 있어 **볼 값이
     없다**(``Template`` 은 값+맥락으로 고를 수 있다).
 
-    **``type``(도메인)은 필수다 — 확장자로 추론하지 않는다.** png 하나가 image 일 수도 segmap·mask 일 수도
+    **``type``(도메인)은 필수다 — 확장자로 추론하지 않는다.** png 하나가 image 일 수도 mask 일 수도
     있어, 추론은 **둘 중 하나를 말없이 고르는 것**이다.
 
     **저장 포맷은 따로 안 받는다** — 서술자의 둘째 칸은 ``Save`` 가 채운다(파일=소스 확장자 그대로).
@@ -226,7 +235,7 @@ def Template_for_file(spec: dict | str) -> Data_Ref:
     if not _type:
         raise ValueError(
             f"glob '{spec['pattern']}': type 을 명시하세요 (가능: {', '.join(Types())}). "
-            f"확장자로 추론하지 않습니다 — png 는 image 일 수도 segmap 일 수도 있습니다.")
+            f"확장자로 추론하지 않습니다 — png 는 image 일 수도 mask 일 수도 있습니다.")
     if Domain_for(_type) is None:
         raise ValueError(
             f"glob '{spec['pattern']}': 알 수 없는 type '{_type}' (가능: {', '.join(Types())}).")
