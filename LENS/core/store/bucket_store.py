@@ -106,6 +106,68 @@ class Bucket_Store(Data_Schema):
         _parent.Push(name, Data_Ref(info={}))
         return name
 
+    @staticmethod
+    def _canonical(names: list[str], renamed: dict[str, str]) -> list[str]:
+        """정준 순서 — **정수 key 는 번호순, 문자열 key 는 있던 상대 순서 그대로**.
+
+        ``sorted`` 가 stable 이라 정렬 key 가 같은 것들(문자열 전부)은 원래 순서를 지킨다. 정수만
+        번호로 줄을 세우므로, 번호를 다시 매기면 순서가 **저절로 따라온다** — 순서를 따로 들고 있을
+        필요가 없다.
+
+        문자열 key 를 이름순으로 정렬하면 안 된다: leaf 순서가 곧 캔버스 레이어 합성 순서라
+        (``frame`` 위에 ``mask``), 알파벳순으로 흔들면 그림이 뒤집힌다.
+        """
+        return sorted(names, key=lambda _n: (renamed[_n].isdigit(),
+                                             int(renamed[_n]) if renamed[_n].isdigit() else 0))
+
+    def Reorder(self, path: tuple[str, ...], order: list[str]) -> dict[str, str]:
+        """``path`` 컨테이너의 자식을 ``order`` 순서로 다시 세운다 (메모리만 — 파일은 안 움직인다).
+
+        **key 의 자료형이 무엇을 바꿀지 정한다 — 컨테이너가 아니라 key 마다 본다.** 한 컨테이너가 둘을
+        같이 들기 때문이다(stem 은 데이터 leaf ``frame``·``mask`` 와 객체 ``0``·``1`` 을 함께 든다).
+
+        * 정수 key(객체 ``obj_id``) — 이름이 곧 순번이라 **정수들끼리의 새 순서대로 0부터 다시 매긴다**.
+        * 문자열 key(이름)          — 이름을 그대로 두고 **순서만** 바꾼다.
+
+        순서는 ``info`` 의 삽입 순서라 사이드카에 그대로 남는다.
+
+        정수 key 재부여는 **payload-free 컨테이너(객체)에만** 허용한다 — 파일 payload 를 든 노드는 이름이
+        곧 경로라, 이름만 바꾸면 디스크의 파일과 끊긴다. 그 경우는 조용히 순서만 바꾸지 않고 거절한다.
+
+        ``order`` 에 없는 자식은 **뒤에 원래 순서로 붙인다** — 부분 목록을 줘도 나머지를 잃지 않는다.
+
+        Args:
+            path:  자식을 재정렬할 컨테이너 경로.
+            order: 새 순서의 자식 key 목록 (일부만 줘도 된다).
+
+        Returns:
+            ``{옛 key: 새 key}`` — 문자열 key 면 전부 자기 자신이다.
+
+        Raises:
+            KeyError:   컨테이너가 없거나 BRANCH 가 아닐 때.
+            ValueError: 정수 key 인데 파일 payload 를 든 자식이 있을 때 (번호를 바꾸면 파일과 끊긴다).
+        """
+        _parent = self.tree.At(path)
+        if _parent is None or not _parent.Is_branch():
+            raise KeyError(f"컨테이너가 없음: {'/'.join(path)}")
+        _seen = [_n for _n in order if _n in _parent.info]
+        _new = _seen + [_n for _n in _parent.info if _n not in _seen]
+        if not _new:
+            return {}
+
+        _digits = [_n for _n in _new if _n.isdigit()]
+        if any(not _parent.info[_n].Is_branch() for _n in _digits):
+            raise ValueError(
+                f"정수 key 재부여는 객체(BRANCH)에만 된다 — {'/'.join(path)} 의 "
+                f"{[_n for _n in _digits if not _parent.info[_n].Is_branch()]} 가 LEAF 다 "
+                "(이름이 곧 파일 경로라 번호를 바꾸면 payload 와 끊긴다)")
+
+        _renamed = {_old: _old for _old in _new}                 # 문자열 key 는 그대로
+        _renamed.update({_old: str(_i) for _i, _old in enumerate(_digits)})
+        _parent.info = {_renamed[_old]: _parent.info[_old]
+                        for _old in self._canonical(_new, _renamed)}
+        return _renamed
+
     def Delete_node(self, path: tuple[str, ...], name: str) -> None:
         """``path`` 아래 노드 하나를 지운다 — LEAF 든 BRANCH 든 **payload 파일까지** (없으면 no-op).
 
@@ -153,38 +215,55 @@ class Bucket_Store(Data_Schema):
         Structure.Delete(self.root, (self.PARAMS, name))         # 사이드카
 
     # ── 조회 — item(범주 직속 자식)만 ────────────────────────────────────────────
-    def _item_path(self, key: str) -> tuple[str, str] | None:
+    def _item_path(self, key: str, order: int = 1) -> tuple[str, str] | None:
         """item 의 트리 경로 ``(범주, key)`` — 범주 직속에서만 찾는다 (없으면 None).
 
         item 안쪽(객체·leaf)은 안 본다 — 그 이름이 우연히 겹쳐도 item 으로 오인하지 않는다.
+
+        Args:
+            key: item key.
+            order: **같은 key 를 여러 범주가 들 때 몇 번째를 집을지** (1 = 첫 범주).
+                한 key 가 한 범주에만 사는 store(정본·파생셋)에서는 늘 1 이라 기본값이 곧 그 규약이고,
+                범주가 *상태*이고 같은 key 가 상태마다 사는 store(cluster bucket)만 이 값을 쓴다.
+
+        Returns:
+            ``(범주, key)`` — ``order`` 번째 것이 없으면 None.
         """
+        _hit = 0
         for _c in self.CATEGORIES:
             _b = self.tree.Get(_c)
             if _b is not None and _b.Has(key):
-                return _c, key
+                _hit += 1
+                if _hit >= order:
+                    return _c, key
         return None
 
-    def Find(self, key: str) -> Data_Ref | None:
+    def Categories_of(self, key: str) -> list[str]:
+        """이 key 를 든 범주 **전부** (``CATEGORIES`` 순서). 없으면 빈 목록."""
+        return [_c for _c in self.CATEGORIES
+                if (_b := self.tree.Get(_c)) is not None and _b.Has(key)]
+
+    def Find(self, key: str, order: int = 1) -> Data_Ref | None:
         """key 의 item (어느 범주에 있든; 없으면 None)."""
-        _p = self._item_path(key)
+        _p = self._item_path(key, order)
         return self.tree.Get(_p[0]).Get(_p[1]) if _p is not None else None
 
     def Has(self, key: str) -> bool:
         """그 key 의 item 이 있는지."""
         return self._item_path(key) is not None
 
-    def Category_of(self, key: str) -> str | None:
+    def Category_of(self, key: str, order: int = 1) -> str | None:
         """이 item 이 **어느 범주에 있나** (없으면 None).
 
         범주가 곧 트리 위치라 이 물음의 답은 store 만 안다 — 호출 측(GUI 의 상태 뱃지 등)이 스스로
         버킷을 뒤지지 않게 하는 자리다.
         """
-        _p = self._item_path(key)
+        _p = self._item_path(key, order)
         return _p[0] if _p is not None else None
 
-    def Item_path(self, key: str) -> tuple[str, str] | None:
+    def Item_path(self, key: str, order: int = 1) -> tuple[str, str] | None:
         """item 의 트리 경로 ``(범주, key)`` — payload I/O 에 넘길 주소 (없으면 None)."""
-        return self._item_path(key)
+        return self._item_path(key, order)
 
     def Conflicts(self, other: "Bucket_Store") -> list[str]:
         """``other`` 를 들일 때 겹치는 key 목록 (범주 무관). 병합 전 질의용."""
@@ -274,41 +353,86 @@ class Bucket_Store(Data_Schema):
         _val = port.Load(self.root, path, name, ref)
         return None if _val is None else port.To(ref, _val, fmt)
 
-    def Trace(self, run: str, path: tuple[str, ...], name: str, spec: dict, value: Any,
-              *, params: bool = False) -> None:
-        """진단 payload 를 **트리 밖** ``{root}/.trace/{run}/{종류}/{stem}.{ext}`` 에 쓴다.
+    # ── 트리 밖 sink — 창구의 형제 ────────────────────────────────────────────────
+    # **sink = 라이프사이클 없는 payload 자리.** 트리에 안 앉으므로 사이드카에 안 실리고, 전이·삭제·
+    # 병합·내보내기가 아예 못 본다. 그게 정의다 (지우려면 폴더째 → :meth:`Sink_clear`).
+    #
+    # **sink 이름은 store 가 안 정한다** — 호출 측이 준다. 진단(`.trace`)과 분석 산출(`.analysis`)은
+    # "트리 밖에 kind-major 로 쌓는다"는 같은 것의 다른 쓰임이고, 여기가 아는 것은 그 메커니즘뿐이다.
+    # store 가 이름을 알면 소비처가 늘 때마다 store 에 메서드가 하나씩 붙는다.
+    def Sink(self, sink: str, scope: str, path: tuple[str, ...], name: str, spec: dict, value: Any,
+             *, params: bool = False) -> Data_Ref:
+        """트리 밖 sink 에 payload 를 쓴다 — ``{root}/{sink}/{scope}/{종류}/{주소}.{ext}``.
 
-        ``Route`` 의 형제이되 **``Data_Ref`` 를 안 돌려준다** — 꽂을 ref 가 없으니 트리에 앉힐 수단이
-        구조적으로 없다. 그래서 진단물은 사이드카에 안 실리고, 전이(``Move``)·삭제·병합·내보내기가
-        아예 못 본다. 라이프사이클이 없는 것이 이 sink 의 정의다 (지우려면 폴더째 → ``Clear_trace``).
+        ``Route`` 의 형제이되 **트리에 안 앉힌다**. 경로 규칙(kind-major, 주소는 파일명)은 ``port`` 가
+        소유하므로 여기는 root 앞에 ``{sink}/{scope}`` 를 붙여 넘길 뿐이다.
 
-        범주가 경로에 없는 것도 같은 이유다 — 진단은 검수 상태를 따라 옮겨다니지 않는다. 대신 ``run``
-        이 앞머리라 같은 종류를 여러 번 내도 실행끼리 안 덮어쓴다.
+        범주가 경로에 없다 — sink 산출물은 검수 상태를 따라 옮겨다니지 않는다. 대신 ``scope`` 가
+        앞머리라 같은 종류를 여러 번 내도 실행/설정끼리 안 덮어쓴다.
 
         Args:
-            run:   실행 id (호출 측이 실행 단위로 정한다 — 한 Run = 한 폴더).
-            path:  트리 위치에서 온 주소 꼬리 ``(stem[, obj_id])``. 비면 위치 없음(finalize).
-            name:  leaf 이름 = 종류(폴더).
-            spec:  라우팅 spec (``to: trace``).
+            sink: sink 루트 폴더 이름 (``.trace``·``.analysis`` 등 — 트리 밖이라 ``.`` 로 숨긴다).
+            scope: 그 sink 안의 칸막이 (진단은 run id, 분석은 설정 해시).
+            path: 주소 ``(stem[, obj_id])``. 비면 위치 없음(dataset-wide).
+            name: 종류 = kind (폴더 이름이 된다).
+            spec: 라우팅 spec (``to: trace`` — 파일 그릇).
             value: 저장할 값.
             params: 위치 없는 dataset-wide 출력인지 (핸들러 ``Claims`` 맥락).
-        """
-        port.Route(str(Path(self.root, TRACE_DIR)), (run, *path), name, spec, value,
-                   params=params)
 
-    def Clear_trace(self, run: str | None = None) -> None:
-        """진단 산출물을 지운다 — ``run`` 이면 그 실행 폴더만, 아니면 ``.trace`` 통째 (없으면 no-op)."""
-        _dir = Path(self.root, TRACE_DIR, run) if run else Path(self.root, TRACE_DIR)
+        Returns:
+            저장된 payload 의 서술자. **트리에 앉히라고 주는 것이 아니다** — 되읽을 때 필요한 포맷·
+            확장자를 호출 측이 알게 하는 용도다(sink 는 그 ref 를 어디에도 안 싣는다).
+        """
+        return port.Route(str(Path(self.root, sink)), (scope, *path), name, spec, value,
+                          params=params)
+
+    def Sink_load(self, sink: str, scope: str, path: tuple[str, ...], name: str, ref: Data_Ref):
+        """sink 에 쓴 payload 를 되읽는다 (없으면 None) — :meth:`Sink` 의 읽기쪽 대칭.
+
+        ``ref`` 는 호출 측이 든다. sink 는 서술자를 안 실으므로(그게 sink 의 정의다) "무슨 포맷으로
+        썼나"는 그 kind 를 정한 쪽이 아는 것이 맞다.
+        """
+        return port.Load(str(Path(self.root, sink)), (scope, *path), name, ref)
+
+    def Sink_path(self, sink: str, scope: str, path: tuple[str, ...], name: str, ref: Data_Ref):
+        """sink payload 를 받치는 파일 경로 (인라인이면 None) — 존재 확인·목록에 쓴다."""
+        return port.Path_of(str(Path(self.root, sink)), (scope, *path), name, ref)
+
+    def Sink_clear(self, sink: str, scope: str | None = None) -> None:
+        """sink 산출물을 지운다 — ``scope`` 면 그 칸만, 아니면 sink 통째 (없으면 no-op)."""
+        _dir = Path(self.root, sink, scope) if scope else Path(self.root, sink)
         if _dir.exists():
             shutil.rmtree(_dir)
 
-    def Load(self, key: str, name: str):
+    def Trace(self, run: str, path: tuple[str, ...], name: str, spec: dict, value: Any,
+              *, params: bool = False) -> None:
+        """진단 payload 를 ``{root}/.trace/{run}/{종류}/{stem}.{ext}`` 에 쓴다 — sink 하나의 쓰임.
+
+        **``Data_Ref`` 를 안 돌려준다** — 진단물은 되읽을 일이 없고, 꽂을 ref 가 없으니 트리에 앉힐
+        수단이 구조적으로 없다는 것을 시그니처가 말한다. 되읽는 sink(분석 산출 등)는 :meth:`Sink` 를
+        직접 쓴다.
+
+        Args:
+            run:   실행 id (호출 측이 실행 단위로 정한다 — 한 Run = 한 폴더).
+            path:  주소 ``(stem[, obj_id])``. 비면 위치 없음(finalize).
+            name:  종류(폴더).
+            spec:  라우팅 spec (``to: trace``).
+            value: 저장할 값.
+            params: 위치 없는 dataset-wide 출력인지.
+        """
+        self.Sink(TRACE_DIR, run, path, name, spec, value, params=params)
+
+    def Clear_trace(self, run: str | None = None) -> None:
+        """진단 산출물을 지운다 — ``run`` 이면 그 실행 폴더만, 아니면 ``.trace`` 통째 (없으면 no-op)."""
+        self.Sink_clear(TRACE_DIR, run)
+
+    def Load(self, key: str, name: str, order: int = 1):
         """item 의 leaf 하나를 payload 로 푼다 (item·leaf 가 없으면 None).
 
         **범주를 호출 측이 몰라도 된다** — key 만 주면 store 가 자기 트리에서 자리를 찾아 경로를
         파생한다. ``Resolve``(직속 leaf 전부)의 단건 판이다.
         """
-        _p = self._item_path(key)
+        _p = self._item_path(key, order)
         if _p is None:
             return None
         _ref = self.tree.Get(_p[0]).Get(_p[1]).Get(name)
@@ -369,8 +493,21 @@ class Bucket_Store(Data_Schema):
 
     # ── 영속 — 사이드카 = item 하나 (경로 = 트리 위치) ────────────────────────────
     @classmethod
-    def Restore(cls, root: str | Path) -> "Bucket_Store":
+    def Restore(cls, root: str | Path,
+                progress: Callable[[int, int], None] | None = None,
+                *, only: tuple[str, ...] | None = None) -> "Bucket_Store":
         """``{root}/.meta`` 트리를 walk 해 복원 — 경로 key 가 곧 트리 위치 ``(최상위, item)``.
+
+        ``progress`` 가 있으면 사이드카를 읽으며 ``(읽은 수, 전체)`` 로 진행을 알린다 — 수만 item 이면
+        로드가 초 단위라 GUI 가 이걸 백그라운드 워커의 진행바로 돌린다(``Structure.Walk`` 로 위임).
+
+        Args:
+            root: store 루트.
+            progress: ``(읽은 수, 전체)`` 진행 콜백.
+            only: **이 최상위만** 복원한다(기본 = 전부). 값 하나를 물으려고 전 item 을 읽지 않게 하는
+                문이다 — 실측 6만 item store 에서 전체 4.0 s vs params 만 0.2 ms. 돌아오는 store 는
+                **덜 복원된 것**이라, 안 읽은 최상위를 물으면 "없다"가 아니라 **모른다**가 답이다.
+                그래서 쓰는 쪽이 무엇을 물을지 아는 자리에서만 준다(:meth:`Analysis_Set.Open_params`).
 
         Raises:
             ValueError: 사이드카 경로가 ``{범주|params}/{key}.json`` 모양이 아닐 때 (모르는 최상위 key
@@ -378,7 +515,7 @@ class Bucket_Store(Data_Schema):
         """
         _store = cls(root=str(root))
         _tops = (cls.PARAMS, *cls.CATEGORIES)
-        for _keys, _d in Structure.Walk(str(root)):
+        for _keys, _d in Structure.Walk(str(root), progress=progress, tops=only):
             if len(_keys) != 2 or _keys[0] not in _tops:
                 raise ValueError(
                     f"{cls.__name__}: 복원 불가한 사이드카 .meta/{'/'.join(_keys)}.json — "
@@ -387,7 +524,7 @@ class Bucket_Store(Data_Schema):
             _store.tree.Get(_keys[0]).Push(_keys[1], Data_Ref(**_d))
         return _store
 
-    def Save(self, key: str | None = None) -> None:
+    def Save(self, key: str | None = None, order: int = 1) -> None:
         """구조를 사이드카로 흩는다 — ``key`` 면 그 item 하나, 아니면 전 item (params 포함).
 
         Raises:
@@ -398,10 +535,32 @@ class Bucket_Store(Data_Schema):
                 for _item_key, _item in list(_b.Items()):
                     Structure.Write(self.root, (_top, _item_key), _item.Serialize())
             return
-        _p = self._item_path(key)
+        _p = self._item_path(key, order)
         if _p is None:
             raise KeyError(f"저장할 item 이 없음: {key}")
         Structure.Write(self.root, _p, self.tree.Get(_p[0]).Get(_p[1]).Serialize())
+
+    def Put_param(self, name: str, spec: dict, value: Any) -> None:
+        """params leaf 하나를 앉히고 **그것만** 쓴다 — ``Set_param`` + ``Save_param`` 의 한 걸음.
+
+        둘을 따로 부르면 한쪽을 잊어 트리에만 있고 디스크엔 없는(또는 그 반대) 상태가 생긴다.
+        """
+        self.Set_param(name, self.Route((self.PARAMS,), name, spec, value, params=True))
+        self.Save_param(name)
+
+    def Save_param(self, name: str) -> None:
+        """``params`` leaf 하나만 사이드카로 쓴다 — :meth:`Set_param` 의 영속쪽 대칭.
+
+        :meth:`Save` 는 item 만 안다(``_item_path`` 가 범주에서 찾는다). params 하나를 고치려고 전
+        item 을 다시 쓰는 것은 수만 건에서 감당이 안 되므로 여기가 그 자리다.
+
+        Raises:
+            KeyError: 그 이름의 params leaf 가 없을 때.
+        """
+        _ref = self.tree.Get(self.PARAMS).Get(name)
+        if _ref is None:
+            raise KeyError(f"저장할 params 가 없음: {name}")
+        Structure.Write(self.root, (self.PARAMS, name), _ref.Serialize())
 
     # ── 전이 — 범주 key 사이 pop→push (payload 도 재귀로 함께 이동) ────────────────
     def _relocate(self, item: Data_Ref, src: tuple[str, ...], dst: tuple[str, ...]) -> None:
@@ -421,9 +580,9 @@ class Bucket_Store(Data_Schema):
         self.tree.Get(to_category).Push(key, _item)
         self.Save(key)
 
-    def Delete(self, key: str) -> None:
+    def Delete(self, key: str, order: int = 1) -> None:
         """item 을 완전히 제거 — payload·사이드카·tree (없으면 no-op)."""
-        _p = self._item_path(key)
+        _p = self._item_path(key, order)
         if _p is None:
             return
         _item = self.tree.Get(_p[0]).Pop(key)

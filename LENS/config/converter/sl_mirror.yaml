@@ -1,0 +1,21 @@
+converter:
+    object_type: glob
+    sources: [/home/dxr/project/400. On_Project/410. SL_mirror_tech/412. dataset/sl_mirrortech/real_raw/260529,
+        /home/dxr/project/400. On_Project/410. SL_mirror_tech/412. dataset/sl_mirrortech/real_raw/260619,
+        /home/dxr/project/400. On_Project/410. SL_mirror_tech/412. dataset/sl_mirrortech/real_raw/260624]
+    globs:
+        frame:
+            pattern: '*_pose'
+            ext: png
+            type: image
+        class_id:
+            pattern: '*_pose'
+            ext: txt
+            type: attr
+    params:
+        id_map:
+            pattern: /home/dxr/project/100. Utility/120. Belt/LENS/resource/id_map.yaml
+            type: docs
+        roi:
+            pattern: /home/dxr/project/100. Utility/120. Belt/LENS/resource/segment_ROI.png
+            type: mask

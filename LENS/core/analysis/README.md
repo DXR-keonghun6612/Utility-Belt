@@ -302,6 +302,26 @@ stats_of      결과를 충분통계 (n, Σx, Σ‖x‖²) 로 요약
 - **모든 판정은 *이 데이터에 대한 진술*이다.** "c100 = c102" 가 아니라 "이 feature 로 안 갈림"
   이고, 그것이 병합 근거인지 정보 부족 신호인지는 사람만 안다.
 
+## 자세·형상은 여기서 안 만든다 — **flow 가 만들고 정본이 든다**
+
+추출기는 형상을 재기 전에 mask 의 무게중심과 **주축각**으로 좌표계를 정준화한다. 그 각이 곧 자세이고,
+정준 극좌표에서 뜬 밴드 배치가 곧 형상 원본이다 — 둘 다 **한 패스**에서 나오므로 flow 의
+`radial_profile` 유닛이 함께 낸다 ([`core/process/stream/mask/`](../process/stream/mask/profile.py)).
+
+| 무엇 | 어디 | 바뀌면 |
+|---|---|---|
+| mask · pose · `radial_rle` (측정값) | **정본** — 편집과 함께 움직인다 | flow 를 다시 |
+| 접기·정규화 상수·임계·계약 (잣대) | `.analysis` — config 가 정한다 | 다시 접기만 |
+| type 배정·거리·종합 좌표·템플릿 (판정) | `.analysis` — 재군집마다 갱신 | 다시 묶기 |
+
+**계산이 순수한데 왜 여기가 아닌가** — 이 층의 기준은 하는 일이 아니라 **아는 것**이다. 값을 만드는
+일이 여기 있으면 같은 계산이 flow 와 분석 두 곳에 있고, 무엇보다 **분석을 돌려야만 값이 생긴다** —
+flow 로 만든 정본을 그대로 쓸 수가 없다. 그래서 만들기는 flow 한 곳이고 여기는 **재는 자**다.
+
+판정을 정본에 안 적는 이유는 위 "네 가지 정의" 가 소유한다 — *type id 는 영속 식별자가 아니다.*
+정본에 적으면 재군집 한 번에 사이드카 수만 개를 다시 쓰고, 사람이 고친 것과 기계가 다시 센 것이
+수정 시각으로 구분되지 않는다.
+
 ## 흐름
 
 ```
@@ -324,12 +344,12 @@ stats_of      결과를 충분통계 (n, Σx, Σ‖x‖²) 로 요약
 
 | 영역 | 소유 |
 |---|---|
-| feature 계산 (학습 공유) | torch_toolbox `modules/transform/mask` — `extract.Mask_Geometry` 가 조립 |
+| feature 계산 (학습 공유) | torch_toolbox `modules/transform/mask` — `process/stream/mask/shape.Geometry_chain` 이 조립 |
 | 접는 식 | torch_toolbox `geometry.RADIAL_FOLDS` — `extract.Fold` 가 ndarray 로 감싼다 |
-| 잣대 목록 | **config** `gauges:` 블록 (`config/analysis/mask_geometry.yaml`) |
-| 계약 (feature × 잣대) | `extract.Extract_Spec` |
+| 잣대 목록 | **config** `gauges:` 블록 (`config/gauge/mask_shape.yaml`) |
+| 계약 (feature × 잣대) | `extract.Contract` → `Extract_Spec` |
 | 가르기 계산 (순수) | `cluster.py` — `fit` 이 알고리즘 전체 |
-| 산출물 구조·영속 | `store.Cluster_Bucket` — `Features` 원본 / `Measure` 잣대 값 |
+| 산출물 구조·영속 | `store.Cluster_Bucket` · 묶음별 npz (`cache`·`template`) |
 | 도메인 단위 배선·신선도 | `group.build` · `group.domain_signature` |
 
 잔여 작업은 [`TODO.md`](TODO.md).

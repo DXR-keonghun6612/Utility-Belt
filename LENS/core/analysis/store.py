@@ -28,7 +28,8 @@ from ..constant import MODIFIED, STAGED, TO_STORAGE
 from ..port import Structure
 from ..schema import Data_Ref
 from ..store import Bucket_Store
-from .cluster import JOINT, POOL, Stats, centers, neighbors_of, radii, threshold_of
+from .cluster import (
+    JOINT, POOL, Stats, centers, neighbors_of, radii, threshold_of, type_neighbors, welds_of)
 from .extract import Fold
 
 #: 정본 root 아래 산출물 서브트리 — ``.`` 로 숨긴다(사람이 만든 것이 아니다).
@@ -49,6 +50,7 @@ CONTRACT = "contract"   # 추출기 계약
 CLUSTER  = "cluster"    # 묶기 설정 + {도메인: 서명}
 STATS    = "stats"      # stats__{도메인} — 마지막 clustering 시점
 JOINT_P  = "joint"      # 종합 — 배정·구성·메운 자리를 **자기 장부**에 든다 (index 와 별도)
+RECIPE   = "recipe"     # 화면 설정 사본 — 이 산출물을 **무엇으로 만들었나** (정본에도 있다)
 
 # **화면 레시피는 여기 없다.** 한때 ``recipe`` params 로 산출물 옆에 뒀는데, 그러면 산출물을 지우는
 # 순간(``[feature 삭제]``) 사용자의 설정까지 사라진다. "어떻게 만드는가"(레시피)와 "만들어진
@@ -56,6 +58,7 @@ JOINT_P  = "joint"      # 종합 — 배정·구성·메운 자리를 **자기 �
 
 #: 캐시 전용 key — 파일이 아니라 index 를 묶어 둔 것 (params 이름과 안 겹치게).
 _GROUPED = "\x00grouped"
+_BY_CLASS = "\x00by_class"
 
 _JSON  = {"to": TO_STORAGE, "format": "json"}
 _NPZ   = {"to": TO_STORAGE, "type": "arrays", "format": "npz"}
@@ -154,16 +157,29 @@ class Cluster_Bucket(Bucket_Store):
                 if names is None or _f in names}
 
     def _resolved(self, address: Address) -> dict:
-        """그 표본 사이드카를 풀어 ``{feature: 값}`` — 트리에 없으면 그 한 장만 읽어 앉힌다.
+        """그 표본의 ``{feature: 값}`` — **그 표본이 든 묶음 캐시 한 장**에서 꺼낸다.
 
-        params 만 열고도 고른 표본을 그릴 수 있게(전체 복원 없이). 읽은 것은 트리에 남아 두 번 안
-        읽는다.
+        표본은 자기 사이드카를 안 든다(값은 정본이 소유하고 여기는 묶음별 캐시 사본이다). 그래서
+        주소 → class → 캐시 npz → 그 안에서 행 찾기다. 같은 묶음을 반복해 물으면 캐시가 받아
+        디스크를 두 번 안 탄다.
         """
+        from . import cache
         _key = self.Key(address)
-        _p = self.Item_path(_key) or self._restore_item(_key)
-        if _p is None:
+        _cls = str(self.Index().get(_key, {}).get("class", ""))
+        _feat = self._feature_name()
+        if not _feat:
             return {}
-        return self.Resolve(_p, self.tree.Get(_p[0]).Get(_p[1]))
+        _got = self._derived(("cache", _cls), lambda: cache.Load(self, cache.CLASS, _cls))
+        if _got is None:
+            return {}
+        _keys, _rows = _got
+        _at = {_k: _i for _i, _k in enumerate(_keys)}
+        return {} if _key not in _at else {_feat: _rows[_at[_key]]}
+
+    def _feature_name(self) -> str:
+        """계약이 든 저장 feature 이름 (하나뿐 — 정본이 드는 그 배열). 없으면 빈 문자열."""
+        _names = sorted((self.Contract().get("features") or {}))
+        return _names[0] if _names else ""
 
     def Measure(self, address: Address, domains: list[str] | None = None) -> dict[str, np.ndarray]:
         """그 표본을 **잣대로 잰 값** ``{도메인: 값}`` (없으면 ``{}``). ``domains`` 를 주면 그것만.
@@ -246,6 +262,21 @@ class Cluster_Bucket(Bucket_Store):
     def Set_cluster_cfg(self, cfg: dict) -> None:
         self._put(CLUSTER, _JSON, dict(cfg or {}))
 
+    def Recipe(self) -> dict:
+        """이 산출물을 만든 **화면 설정** (없으면 빈 dict).
+
+        :meth:`Cluster_cfg` 와 다르다 — 저건 묶기가 실제로 쓴 인자고, 이건 순회 축·보기·켠 축까지
+        포함한 화면 상태다. 산출물 폴더가 자기 설정을 들고 다녀야 **결과마다 다른 조건**으로 돌린
+        것이 뒤섞이지 않는다.
+
+        정본에도 같은 것이 있다(그쪽이 원본 — ``[feature 삭제]`` 가 이 폴더를 지워도 남는다).
+        읽는 쪽은 **여기 있으면 여기를 쓴다**.
+        """
+        return dict(self._param(RECIPE) or {})
+
+    def Set_recipe(self, recipe: dict) -> None:
+        self._put(RECIPE, _JSON, dict(recipe or {}))
+
     def _param(self, name: str):
         """params 하나를 **캐시를 거쳐** 읽는다 — 같은 값을 두 번 파싱하지 않게."""
         if name not in self._memo:
@@ -260,6 +291,7 @@ class Cluster_Bucket(Bucket_Store):
             del self._memo[_k]                      # 파생값(중심·반경·구성)은 다시 센다
         if name == INDEX:
             self._memo.pop(_GROUPED, None)          # 배정이 바뀌면 묶음도 다시 만든다
+            self._memo.pop(_BY_CLASS, None)
 
     # ── stats — 도메인당 한 장 ──────────────────────────────────────────────────
     @staticmethod
@@ -359,6 +391,23 @@ class Cluster_Bucket(Bucket_Store):
         _cfg = self.Cluster_cfg()
         return neighbors_of(_cfg, domain), str(domain) in (_cfg.get("neighbor_counts") or {})
 
+    def Suggest_k(self, domain: str) -> tuple[float, float, float] | None:
+        """이 축의 **최근접거리 분위수** ``(10%, 50%, 90%)`` — 없으면 None.
+
+        좌표를 만들 때 함께 잰 값이다(:func:`~.group._scaled`). ``k`` 가 자기 최근접거리를 넘어야
+        그 표본이 이웃 하나라도 갖게 되므로 **``k = 90%`` 면 표본의 90% 가 최소한 하나와 이어진다** —
+        배정률의 하한이 그 값이다. 순도는 별개라 사람이 올려 보며 정한다.
+
+        단위가 **정규화 방법을 탄다** — 방법을 바꾸면 다시 재야 한다(``norm`` 에서 ``nn`` 을 지운다).
+        """
+        _nn = (self.Norm().get(str(domain)) or {}).get("nn")
+        return (float(_nn[0]), float(_nn[1]), float(_nn[2])) if _nn and len(_nn) == 3 else None
+
+    def Welds_of(self, domain: str) -> tuple[bool, bool]:
+        """그 축의 **병합 허용** ``(켰나, 도메인별 지정인가)`` — :meth:`Threshold_of` 와 같다."""
+        _cfg = self.Cluster_cfg()
+        return welds_of(_cfg, domain), str(domain) in (_cfg.get("weld_axes") or {})
+
     # ── 묻기 — 저장된 index·stats 위에서. 전수를 안 읽는다 ────────────────────────
     def _grouped(self) -> dict[str, dict[int, list[str]]]:
         """``{도메인: {type: [key, …]}}`` — index 를 **한 번** 묶어 둔다.
@@ -371,8 +420,15 @@ class Cluster_Bucket(Bucket_Store):
             for _k, _rec in self.Index().items():
                 for _d, _t in (_rec.get("types") or {}).items():
                     _out.setdefault(str(_d), {}).setdefault(int(_t), []).append(_k)
-            for _k, _t in (self.Joint().get("assign") or {}).items():   # 종합은 자기 장부에서
-                _out.setdefault(JOINT, {}).setdefault(int(_t), []).append(str(_k))
+            _joint = self.Joint().get("assign")
+            if _joint is not None:                      # 종합은 자기 장부에서
+                for _k, _t in _joint.items():
+                    _out.setdefault(JOINT, {}).setdefault(int(_t), []).append(str(_k))
+                # **장부에 없는 것이 곧 보류다.** 축은 `index.types` 에 `POOL` 을 적어 두지만 종합
+                # 장부는 배정된 것만 든다 — 여기서 채우지 않으면 `Composition` 은 8,934건이라 하고
+                # `Keys` 는 0건이 되어, 화면이 "수는 있는데 열면 비었다" 가 된다.
+                _out.setdefault(JOINT, {})[POOL] = [_k for _k in self.Index()
+                                                    if _k not in _joint]
             self._memo[_GROUPED] = _out
         return self._memo[_GROUPED]
 
@@ -440,6 +496,21 @@ class Cluster_Bucket(Bucket_Store):
         if type_id is not None:
             return sorted(_by_type.get(int(type_id), []))
         return sorted(_k for _t, _v in _by_type.items() if _t >= 0 for _k in _v)
+
+    def Keys_of_class(self, class_name: str) -> list[str]:
+        """그 class 의 item key — **배정과 무관하다**(보류도 든다).
+
+        :meth:`Keys` 의 class 판 이다. 축이 아니라 라벨로 묶는 물음("이 번호가 원래 어떻게 생겼나")
+        이 있고, 그 답은 어느 type 에 앉았는지와 상관이 없다 — 안 앉은 표본도 그 class 의 모습이다.
+
+        :meth:`_grouped` 와 같은 이유로 **한 번 묶어 둔다** — 6만을 조회마다 훑으면 화면이 멈춘다.
+        """
+        if _BY_CLASS not in self._memo:
+            _out: dict[str, list[str]] = {}
+            for _k, _rec in self.Index().items():
+                _out.setdefault(str(_rec.get("class", "")), []).append(_k)
+            self._memo[_BY_CLASS] = _out
+        return sorted(self._memo[_BY_CLASS].get(str(class_name), []))
 
     def Counts(self, domain: str) -> np.ndarray:
         """type 별 구성원 수 ``(M,)`` — 통계의 ``n`` 그대로 (index 와 어긋나면 통계가 진실).
@@ -512,11 +583,19 @@ class Cluster_Bucket(Bucket_Store):
     def Resolution(self, domain: str, k: float) -> np.ndarray:
         """``k`` 해상도에서의 type 묶음 ``(M,)`` — 같은 번호면 그 해상도에서 안 갈린다.
 
-        **저장하지 않는다.** 중심이 이미 있으니 조회 시점에 센다 — ``d(중심ᴀ, 중심ʙ) ≤ k`` 를
-        연결로 보고 묶는다. 그래서 사용자가 ``k`` 를 키워 가며 훑는 것이 재군집 없이 즉시 된다.
+        **저장하지 않는다.** 중심이 이미 있으니 조회 시점에 센다 — 그래서 ``k`` 를 키워 가며
+        훑는 것이 재군집 없이 즉시 된다.
 
-        **단방향이다** — 가른 ``k`` 보다 **거친** 쪽만 나온다. 더 잘게 보려면 재군집해야 한다.
-        가른 ``k`` 가 노이즈 하한 근처면 그 아래는 어차피 뜻이 없으므로 실용상 문제가 없다.
+        **묶는 규칙이 가르는 규칙과 같다** (:func:`~.cluster.type_neighbors` — 상호 최근접 + ``k``).
+        이 값이 답하는 물음이 "더 거친 ``k`` 로 **다시 가르면** 뭐가 나오나" 라서다. 한때 여기만
+        ``d ≤ k`` 전체 쌍으로 묶었는데, 그건 어떤 ``k`` 로도 안 나오는 묶음이었다 — 실측
+        ``radial_signed`` 에서 화면이 그리는 쌍의 84%가 판정이 안 쓴 쌍이었다.
+
+        **포화한다** — 상호성이 걸려 있어 ``k`` 를 키워도 새 이웃이 안 생기는 지점이 온다(실측
+        ``radial_signed`` 는 10그룹에서 멈춘다). 그게 고장이 아니라 답이다: 그 이상은 이 데이터가
+        붙여 주지 않는다. 더 붙이려면 ``k`` 가 아니라 **이웃 수**를 키워야 한다.
+
+        **단방향이다** — 가른 ``k`` 보다 거친 쪽만 나온다. 더 잘게 보려면 재군집해야 한다.
 
         **종합에는 해상도가 없다** — 좌표가 없으니 중심끼리 잴 것이 없고, 종합 type 을 묶으려면
         축들을 각자의 해상도로 되묶어 다시 곱해야 한다(그건 재군집이다). 그래서 항등을 낸다.
@@ -531,40 +610,28 @@ class Cluster_Bucket(Bucket_Store):
         _limit = int(self.Cluster_cfg().get("max_axis_types") or _MAX_TYPES)
         if _M > _limit:
             raise Type_explosion(domain, _M, _limit)
-        _g = np.arange(_M)
         if _M < 2:
-            return _g
-        _q = (_C ** 2).sum(1)
-        _D = np.sqrt(np.maximum(_q[:, None] + _q[None, :] - 2.0 * _C @ _C.T, 0.0))
-        for _i in range(_M):                        # 연결요소 — 자리 수가 작아 단순하게
-            for _j in np.where(_D[_i] <= float(k))[0]:
-                _a, _b = int(_g[_i]), int(_g[_j])
-                if _a != _b:
-                    _g[_g == max(_a, _b)] = min(_a, _b)
-        _seat = {int(_r): _i for _i, _r in enumerate(sorted(set(_g.tolist())))}
-        return np.asarray([_seat[int(_v)] for _v in _g], int)
+            return np.arange(_M)
+        _parent = np.arange(_M)
+
+        def _find(_x: int) -> int:
+            while _parent[_x] != _x:
+                _parent[_x] = _parent[_parent[_x]]
+                _x = int(_parent[_x])
+            return _x
+
+        # 간선이 **성기다**(상호 최근접이라 ``M·m`` 이 상한) — 그래서 실체화해도 안전하다.
+        for _u, _v in type_neighbors(_C, float(k), self.Neighbors_of(domain)[0]):
+            _a, _b = _find(int(_u)), _find(int(_v))
+            if _a != _b:
+                _parent[max(_a, _b)] = min(_a, _b)     # 대표는 가장 작은 번호
+        _root = [_find(_i) for _i in range(_M)]
+        # 번호는 **자리 순서**다 — 슬라이더 왼쪽 끝에서 갈래 번호가 type 번호와 같아야 트리의
+        # ``#12`` 와 그래프 라벨 ``12`` 를 눈으로 잇는다.
+        _seat = {_r: _i for _i, _r in enumerate(sorted(set(_root)))}
+        return np.asarray([_seat[_r] for _r in _root], int)
 
     # ── 쓰기 — class 이동은 index 한 줄이다 ──────────────────────────────────────
-    def Set_class(self, addresses: list[Address], class_id: str) -> int:
-        """표본들의 class 를 바꾸고 index 를 쓴다 — **파일도 배정도 안 움직인다**.
-
-        class 는 배정에 안 들어가므로 라벨을 고쳐도 type 은 그대로다. 바뀌는 것은
-        :meth:`Composition` 이 접어 내는 표뿐이고 그건 저장하지 않는다.
-
-        Returns:
-            바뀐 건수 (index 에 없는 주소는 안 센다).
-        """
-        _index = self.Index()
-        _n = 0
-        for _a in addresses:
-            _k = self.Key(_a)
-            if _k in _index:
-                _index[_k]["class"] = str(class_id)
-                _n += 1
-        if _n:
-            self.Set_index(_index)
-        return _n
-
     def Set_assignment(self, domain: str, types: dict[str, int], dists: dict[str, float]) -> None:
         """그 도메인의 배정을 index 에 쓴다 — ``{key: type}`` · ``{key: 거리}``.
 

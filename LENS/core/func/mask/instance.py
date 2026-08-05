@@ -13,6 +13,7 @@ import cv2
 import numpy as np
 
 from ...typing import GRAY_IMAGE
+from ..cv.filter import Make_morph_kernel
 from ..cv.geom import Box_center, Center_offset
 
 BOX = list[float]
@@ -146,6 +147,7 @@ def Cluster_by_center(boxes: list[BOX], gap: float) -> list[list[int]]:
 
 def Split_components(
     mask: GRAY_IMAGE, *, min_area: int = 0, merge_gap: float = 0.0, bbox_gap: float = 0.0,
+    cut: np.ndarray | None = None, cut_grow: int = 1,
 ) -> tuple[np.ndarray, list[BOX]]:
     """이진 mask 를 연결 요소로 쪼개 ``(인스턴스 라벨맵, bbox 목록)`` 을 만든다.
 
@@ -153,18 +155,30 @@ def Split_components(
     않으므로 인스턴스 수에 비례한 배열 복제가 없다. ``merge_gap`` 병합은 라벨맵 픽셀을 재칠하지 않고
     같은 id 를 부여하는 방식이라 조각 형태가 보존된다.
 
+    ``cut`` 을 주면 그 edge 를 mask 에서 빼고 나서 연결 요소를 센다 — 경계로 닿아 한 덩어리로 붙어
+    나온 객체를 그 사이 edge(Canny 등)를 따라 갈라낸다. edge 는 한 픽셀 선이라 목을 못 끊을 수 있어
+    ``cut_grow`` 로 살짝 부풀린다. 산출물의 쓰임이 실루엣이 아니라 객체별 **bbox** 라면 이 얇은 절단
+    틈은 무해하다(뒤 단계가 box 로 다시 그린다).
+
     Args:
         mask: 이진 mask ``(H, W)`` (0 = 배경).
         min_area: 이 면적(px²) 미만 컴포넌트는 잡음으로 버린다.
         merge_gap: bbox 중심 거리가 이 값 이하인 컴포넌트를 한 인스턴스로 묶는다(``0`` = 끄기).
         bbox_gap: 최종 bbox 확대/축소 비율 (``Scale_box``).
+        cut: 붙은 객체를 가를 edge ``(H, W)`` (mask 에서 빼서 목을 끊는다). None 이면 절단 없음.
+        cut_grow: ``cut`` 팽창 폭(px) — edge 선을 이만큼 부풀려 확실히 끊는다.
 
     Returns:
         ``(segment, boxes)`` — ``segment`` 는 ``(H, W)`` uint8 라벨맵(픽셀 = 인덱스+1, 0 = 배경),
         ``boxes`` 는 인스턴스별 XYXY bbox. 살아남은 컴포넌트가 없으면 ``(빈 라벨맵, [])``.
     """
-    _n, _lbl, _stats, _ = cv2.connectedComponentsWithStats(
-        (mask > 0).astype(np.uint8), connectivity=8)
+    _bin = (mask > 0).astype(np.uint8)
+    if cut is not None:                                     # edge 를 따라 붙은 객체 절단
+        _edge = (cut > 0).astype(np.uint8)
+        if cut_grow > 0:
+            _edge = cv2.dilate(_edge, Make_morph_kernel(cut_grow))
+        _bin = _bin & (_edge == 0)
+    _n, _lbl, _stats, _ = cv2.connectedComponentsWithStats(_bin, connectivity=8)
     _ih, _iw = _lbl.shape[:2]
 
     _comps: list[tuple[int, BOX]] = []          # (라벨, bbox)

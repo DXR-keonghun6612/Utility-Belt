@@ -32,6 +32,8 @@ class Meta_ops(QObject):
         self._parent = parent
         self._thread: QThread | None = None
         self._worker: Pipeline_worker | None = None
+        self._moved  = 0                               # 마지막 class 적용이 옮긴 객체 수 (완료 알림용)
+        self._dest   = ""                              # 마지막 split 산출 경로 (완료 알림용)
 
     @property
     def busy(self) -> bool:
@@ -100,6 +102,57 @@ class Meta_ops(QObject):
         self._end(ok)
         if not ok:
             QMessageBox.critical(self._parent, "삭제 실패", info)
+
+    def edit_classes(self, pipeline, table, remap: dict) -> None:
+        """편집한 id_map 표를 정본에 적용한다 (백그라운드, 진행바).
+
+        전이·삭제와 같은 자리에 있는 이유가 같다 — **대량 여부와 무관하게** 전 stem 을 훑어 라벨을 다시
+        쓰는 일이라 UI 스레드에서 돌 수 없다. 순서(라벨 먼저, 표 나중)와 이력 기록은 ``Pipeline`` 이 든다.
+        """
+        if pipeline is None or self.busy:
+            return
+        _pipe = pipeline
+        self._moved = 0
+
+        def _task(_progress) -> None:
+            self._moved = _pipe.Apply_class_map(table, remap, progress=_progress)
+
+        self._start(pipeline, _task, self._classes_done, "class 표 적용 중…")
+
+    def _classes_done(self, ok: bool, info: str) -> None:
+        if ok:
+            self._view.refresh()                       # 표(class 이름)·라벨이 함께 바뀌었다
+        self._end(ok)
+        if ok:
+            QMessageBox.information(self._parent, "id_map 적용",
+                                    f"class 표를 적용했습니다 — 객체 {self._moved} 개의 class 를 옮겼습니다.")
+        else:
+            QMessageBox.critical(self._parent, "id_map 적용 실패", info)
+
+    def split_export(self, pipeline, dest: str, ratios: dict, salt: str,
+                     stratified: bool, min_count: int, task: str) -> None:
+        """staged 를 비율대로 갈라 ``dest`` 아래 폴더별로 내보낸다 (백그라운드, 진행바).
+
+        정본을 **안 바꾼다**(복사만) — 그런데도 편집을 잠그는 건 같은 워커를 쓰기 때문이고, 내보내는
+        동안 정본이 바뀌면 산출물이 반쯤 옛것이 되기 때문이다.
+        """
+        if pipeline is None or self.busy:
+            return
+        _pipe = pipeline
+        self._dest = dest
+
+        def _task(_progress) -> None:
+            _pipe.Split_export(dest, ratios, salt=salt, stratified=stratified,
+                               min_count=min_count, task=task, progress=_progress)
+
+        self._start(pipeline, _task, self._split_done, "나누는 중…")
+
+    def _split_done(self, ok: bool, info: str) -> None:
+        self._end(ok)                                  # 정본은 안 바뀌었으니 뷰 갱신도 필요 없다
+        if ok:
+            QMessageBox.information(self._parent, "Split", f"내보냈습니다:\n{self._dest}")
+        else:
+            QMessageBox.critical(self._parent, "Split 실패", info)
 
     # ── 워커 공용 (진행바 + 실행 중 편집 잠금) ──────────────────────────────────
 

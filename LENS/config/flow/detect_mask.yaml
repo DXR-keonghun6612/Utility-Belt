@@ -1,0 +1,47 @@
+flows:
+-   object_type: flow
+    name: Extract_mask_by_detection
+    unit: frame
+    processes:
+    -   object_type: detect_instances
+        threshold: 0.5
+        min_area: 2000
+        merge_gap: 0
+        bbox_gap: 0.0
+        model:
+            type: onnx_seg
+            onnx_file: detection_FP32.onnx
+            cfg_file: detection_FP32_rt_cfg.yaml
+            device_id: 0
+        outputs:
+            object: {}
+    -   object_type: filter_by_roi
+        min_overlap: 0.8
+        outputs:
+            object: {}
+    -   object_type: order_objects
+        outputs:
+            object: {}
+    -   object_type: mask_center       # 무게중심을 center·center_offset 인라인으로 굳힌다
+        outputs:                       # (하류가 rle 를 안 풀고 위치를 읽게)
+            object: {}
+    # 형상을 **비교 가능한 좌표로** 옮긴다 — 무게중심·주축각으로 정준화한 극좌표의 밴드 배치.
+    # 정렬이 이미 들어 있어 표본끼리 그냥 겹쳐 볼 수 있다(class 템플릿·정합의 입력).
+    #
+    # **order_objects 뒤여야 한다** — 배열의 행이 곧 obj_id 라, 번호가 확정된 뒤라야 행과 객체가 맞는다.
+    #
+    # 눈금은 여기 적힌 것이 전부다(코드 상수 아님). **바꾸면 옛 배열과 비교할 수 없다** — 눈금이 다른
+    # 값은 같은 자 위에 있지 않다. 근거는 config/gauge/mask_shape.yaml 의 주석이 소유한다
+    # (280 → 224 축소가 왜 순손실이었는지 등).
+    -   object_type: radial_profile
+        crop: 280                      # bbox 중심 크롭 창 (원본 스케일)
+        size: 280                      # 정준 캔버스 — crop 과 같으면 축소 없음
+        num_radial: 280                # 반경 눈금 (캔버스 한 변과 같으면 1px 간격)
+        num_angular: 512               # θ 토큰 수 = 배열 첫 축
+        max_transitions: 8             # θ 당 최대 전이점 = 배열 둘째 축
+        threshold: 0.5
+        outputs:
+            # level: frame — **배열은 stem 한 장이다.** 안 적으면 기본값이 object 라 첫 객체에
+            # 붙어 버린다(파일도 `{stem}_{obj}.npy` 가 된다).
+            radial_rle: {to: storage, level: frame, type: array, format: npy}
+            object: {}                 # 객체마다 pose (자리 + 주축각) — 같은 패스에서 나온다

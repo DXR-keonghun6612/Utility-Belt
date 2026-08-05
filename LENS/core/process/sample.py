@@ -21,12 +21,12 @@ from typing import ClassVar, Iterator
 
 import numpy as np
 
-from ..constant import STAGED, UNCLASSIFIED
+from ..constant import STAGED, UNCLASSIFIED_ID
 from ..schema import Data_Ref
 from ..store import SPLITS, Sample_Set
 from ._base import Stage, Unit, inline_ctx
 
-UNLABELED = UNCLASSIFIED   # class_id 가 없는 unit 의 fallback class (정본 미분류 값과 통일)
+UNLABELED = UNCLASSIFIED_ID   # class_id 가 없는 unit 의 fallback 번호 (정본 미분류 값과 통일)
 
 
 @dataclass
@@ -137,5 +137,5 @@ class Sample_stage(Stage):
         _ref.Set_attr("source_stem", unit.stem)
         if unit.obj_id is not None:                          # object 단위 — 객체 하나가 sample
             _ref.Set_attr("source_obj", unit.obj_id)
-            _ref.Set_attr("class_id", (unit.obj.Attr("class_id") if unit.obj else "") or UNLABELED)
+            _ref.Set_attr("class_id", (unit.obj.Attr("class_id") if unit.obj else None) or UNLABELED)
         return _ref                                          # frame 단위 = source_stem 참조만 (객체는 정본 live)

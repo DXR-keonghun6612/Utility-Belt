@@ -1,31 +1,14 @@
-"""mask.shape — (r, θ) centroid-극좌표가 편한 형상 특징 + 데이터셋 임베딩 분석.
+"""shape — **legacy** 폴더 경로 형상 분석 (UMAP 임베딩 + HDBSCAN 클러스터).
 
-특징 추출은 **학습이 쓰는 것과 같은 모듈**이다
-(``torch_toolbox.modules.transform.mask.geometry.Geometry_Embedding``). 예전에는 이 폴더에
-numpy 사본(``align.py`` · ``polar.py`` · ``features.py``)이 있었고 학습 쪽과 갈라져 있었다
-— ``fill_holes`` 로 구멍을 메워 inner 계열 70차원이 죽은 채였다. 사본은 걷어냈다.
+**이 갈래는 걷는 중이다** — `core/analysis` 가 쓰는 검증 경로와 계약이 다르고(폴더 glob vs store,
+`ShapeAnalysis` vs 기록지), 판정 근거로 UMAP·HDBSCAN 을 쓴다(`core/analysis/README.md` 원칙 1 이
+transductive 라 배제한 방식이다). 소비처는 `gui/meta_page/sample/_tab.py` 하나뿐이고,
+**sample 갈래 제거와 함께 이 폴더째 사라진다**(→ 루트 `TODO.md`).
 
-per-mask:
-  register   — register_rotation: reference 대비 잔여 회전을 profile shift 로 미세 정합(ICP-등가).
-               입력 프로파일은 ``Geometry_Embedding.Forward_with_aux`` 의 ``r_outer`` 가 낸다.
-
-데이터셋 단계(분석 패키지 공유 관례 analyze/format_report/build_figure):
-  batch      — process_masks: 폴더 mask 들 → feature 행렬
-  embed      — UMAP 임베딩 + HDBSCAN 클러스터 (무거운 deps 는 lazy import)
-  analyze    — analyze: 폴더 → ShapeAnalysis
+그때까지 자기완결로 둔다 — `core/analysis` 쪽을 참조하지 않는다(그쪽은 이미 UMAP 을 걷었다).
 """
 
-from .register import best_shift, apply_shift, shift_to_angle, register_rotation
-from .batch import process_masks, iter_masks, load_mask, to_canvas, feature_names
 from .analyze import analyze
-from .report import format_report
-from .visualize import build_figure
 from ._result import ShapeAnalysis
 
-__all__ = [
-    # per-mask
-    "best_shift", "apply_shift", "shift_to_angle", "register_rotation",
-    # dataset-level
-    "process_masks", "iter_masks", "load_mask", "to_canvas", "feature_names",
-    "analyze", "format_report", "build_figure", "ShapeAnalysis",
-]
+__all__ = ["analyze", "ShapeAnalysis"]

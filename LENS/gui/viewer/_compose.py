@@ -9,6 +9,8 @@ import cv2
 import numpy as np
 
 _ALPHA = 0.45
+#: mask 외곽선 최소 두께(px) — 이보다 얇으면 화면에 맞춰 축소될 때 선이 끊겨 경계가 안 선다.
+_MIN_EDGE = 3
 
 
 def color_for(idx: int) -> tuple[int, int, int]:
@@ -49,10 +51,12 @@ def compose(layers: list[tuple[np.ndarray, str]],
                 _region = _raster == _label
                 if _region.any():
                     _blend(_out, _region, color_for(_label - 1))
+                    _outline(_out, _region, color_for(_label - 1))
         else:                                              # 이진 mask
             _region = _raster > 0
             if _region.any():
                 _blend(_out, _region, color_for(_i))
+                _outline(_out, _region, color_for(_i))
 
     for _box, _idx, _label in (boxes or []):
         if _box and len(_box) == 4:
@@ -80,6 +84,26 @@ def _caption(canvas: np.ndarray, text: str, corner: tuple[int, int], color) -> N
     cv2.putText(canvas, text, (_x + 2, _ty), cv2.FONT_HERSHEY_SIMPLEX,
                 _scale, (0, 0, 0), _thick + 2)
     cv2.putText(canvas, text, (_x + 2, _ty), cv2.FONT_HERSHEY_SIMPLEX, _scale, color, _thick)
+
+
+def _outline(canvas: np.ndarray, region: np.ndarray, color) -> None:
+    """``region`` 의 경계를 **불투명 원색**으로 그린다 (in-place).
+
+    채움은 반투명(:data:`_ALPHA`)이라 배경과 섞여 경계가 뭉개진다 — 특히 인접한 객체끼리는 어디서
+    끊기는지 안 보인다. 테두리만 원색으로 얹으면 채움의 투명도를 안 건드리고 경계가 선다.
+
+    구멍(내부 경계)도 그린다(``RETR_LIST``) — 도넛 모양 mask 에서 바깥선만 그리면 가운데가 메워진
+    것처럼 보인다. 선 두께는 **이미지 폭에 비례하되 최소** :data:`_MIN_EDGE`: 고정 두께로 두면 큰
+    이미지에선 안 보이고(`_caption` 과 같은 이유), 얇으면 축소 표시할 때 선이 끊겨 경계가 도로 흐려진다.
+
+    **선은 mask 안쪽에만 남긴다.** OpenCV 는 두께를 윤곽선 **가운데 정렬**로 그려서 절반이 바깥으로
+    번지는데, 그러면 붙어 있는 이웃 객체의 영역을 침범해 어디까지가 제 것인지 도로 흐려진다. 별도
+    버퍼에 그린 뒤 ``region`` 으로 잘라내면 두께가 그대로 **안쪽 두께**가 된다.
+    """
+    _edge = np.zeros(region.shape, np.uint8)
+    _cnts, _ = cv2.findContours(region.astype(np.uint8), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    cv2.drawContours(_edge, _cnts, -1, 255, max(_MIN_EDGE, round(canvas.shape[1] / 800)))
+    canvas[(_edge > 0) & region] = color
 
 
 def _blend(canvas: np.ndarray, region: np.ndarray, color, alpha: float = _ALPHA) -> None:

@@ -6,23 +6,12 @@ from typing import Callable
 
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (
-    QComboBox,
-    QFileDialog,
-    QGroupBox,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QListWidget,
-    QPushButton,
-    QSplitter,
-    QStackedWidget,
-    QVBoxLayout,
-    QWidget,
+    QComboBox, QFileDialog, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QPushButton, QSplitter, QStackedWidget, QToolButton, QVBoxLayout, QWidget,
 )
 
 from core import port
 from gui._worker import Pipeline_worker
-from gui.widgets import List_editor, List_row, Pair_list_editor
+from gui.widgets import List_editor, List_row
 
 
 # ── glob 편집기 ────────────────────────────────────────────────────────────────
@@ -257,7 +246,9 @@ class _Glob_settings(QWidget):
         _param_box = QGroupBox("Params")
         _param_lay = QVBoxLayout(_param_box)
         _param_lay.setSpacing(4)
-        self._params = Pair_list_editor("", kind="path")
+        # params 도 glob 과 **같은 계약**(``{pattern, type}``)이다 — ``type`` 은 필수라
+        # (`port.Template_for_file`) 이름·경로만 받으면 Convert 가 거기서 실패한다.
+        self._params = _Param_list_editor()
         self._params.changed.connect(self.changed)
         _param_lay.addWidget(self._params, stretch=1)
         _bottom_split.addWidget(_param_box)
@@ -295,7 +286,7 @@ class _Glob_settings(QWidget):
             self._sources.item(_i).text()
             for _i in range(self._sources.count())
         ]
-        _params = dict(self._params.pairs())
+        _params = self._params.to_config()
         _cfg: dict = {
             "sources": _sources,
             "globs":   self._globs.to_config(),
@@ -314,7 +305,7 @@ class _Glob_settings(QWidget):
         for _s in d.get("sources", []) or []:
             self._sources.addItem(str(_s))
         self._globs.load(d.get("globs") or {})
-        self._params.set_pairs(list((d.get("params") or {}).items()))
+        self._params.load(d.get("params") or {})
 
 
 # 새 converter 타입 추가 시 이 dict에 등록

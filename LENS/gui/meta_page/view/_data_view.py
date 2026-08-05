@@ -58,8 +58,10 @@ class Data_view(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._ctx: dict = {}
+        self._class_names: dict[str, str] = {}   # class_id → 이름 (상자 라벨 표시용; 상위가 채운다)
         self._layers: list[Node] = []       # 지금 그린 layer (편집 미리보기에 재사용)
         self._objects: list[Node] = []      # 선택 stem 의 객체들 (bbox 를 그린다)
+        self._visible_masks: set[str] = set()   # mask 를 그릴 객체 id (객체 트리 체크) — 상위가 준다
         self._edit_node: Node | None = None  # 편집기가 겨눈 **라스터를 든 노드** (저장 대상)
         self._aim_obj: Node | None = None    # 겨눈 객체 (bbox·mask 를 쓸 곳)
         self._edit_arr: np.ndarray | None = None  # 조준 객체 mask 의 편집 배열 (rle 를 푼 사본)
@@ -108,13 +110,30 @@ class Data_view(QWidget):
         """
         return self._canvas.source_size()
 
-    def set_objects(self, objects: list[Node]) -> None:
+    def set_class_names(self, names: dict[str, str]) -> None:
+        """상자 라벨에 쓸 ``{class_id: 이름}`` — **어디서 오는지는 상위가 안다**(정본 id_map).
+
+        캔버스는 정본을 모르므로 사전만 받는다. 데이터셋이 바뀌거나 id_map 을 고치면 상위가 다시 준다.
+
+        **여기서 다시 그리지 않는다** — 데이터셋 교체 중에 불리므로, 아직 옛 store 를 가리키는 layer 를
+        합성하게 된다. 상위가 목록을 다시 채우면서 어차피 그린다.
+        """
+        self._class_names = dict(names)
+
+    def set_objects(self, objects: list[Node], *, visible: set[str]) -> None:
         """선택 stem 의 객체들 — bbox 는 raster 가 아니라 attr 이라 layer 로 안 오고, 조준의 단위다.
 
         stem 이 바뀌면 겨눴던 객체는 **더 이상 없다** — 조준을 놓는다(옛 stem 의 라스터를 계속 칠하지
         않도록). 다음 stem 의 노드를 고르면 그 meta 에서 읽은 값으로 다시 겨눈다.
+
+        Args:
+            objects: 이 stem 의 객체 전부 — bbox 와 조준은 체크와 무관하게 **다** 필요하다.
+            visible: mask 를 그릴 객체 id — 객체 트리에서 체크된 것들. 객체 mask 는 한 장의 라벨맵으로
+                합쳐 그리므로(:meth:`_objects_layer`) 어느 걸 넣을지 **여기서** 갈린다. 이걸 안 보고
+                전부 그리면 체크박스가 달려 있어도 아무 일도 안 일어난다.
         """
         self._objects = list(objects)
+        self._visible_masks = set(visible)
         if self._aim_obj is not None and not any(_o is self._aim_obj for _o in self._objects):
             self._aim(None)
 
@@ -256,6 +275,8 @@ class Data_view(QWidget):
             return None
         _masks: dict[str, np.ndarray] = {}
         for _o in self._objects:
+            if _o.name not in self._visible_masks:         # 체크 꺼짐 — 이 객체만 안 그린다
+                continue
             if _o is self._aim_obj and self._edit_arr is not None:
                 _masks[_o.name] = self._edit_arr        # 편집 중 — 굳기 전 붓질
             else:
@@ -340,10 +361,13 @@ class Data_view(QWidget):
         """객체들의 bbox (+ 그리는 중인 미리보기) — 색은 라벨과 맞추고, 이름은 편집기가 켰을 때만.
 
         합성은 평탄 ``[x0, y0, x1, y1]`` 을 먹으므로 여기서 정준형을 되돌린다 (`_box_of` 의 짝).
+
+        **상자 표시를 끄면 겨눈 것만 남는다** — 상자는 mask 위를 덮어 아래 픽셀을 가리므로 걷어낼 수
+        있어야 하지만, 지금 그리는 중인 상자까지 지우면 드래그로 bbox 를 못 맞춘다.
         """
         _out: list[tuple[list, int, str]] = []
         _aimed = self._aim_obj.name if self._aim_obj is not None else None
-        for _o in self._objects:
+        for _o in self._objects if self._editor.show_boxes() else ():
             if _o.name == _aimed:                    # 겨눈 객체는 아래에서 미리보기로 그린다
                 continue
             _flat = bbox.to_flat(_box_of(_o))
@@ -356,12 +380,19 @@ class Data_view(QWidget):
         return _out
 
     def _caption(self, obj: Node) -> str:
-        """상자에 적을 이름 — ``obj_id`` + (있으면) ``class_id``. 표시를 끄면 빈 문자열."""
+        """상자에 적을 이름 — ``obj_id`` + (있으면) class **이름**. 표시를 끄면 빈 문자열.
+
+        저장된 ``class_id`` 는 번호라 그대로 적으면 ``241`` 이 된다 — 사람이 읽는 건 이름이므로
+        :meth:`set_class_names` 로 받은 id_map 으로 되돌린다. 모르는 번호는 **번호 그대로 드러낸다**
+        (id_map 에 없는 라벨을 조용히 빈칸으로 만들면 잘못된 걸 눈치챌 수 없다).
+        """
         if not self._editor.show_labels():
             return ""
         _ref = obj.ref.Get("class_id")
-        _cls = str(_ref.info.get("value") or "") if _ref is not None else ""
-        return f"{obj.name} · {_cls}" if _cls else obj.name
+        _cid = str(_ref.info.get("value")) if _ref is not None else None
+        if _cid is None or _cid == "":
+            return obj.name
+        return f"{obj.name} · {self._class_names.get(_cid, _cid)}"
 
     # ── 내부 ──────────────────────────────────────────────────────────────────
     def _on_change(self, node: Node, value) -> None:

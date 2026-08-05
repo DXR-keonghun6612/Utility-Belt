@@ -38,9 +38,9 @@ from PySide6.QtWidgets import (
 import cv2
 import numpy as np
 
-from core.constant import UNCLASSIFIED
+from core.constant import UNCLASSIFIED_ID
 from core.schema import Data_Ref
-from gui.meta_page.sample._class_picker import Class_picker
+from gui.widgets import Class_picker
 from gui.widgets import Image_label
 
 _ROLE = Qt.ItemDataRole.UserRole   # sample 항목 식별 (sample_id — split 무관 유일 key)
@@ -178,10 +178,11 @@ class Sample_view(QWidget):
 
     def _reload_by_class(self, keep: str | None) -> None:
         """classification — class(attr) 그룹 → sample. 저장 구조는 split 이고 class 는 표시용 group-by 다."""
-        _by_class: dict[str, list[tuple[str, str]]] = {}          # class → [(sid, split)]
+        _by_class: dict[str, list[tuple[str, str]]] = {}          # class 이름 → [(sid, split)]
+        _names = self._class_names()                              # 저장은 번호, 표시는 이름
         for _split in self._sset.CATEGORIES:
             for _sid, _ref in self._sset.Bucket(_split).items():
-                _cls = _ref.Attr("class_id") or UNCLASSIFIED
+                _cls = _names.get(_ref.Attr("class_id") or str(UNCLASSIFIED_ID), "?")
                 _by_class.setdefault(_cls, []).append((_sid, _split))
 
         _target = None
@@ -239,7 +240,7 @@ class Sample_view(QWidget):
         _obj = _ref.Attr("source_obj")
         _has_crop = _ref.Get("crop") is not None
         self._info.setText(
-            f"class={_ref.Attr('class_id') or UNCLASSIFIED}"
+            f"class={self._class_names().get(_ref.Attr('class_id') or str(UNCLASSIFIED_ID), '?')}"
             f"  ·  split={self._sset.Category_of(_sid)}\n"
             f"source: {_src}" + (f" · obj {_obj}" if _obj else "")
             + ("  ·  crop 실체화됨" if _has_crop else "  ·  crop 없음(정본 프레임 역참조)"))
@@ -293,19 +294,18 @@ class Sample_view(QWidget):
         _pipe = self._get_pipeline()
         if _pipe is None:
             return
-        _cands = sorted(set(_pipe.Id_map()) | {UNCLASSIFIED})   # id_map class + 미분류
-        _picker = Class_picker(_cands, parent=self)
+        _picker = Class_picker(_pipe.Class_choices(), parent=self)   # 미분류(no_label, 0)도 후보다
         if not _picker.exec():
             return
         _new = _picker.selected()
-        if not _new:
+        if _new is None:
             return
-        _entries: list[tuple[str, str, str]] = []          # (sid, 원본class, 새class)
+        _entries: list[tuple[str, int, int]] = []          # (sid, 원본class_id, 새class_id)
         for _sid in targets:
             _ref = self._sample_ref(_sid)
             if _ref is None:
                 continue
-            _old = _ref.Attr("class_id") or UNCLASSIFIED
+            _old = _ref.Attr("class_id") or UNCLASSIFIED_ID
             if _new == _old:
                 continue
             if not self._writeback_class(_pipe, _ref, _new):   # 정본 (실패하면 파생도 안 건드린다)
@@ -319,7 +319,12 @@ class Sample_view(QWidget):
         self.reload(keep=_entries[-1][0])
         self.meta_changed.emit()
 
-    def _writeback_class(self, pipe, ref: Data_Ref, new_class: str) -> bool:
+    def _class_names(self) -> dict[str, str]:
+        """표시용 ``{class_id: 이름}`` — 저장된 건 번호뿐이라 이름은 정본 id_map 에서 얻는다."""
+        _pipe = self._get_pipeline()
+        return _pipe.Class_names() if _pipe is not None else {}
+
+    def _writeback_class(self, pipe, ref: Data_Ref, new_class: int) -> bool:
         """정본 obj(source 역참조)의 ``class_id`` 를 고치고 그 stem 사이드카만 저장한다 (인라인 attr only)."""
         _src = ref.Attr("source_stem")
         _obj = ref.Attr("source_obj")
@@ -335,7 +340,7 @@ class Sample_view(QWidget):
         pipe.meta.Save(_src)
         return True
 
-    def _log_reassign(self, pipe, entries: list[tuple[str, str, str]]) -> None:
+    def _log_reassign(self, pipe, entries: list[tuple[str, int, int]]) -> None:
         """재배정 로그를 tasker 폴더 yaml 에 남긴다 — ``{sid: [처음class, 마지막class]}``.
 
         stem(sample id) 당 한 엔트리다: 처음 재배정이면 ``[원본, 새]`` 로 만들고, 이미 있으면 **처음은

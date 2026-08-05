@@ -68,7 +68,7 @@ class Value_Codec(Inline_Codec):
 
     @classmethod
     def Formats(cls) -> tuple[str, ...]:
-        return ("str", "int", "float", "list", "rle", "polygon", "bbox")
+        return ("str", "int", "float", "list", "rle", "polygon", "bbox", "quat")
 
     @classmethod
     def Load(cls, root: str, path: tuple[str, ...], name: str, ref: Data_Ref) -> Any:

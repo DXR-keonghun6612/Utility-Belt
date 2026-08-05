@@ -48,6 +48,10 @@ tree
   bbox 합집합)를 부른다. **anti-ghost 는 이제 호출 측 규율이다** — store 가 재도색을 못 하니 "라벨맵을
   안 줬다"고 막을 수도 없다. `라벨 = id + 1` 규약과 합성은 [`../process/README.md`](../process/README.md)
   (`func.mask.instance`)가 단일 소유한다.
+- **class 재배정(`Remap_classes`)만은 즉시 쓴다** — id 표(params 의 `id_map`)에서 class 를 지우거나 합치면
+  그 번호를 든 라벨이 갈 곳을 잃는데, 그 라벨을 옮기는 게 이것이다. 아래 객체 편집과 달리 **stem 을 열지도
+  않고 전 범주를 훑는** 일이라 미룰 자리(호출 측 대기 목록)가 없다. 표 자체는 안 건드린다 — 표와 라벨은
+  트리의 다른 자리에 살고, 둘을 어떤 순서로 묶을지는 바인더(`Pipeline.Apply_class_map`)가 든다.
 - **객체 편집은 메모리만 고친다 — 디스크엔 안 쓴다.** 객체는 payload-free 라 지울 파일이 없고, 라벨맵은
   호출 측 쪽이 더 새롭기 때문이다(편집 중인 붓질은 아직 저장 전이다 — store 가 디스크에서 다시 읽으면
   그걸 덮어쓴다). **영속은 호출 측의 명시적 저장**이 한다(payload write + `Save`). 그래서 "취소"가
@@ -130,14 +134,23 @@ external-write). 라이프사이클이 아니므로 binder 가 들고([`../expor
 그렇다: COCO 의 `segmentation` RLE 은 `Encode`, crop 복사는 `Path_of` 로 **store 를 통해** codec·경로를
 얻는다(port 직접 호출 없음). 그래서 위 계층은 파일 포맷도 경로 파생도 모른다.
 
-**`Trace` 는 창구의 형제이되 트리 밖이다** — 진단 payload 를 `.trace/{run}/…` 에 쓰고 **`Data_Ref` 를 안
-돌려준다.** 꽂을 ref 가 없으니 트리에 앉힐 수단이 구조적으로 없고, 그래서 사이드카에 안 실리고 전이·삭제·
-병합·내보내기가 아예 못 본다. **라이프사이클이 없다는 것이 이 sink 의 정의다**(지우려면 폴더째 —
-`Clear_trace`). 경로에 범주가 없는 것도 같은 이유다: 진단물은 검수 상태를 따라 옮겨다니지 않는다.
+**`Sink` 는 창구의 형제이되 트리 밖이다** — `{root}/{sink}/{scope}/{종류}/{주소}.{ext}` 에 payload 를 쓰되
+**트리에 안 앉힌다.** 꽂을 ref 가 없으니 사이드카에 안 실리고 전이·삭제·병합·내보내기가 아예 못 본다.
+**라이프사이클이 없다는 것이 sink 의 정의다**(지우려면 폴더째 — `Sink_clear`). 경로에 범주가 없는 것도
+같은 이유다: sink 산출물은 검수 상태를 따라 옮겨다니지 않는다. 대신 `scope` 가 앞머리라 실행·설정끼리
+안 덮어쓴다.
+
+**sink 이름은 store 가 안 정한다** — 호출 측이 준다. 진단(`.trace`)과 분석 산출(`.analysis`)은 "트리 밖에
+kind-major 로 쌓는다"는 **같은 것의 다른 쓰임**이고, store 가 아는 건 그 메커니즘뿐이다. 이름을 store 가
+알면 소비처가 늘 때마다 메서드가 하나씩 붙는다.
+
+`Trace(run, …)` 는 그 위의 얇은 쓰임이다 — `Sink(.trace, run, …)` 를 부르고 **`Data_Ref` 를 안 돌려준다**.
+진단물은 되읽을 일이 없다는 것을 시그니처가 말한다. 되읽는 sink(분석 산출 등)는 `Sink`/`Sink_load` 를
+직접 쓴다: 서술자는 **그 kind 를 정한 쪽**이 든다(sink 는 어디에도 안 싣는다).
 
 ---
 
-## 5. 두 구체 store
+## 5. 세 구체 store
 
 `Bucket_Store` 를 상속해 **범주 값 집합만** 고정하는 thin 서브클래스 — 타입이 곧 트리 모양 보장이라 병합이
 같은 타입끼리만 성립한다.
@@ -146,15 +159,19 @@ external-write). 라이프사이클이 아니므로 binder 가 들고([`../expor
   항목은 `modified` 로 진입한다: 검수는 내용에 대한 것이라 내용이 달라지면 다시 받아야 한다.
 - **`Sample_Set`** (파생) — 범주 = split `(train, val, test)`. split 은 **빌드가** 배정한다(범주가 곧 split
   이라 배치 시점에 정해져야 한다). 같은 프레임에서 나온 sample 은 한 split → leakage 방지.
+- **`Analysis_Set`** (분석 산출) — 범주 = 산출물 축 `(feature, sheet)`. 루트가 `{root}/.analysis/{서명}/`
+  이라 정본과 사이드카·payload 가 갈리고, 서명이 "무엇을 어떻게 뽑았나"라 설정이 다르면 폴더가 다르다.
+  기계가 만든 파생이므로 폴더째 지워도 정본은 멀쩡하다.
+
+**셋 다 class 를 구조가 아니라 attr 로 든다** — 폴더로도 표현하면 같은 사실이 두 곳에 살고, 재분류가
+attr 갱신이 아니라 파일 이동이 된다. `Analysis_Set` 이 class 를 범주로 안 쓴 이유도 그것이다(그리고
+`CATEGORIES` 가 ClassVar 라 데이터마다 다른 집합을 못 받는다 — `Restore` 가 모르는 최상위 key 를 거부한다).
 
 **task 별 store 타입은 없다.** 빌드는 "무엇을 뽑나"(`unit`·crop 여부)만 정하고, task 는 **내보낼 때** 비로소
 의미를 갖는다 — ImageFolder(class-major)든 COCO(kind-major)든 학습 프레임워크 레이아웃은 **내보내기
 산출물**이지 store 구조가 아니다. task 마다 축이 배타적이라 store 가 하나를 고르면 다른 하나를 못 섬긴다.
 
 그래서 **task 축은 store 밖에 산다** — [`../export`](../export)(binder)가 `task × format` 으로 든다.
-class 도 구조가 아니라 sample 의 `class_id` **attr** 이다: 폴더로도 표현하면 같은 사실이 두 곳에 살고,
-재분류(라벨링 도구의 핵심 상호작용)가 attr 갱신이 아니라 파일 이동이 된다.
-
 **item 이 payload 를 갖나 정본 역참조만 갖나는 store 가 안 정한다** — `Place` 는 받은 ref 를 앉힐 뿐이고,
 그 판별(파생이 새 도메인을 만드나)은 빌드 정책이라 [`../process`](../process) 가 소유한다.
 

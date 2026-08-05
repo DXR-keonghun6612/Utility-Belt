@@ -15,6 +15,8 @@ bbox 만, ``segmentation`` 이면 annotation 에 ``segmentation`` 필드까지 �
 
 from __future__ import annotations
 
+from collections import Counter
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -35,15 +37,30 @@ class Instance:
 
     Attributes:
         obj_id:   프레임 안 객체 순번(=라벨맵 값 -1).
-        class_id: class 이름. ``None`` 이면 class-agnostic (serializer 가 class 를 생략).
+        class_id: class 번호(id_map ``class_id``). ``None``·0 이면 미분류 — serializer 가 class 를 생략한다.
         bbox:     ``[x0, y0, x1, y1]`` 코너 (없으면 None).
         mask:     obj 이진 mask ``(H, W)`` — **segmentation task 에서만** 채워진다(아니면 None).
     """
 
     obj_id:   str
-    class_id: str | None
+    class_id: int | None
     bbox:     list[float] | None
     mask:     np.ndarray | None = None
+
+
+def _class_id(obj) -> int | None:
+    """객체의 ``class_id`` → **번호** (없거나 0(미분류)이면 None).
+
+    저장값은 문자열이라(``Set_attr``) ``or None`` 만으로는 ``"0"`` 이 truthy 여서 미분류가 안 떨어지고,
+    그대로 실으면 COCO ``category_id`` 에 ``"197"`` 이 나간다.
+    """
+    _raw = obj.Attr("class_id")
+    if _raw in (None, ""):
+        return None
+    try:
+        return int(_raw) or None
+    except (TypeError, ValueError):
+        return None
 
 
 @dataclass
@@ -91,35 +108,57 @@ class Frame_exporter(Exporter):
         _stem = ref.Attr("source_stem")
         return self.meta.Find(_stem) if (self.meta is not None and _stem) else None
 
-    def _classes(self) -> set[str]:
-        """전 split 인스턴스의 class 이름 집합 (id_map 자동생성용; class 없으면 빈 집합) — 정본 live."""
+    def _classes(self) -> set[int]:
+        """전 split 인스턴스의 class **번호** 집합 (정본 id_map 이 없을 때만 씀) — 정본 live."""
         return {_c
                 for _split in self.source.CATEGORIES
                 for _ref in self.source.Bucket(_split).values()
                 if (_item := self._source_item(_ref)) is not None
                 for _obj in _item.Branches().values()
-                if (_c := _obj.Attr("class_id"))}
+                if (_c := _obj.Attr("class_id"))}      # 0(미분류)·None 은 자연히 빠진다
 
-    def _records(self, split: str) -> list[Frame_record]:
-        """한 split 의 프레임 sample 들을 :class:`Frame_record` 로 (정본 이미지 경로 + 인스턴스).
+    def _kept_classes(self) -> set[int] | None:
+        """``min_count`` 를 넘긴 ``class_id`` 들 (끄면 None — 전부 통과).
+
+        **전 split 에서 한 번에 센다** — split 마다 세면 같은 class 가 train 에만 남고 val 에서
+        빠지는 자리가 생긴다. 미분류(0·없음)는 세지 않으므로 문턱과 무관하게 늘 통과한다.
+        """
+        if self.min_count <= 0:
+            return None
+        _n: Counter = Counter()
+        for _split in self.source.CATEGORIES:
+            for _ref in self.source.Bucket(_split).values():
+                if (_item := self._source_item(_ref)) is not None:
+                    _n.update(_c for _obj in _item.Branches().values()
+                              if (_c := _class_id(_obj)) is not None)
+        return {_c for _c, _k in _n.items() if _k >= self.min_count}
+
+    def _records(self, split: str) -> Iterator[Frame_record]:
+        """한 split 의 프레임 sample 을 :class:`Frame_record` 로 **하나씩 흘린다**.
+
+        **리스트로 모으지 않는다.** 인스턴스가 mask 배열을 들고 있어(프레임 해상도 bool) 한 split
+        전부를 쌓으면 표본 수 × 객체 수 × 프레임 크기다 — 실측 38,092 프레임에서 프로세스가 죽었다.
+        소비처가 프레임 하나를 쓰고 버리므로 살아 있는 mask 는 늘 한 프레임치다.
 
         객체(bbox·class·mask) 모두 **정본에서 live** 로 읽는다(한 출처 — 재라벨 불일치 제거).
         segmentation 이면 객체별 mask 를 싣는다 — 각 객체가 자기 ``mask``(mask 도메인)를 든다. 없으면
         조용히 bbox 로 떨어지지 않고 실패한다(:meth:`_instance`).
         """
-        _out: list[Frame_record] = []
+        _keep = self._kept_classes()
         for _sid, _ref in sorted(self.source.Bucket(split).items()):
             _item = self._source_item(_ref)                 # 정본 프레임 (객체 live)
             if _item is None:
                 continue
             _stem = _ref.Attr("source_stem") or _sid
-            _out.append(Frame_record(
+            # 문턱 아래 class 는 **주석만** 뺀다 — 프레임(이미지)은 남는다. 그 객체가 없는 셈이 되지
+            # 그 사진이 없던 일이 되는 건 아니다.
+            _objs = [(_oid, _obj) for _oid, _obj in _item.Branches().items()
+                     if _keep is None or (_c := _class_id(_obj)) is None or _c in _keep]
+            yield Frame_record(
                 stem=_stem,
                 image_src=self._frame_src(_stem),
-                instances=[self._instance(_stem, _oid, _obj)
-                           for _oid, _obj in _item.Branches().items()],
-                size_hw=self._frame_size(_stem, _item)))
-        return _out
+                instances=[self._instance(_stem, _oid, _obj) for _oid, _obj in _objs],
+                size_hw=self._frame_size(_stem, _item))
 
     def _frame_size(self, stem: str, item: Data_Ref) -> tuple[int, int] | None:
         """프레임 ``(H, W)`` — **파일을 안 여는 경로부터** 차례로 (못 구하면 None).
@@ -156,7 +195,7 @@ class Frame_exporter(Exporter):
                     "task 는 객체마다 mask 가 필요하다 (bbox-only 로 안 떨어뜨림)")
         return Instance(
             obj_id=obj_id,
-            class_id=obj.Attr("class_id") or None,          # 없으면 class-agnostic
+            class_id=_class_id(obj),                        # 없거나 0(미분류)이면 class-agnostic
             bbox=self._bbox(obj),
             mask=_mask)
 

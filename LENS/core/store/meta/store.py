@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import ClassVar, Mapping
+from typing import Callable, ClassVar, Mapping
 
 import numpy as np
 
@@ -114,6 +114,53 @@ class Dataset_Meta(Bucket_Store):
                                  Data_Ref(format=("mask", "rle"), info={"value": _mask}))
         for _o in _ids:
             self.Delete_node(_p, _o)                     # 컨테이너 pop — 빈 자리는 구멍으로
+
+    # ── class 재배정 — 라벨(attr)만, 표(params)는 안 건드린다 ────────────────────────
+    def Remap_classes(self, remap: dict[int, int],
+                      progress: Callable[[str, int, int], None] | None = None) -> dict[int, int]:
+        """전 item 의 객체 ``class_id`` 를 ``remap`` 대로 다시 쓴다 — **바뀐 item 만** 저장.
+
+        id 표(params 의 ``id_map``)에서 class 를 지우거나 합치면 그 번호를 든 라벨이 갈 곳을 잃는다.
+        그 라벨을 옮기는 게 여기다. **표는 안 건드린다** — 표와 라벨은 트리의 다른 자리(params leaf vs
+        item attr)에 살고, 둘을 어떤 순서로 묶을지는 바인더(``Pipeline.Apply_class_map``)가 든다.
+
+        **여기서는 즉시 디스크에 쓴다** — 객체 편집(:meth:`Remove_object`·:meth:`Merge_objects`)이 메모리만
+        고치는 것과 다르다. 그쪽은 편집 중인 라벨맵이 호출 측에 더 새로 있어 미뤄야 하지만, 이건 stem 을
+        열지도 않고 전 범주를 훑는 일이라 미룰 자리가 없다. 사이드카는 item 하나 = 파일 하나라 **바뀐
+        것만** 쓴다(수만 건에서 전체 재작성은 감당이 안 된다).
+
+        ``class_id`` 가 없거나 숫자가 아닌 객체는 **건너뛴다** — 없는 attr 을 만들어 넣으면 미분류였던
+        객체에 없던 근거가 생긴다.
+
+        Args:
+            remap:    ``{옛 class_id: 새 class_id}`` — 제자리인 것(옛 == 새)은 무시한다.
+            progress: item 순회 진행 콜백 ``(label, 진행, 전체)``.
+
+        Returns:
+            ``{옛 class_id: 옮긴 객체 수}`` — **건별로** 센다. 총합만 내면 "어느 매핑이 몇 개를
+            건드렸나"를 호출 측이 되짚을 수 없고, 그게 이력에 남겨야 할 값이다. 한 개도 안 옮긴
+            매핑은 ``0`` 으로 **남긴다**(쓰이지 않던 번호였다는 사실도 기록이다).
+        """
+        _todo = {int(_o): int(_n) for _o, _n in (remap or {}).items() if int(_o) != int(_n)}
+        if not _todo:
+            return {}
+        _items = [(_c, _k) for _c in self.CATEGORIES for _k in self.Bucket(_c)]
+        _hit = {_o: 0 for _o in _todo}
+        for _i, (_c, _k) in enumerate(_items, 1):
+            _item = self.tree.Get(_c).Get(_k)
+            _moved = 0
+            for _obj in _item.Branches().values():
+                _cur = str(_obj.Attr("class_id"))
+                if not _cur.lstrip("-").isdigit() or int(_cur) not in _todo:
+                    continue
+                _obj.Set_attr("class_id", str(_todo[int(_cur)]))    # 저장 표현은 문자열
+                _hit[int(_cur)] += 1
+                _moved += 1
+            if _moved:
+                self.Save(_k)                                       # 그 item 사이드카만 (증분)
+            if progress is not None:
+                progress("class 재배정", _i, len(_items))
+        return _hit
 
     # ── named accessor — ``Bucket(상태)`` 읽기 뷰에 이름을 얹은 sugar ─────────────────
     @property

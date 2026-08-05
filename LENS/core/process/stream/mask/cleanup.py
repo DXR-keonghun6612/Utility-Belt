@@ -3,11 +3,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Annotated
 
+import numpy as np
+
 from ....func.cv.color import Scale_intensity
 from ....func.cv.filter import Morph_clean
 from ....func.cv.geom import Crop_square, Mask_padding
 from ....func.mask.combine import Area_change, Combine_regions
+from ....schema import Data_Ref
 from .. import PROCESS_REGISTRY, Base_Process, UI, GRAY_IMAGE
+from ._objects import map_objects              # 객체별 mask 변형 공용 순회 (refine·cut 공유)
 
 
 @PROCESS_REGISTRY.Register_module()
@@ -42,6 +46,29 @@ class Morph_mask(Base_Process, outputs=("mask",), category="마스크/정리"):
         _m = Morph_clean(mask, close_size=self.close_size,
                          open_size=self.open_size, reverse=self.reverse)
         return {"mask": _m} if _m.any() else {}
+
+
+@PROCESS_REGISTRY.Register_module()
+@dataclass
+class Morph_objects(Base_Process, outputs=("object",), category="마스크/정리"):
+    """프레임의 객체마다 mask 에 morphology CLOSE·OPEN 을 **독립적으로** 적용한다 (frame 단위, obj별).
+
+    프레임 전체 한 장에 morphology 를 걸면 CLOSE 가 커널 거리 안의 **이웃 객체를 다리 놓아 붙인다** —
+    객체별로 걸면 각 mask 안에서만 닫히고 열려 서로 안 번진다(``Morph_mask`` 의 객체판). 각 객체의 rle
+    mask 를 풀어 ``func.cv.filter.Morph_clean`` 을 돌리고 bbox 를 다시 잰다. OPEN 이 작은 객체를 통째로
+    지우면 그 객체는 **원본을 유지**한다(정리로 객체를 잃지 않음). 객체가 없으면 스킵(``{}``).
+    """
+
+    close_size: Annotated[int,  UI(label="CLOSE 커널", tip="이 값 px 이하 구멍을 메움", min=1, max=21)] = 3
+    open_size:  Annotated[int,  UI(label="OPEN 커널",  tip="이 값 px 이하 잡티를 털어냄", min=1, max=21)] = 3
+    reverse:    Annotated[bool, UI(label="OPEN→CLOSE 순서", tip="기본은 CLOSE→OPEN")]                   = False
+
+    def Run(self, object: list[Data_Ref], frame: np.ndarray, **kwargs) -> dict:
+        if not object or frame is None:
+            return {}
+        _new = map_objects(object, frame, 0.0, lambda _f, _m, _r: Morph_clean(
+            _m, close_size=self.close_size, open_size=self.open_size, reverse=self.reverse))
+        return {"object": _new} if _new else {}
 
 
 @PROCESS_REGISTRY.Register_module()

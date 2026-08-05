@@ -18,7 +18,7 @@ Main_page
   ├── [flow_profile 가져오기] [▶ run]   현재 프로필: 3 flow — …
   ├── ── 진행바 ──
   ├── 본문 = Meta_view   (stem 목록 상태 뱃지[작업/검수/보류] + params·데이터·객체 트리 + Data_view · [저장])
-  └── [meta 가져오기] [전부 비우기] [Sampler…]
+  └── [meta 가져오기] [전부 비우기] [Split…] [분석…]
 ```
 
 - dataset_root 는 읽기전용 뷰어 — 값 편집은 Converter 창에서만.
@@ -52,7 +52,7 @@ dataset_root 열기 → Dataset_Meta 로드
   → [flow 빌더 + ▶ run]  flow 실행 → modified 채움     Pipeline.Run(flows)
   → [Meta 뷰어]          검수·편집 → 작업/검수/보류 전이   meta.Move / meta.Delete (백그라운드)
   → [meta 가져오기]      다른 결과 병합(상태 보존)        meta.Merge
-  → [Sampler 창]         staged → 파생 tasker + crop      Pipeline.Sample(name, cfg)  (gui/meta_page/sample)
+  → [Split 창]           staged → 비율대로 폴더 분할 내보내기  Pipeline.Split_export(...)  (gui/meta_page/split)
 ```
 
 flow 한 장(카드) = `flows:` 리스트의 1 엔트리 — `object_type`·`unit`·`shared`·`processes`/
@@ -69,7 +69,8 @@ flow 한 장(카드) = `flows:` 리스트의 1 엔트리 — `object_type`·`uni
   사이드카를 복원 — 파일이 아니라 폴더). 열린 root 없으면 그 폴더를 그대로 열고, 있으면 충돌 질의 후
   현재 root 로 복사 병합. 어느 쪽이든 meta 는 in-place 로 갱신한다(객체 교체 아님 — 편집기가 같은 meta
   객체를 봐 stale 을 막는다).
-- [Sampler 창] — 파생 tasker 빌더 + tasker별 sample 뷰어([`meta_page/sample/`](meta_page/sample/README.md)).
+- [Split 창] — staged 를 비율대로 갈라 폴더별로 내보낸다(coco). 인자만 받는 **모달**이고 실행은 워커다
+  ([`meta_page/split/`](meta_page/split/_dialog.py)) — 정본은 안 바뀐다(복사).
 
 ---
 
@@ -85,7 +86,9 @@ flow 한 장(카드) = `flows:` 리스트의 1 엔트리 — `object_type`·`uni
 | `meta_page/view/` | Dataset_Meta 뷰어 — stem 목록 + params·데이터·객체 트리 + `Data_view`(합성 캔버스+인스펙터+단일 편집기) |
 | `meta_page/convert/` | Converter 패널 + 다이얼로그 — raw 소스 탐색 설정 (`Pipeline.Convert`) |
 | `meta_page/run/` | flow 시퀀스 빌더(`Flow_card`/`Flow_sequence`) + 빌더 다이얼로그 |
-| `meta_page/sample/` | 파생 tasker 빌더 창 + tasker별 sample 뷰어(트리+crop+class write-back) (`Pipeline.Sample`) |
+| `meta_page/split/` | Split 창 — 대상 폴더·몫 비율·salt·공평 배분을 받는다 (`Pipeline.Split_export`) |
+| `meta_page/sample/` | *(죽은 기능 — 메인에서 진입점 제거됨. 정리 예정)* 파생 tasker 빌더 창 + sample 뷰어 |
+| `meta_page/analysis/` | 형상 적합성 **검증** 창 — 좌: 설정·국면 버튼·[적용] / 우: 판정 표시(구성·분리도·리포트) (`core.analysis`) |
 | `viewer/` | **LEAF type 별 표현 레지스트리** — core `HANDLER_REGISTRY` 와 짝. 새 handler → 뷰어 하나 더하면 UI 가 따라온다 (편집기는 안 든다) |
 | `editor/` | **편집기 계층** — 골격(`Editor_base`: 도구·이력·잠금·조준) + 대상별(`image/`). 3d·시퀀스가 들어올 자리 |
 | `steps/` | process-chain 편집 (`Process_step` + `Step_list`) — run·sample 공유 |

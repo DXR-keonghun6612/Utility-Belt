@@ -17,12 +17,12 @@ LENS 코어 — raw 데이터에서 **정본 annotation** 을 만들고, 그로�
 |---|---|---|---|
 | 0 | [`schema.py`](schema.py) · `typing` · `constant` | **아무것도 모른다** — 횡단 primitive (의존 0) | 심볼 docstring |
 | 0 | [`func/`](func) | 배열↔배열 순수 계산 — core 를 모른다 (numpy·cv2 뿐). 누구나 부른다 | [`func/README.md`](func/README.md) |
-| 0 | [`format/`](format) | 데이터 **구조** + 그 연산 (bbox·polygon·rle) — `Data_Ref` 도 I/O 도 모른다 | 패키지 docstring |
+| 0 | [`format/`](format) | 데이터 **구조** + 그 연산 (bbox·polygon·rle·pose·id_map) — `Data_Ref` 도 I/O 도 모른다 | 패키지 docstring |
 | 1 | [`codec/`](codec) | 포맷 단위 **직렬화** (raster·npy·inline·docs) — 도메인을 모른다 | 패키지 docstring |
 | 2 | [`port/`](port) | **domain** — 무엇으로 읽나 + 검증·정책 + 디스패치. 데이터 **하나** 읽기/쓰기 + 발견 | [`port/README.md`](port/README.md) |
 | 3 | [`store/`](store) | 범주와 item 주소. 데이터 **여럿**의 관리 + 라이프사이클 | [`store/README.md`](store/README.md) |
 | 4 | [`process/`](process) | 연산과 결과의 흐름 | [`process/README.md`](process/README.md) |
-| 5 | [`_base.py`](_base.py) · [`export/`](export) · `tasker` · `__init__` | 위를 잇는다 (`Pipeline`·export) — 계산 조율 + read+compute+external-write | 심볼 docstring |
+| 5 | [`_base.py`](_base.py) · [`export/`](export) · [`split.py`](split.py) · `tasker` · `__init__` | 위를 잇는다 (`Pipeline`·export·split) — 계산 조율 + read+compute+external-write | 심볼 docstring |
 
 ```text
 schema · func · format          아무것도 안 당기는 밑바닥 (의존 0)
@@ -64,6 +64,10 @@ schema · func · format          아무것도 안 당기는 밑바닥 (의존 0
 | store | `Dataset_Meta` — 범주 = staging 상태 | `Sample_Set` — 범주 = split |
 | 만드는 것 | segment · 객체 정렬 · class 부여 · 기하 측정 | 솎아내기 · crop 실체화 · split 배정 |
 | 축 | frame | sample |
+
+**분석 산출(`Analysis_Set`)은 이 축의 셋째가 아니다** — 정본에서 뽑아낸 기계 산출이라 언제든 다시 만들
+수 있고(`{root}/.analysis/{서명}/` 을 지우면 그만), task 와도 무관하다. 그래서 위 판별의 밖에 있다
+(→ [`analysis/README.md`](analysis/README.md)).
 
 **`task` 는 빌드의 축이 아니라 내보내기의 축이다.** 파생 빌드는 "무엇을 뽑나"만 정하고,
 classification 이냐 detection 이냐는 **내보낼 때** 비로소 의미를 갖는다(→ [`store/README.md`](store/README.md)).

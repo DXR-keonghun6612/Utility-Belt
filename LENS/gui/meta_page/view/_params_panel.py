@@ -6,6 +6,11 @@
 트리 자체는 [`_node_tree.py`](_node_tree.py) 의 재귀 렌더러를 그대로 쓴다 — params 도 같은 `Data_Ref` 다.
 여기가 더하는 건 **추가/삭제**뿐이고, 그건 라이프사이클이라 store 메서드(``Import_param``/``Delete_param``)를
 직접 부른다(경로는 store 가 안다).
+
+**단, 편집 동선은 항목마다 다르다.** params 는 "dataset-wide 값"이라는 자리를 공유할 뿐 서로 다른
+것들이다 — roi 는 캔버스에서 그리고(→ [수정]), id_map 은 목록 연산이라 캔버스에 얹을 게 없다(→ 전용 창).
+그 갈림은 :data:`_EDITORS` 한 곳이 든다: **이름 → 그 이름 전용 편집 창**. 표에 없는 params 는 지금까지대로
+[수정] 하나로 간다.
 """
 from __future__ import annotations
 
@@ -29,7 +34,14 @@ from PySide6.QtWidgets import (
 from core import port
 from core.schema import Data_Ref
 
+from ._id_map_dialog import Id_map_dialog
 from ._node_tree import Node_tree
+
+#: params 이름 → 전용 편집 창. **여기 없는 이름은 [수정] 동선**(캔버스/인스펙터)으로 간다.
+#: 창은 ``(값 문서, parent)`` 로 만들어지고, ``exec()`` 가 참이면 ``result_edit()`` 가 결과다.
+#: 결과를 **어디로 올릴지는 항목마다 다르다** — 지금은 id_map 하나뿐이라 신호도 하나다. 둘째가 생기면
+#: 그때 갈라진다(미리 배선 층을 만들지 않는다).
+_EDITORS = {"id_map": Id_map_dialog}
 
 
 class _Add_dialog(QDialog):
@@ -110,21 +122,28 @@ class Params_panel(QWidget):
     Attributes:
         changed: params 가 추가/삭제돼 저장됨 — 상위가 뷰를 갱신한다.
         edit_requested: [수정] 눌림 ``(Node)`` — 상위가 그 값을 편집기/인스펙터로 연다.
+        class_edit_requested: id_map 편집이 확정됨 ``(Id_map 표, remap)`` — **여기서 실행하지 않는다**.
+            전 stem 의 라벨을 다시 쓰는 일이라 진행바·편집잠금을 든 상위(app ``Meta_ops``)가 워커로 돌린다.
     """
 
-    changed        = Signal()
-    edit_requested = Signal(object)
+    changed              = Signal()
+    edit_requested       = Signal(object)
+    class_edit_requested = Signal(object, object)
 
     def __init__(self, get_store: Callable[[], object | None],
                  get_size: Callable[[], tuple[int, int] | None] | None = None,
+                 get_stats: Callable[[], tuple | None] | None = None,
                  parent=None) -> None:
         """Args:
         get_store: 정본 store (없을 수 있다).
         get_size:  빈 라스터를 만들 크기 (H, W) — 현재 stem 이미지에서 (없으면 못 만든다).
+        get_stats: id_map 편집기가 볼 **관찰·제안** (분석 산출물에서 — 없으면 None). 여기서 직접
+            구하지 않는 건 이 패널이 분석 산출물의 자리를 몰라서다(정본 root 는 상위가 안다).
         """
         super().__init__(parent)
         self._get_store = get_store
         self._get_size = get_size or (lambda: None)
+        self._get_stats = get_stats or (lambda: None)
         self._editable = True
 
         _lay = QVBoxLayout(self)
@@ -150,6 +169,7 @@ class Params_panel(QWidget):
 
         self.tree = Node_tree(check_default=False)         # 전역이라 기본 시각화 OFF (stem 마다 방해)
         self.tree.selected.connect(self._on_select)
+        self.tree.activated.connect(self._on_activate)     # 더블클릭 = 그 항목 전용 편집 창 (_EDITORS)
         _lay.addWidget(self.tree, stretch=1)
 
     # ── Public ────────────────────────────────────────────────────────────────
@@ -177,6 +197,21 @@ class Params_panel(QWidget):
         _node = self.tree.current_node()
         if _node is not None and self._editable:
             self.edit_requested.emit(_node)
+
+    # ── 항목 전용 편집 창 (더블클릭) ────────────────────────────────────────────
+    def _on_activate(self, node) -> None:
+        """params **직속** 항목을 더블클릭 → 그 이름의 전용 창 (없으면 아무 일도 안 한다).
+
+        직속으로 좁히는 이유는 삭제와 같다 — 중첩 노드는 값 *안쪽*이라 항목이 아니고, 그 이름이 우연히
+        ``id_map`` 이어도 표가 아니다.
+        """
+        _store = self._get_store()
+        _cls = _EDITORS.get(node.name) if node is not None else None
+        if _cls is None or _store is None or not self._editable or len(node.path) != 1:
+            return
+        _dlg = _cls(_store.Param(node.name), self._get_stats(), self)
+        if _dlg.exec():
+            self.class_edit_requested.emit(*_dlg.result_edit())
 
     # ── 추가 / 삭제 (라이프사이클 = store 소유) ─────────────────────────────────
     def _add(self) -> None:

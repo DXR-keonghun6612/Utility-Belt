@@ -434,6 +434,8 @@ class Flow(Stage):
         _frame, _obj, _stem, _obj_id = unit.frame, unit.obj, unit.stem, unit.obj_id
         _cat = unit.category                               # 범주는 stage 설정이 아니라 unit 의 주소다
         for _key, _spec in spec_map.items():
+            if _key == "object":                           # leaf 가 아니라 **구조** — 아래에서 교체한다
+                continue
             _val = out.get(_key)
             if _val is None:
                 continue
@@ -451,5 +453,5 @@ class Flow(Stage):
             _target.Push(_as, store.Route(_path, _as, _spec, _val))
 
         _objs = out.get("object")
-        if isinstance(_objs, list) and _frame is not None:  # 구조 교체 — 순번=obj_id; leaf 보존
-            _frame.Replace_branches(_objs)
+        if "object" in spec_map and isinstance(_objs, list) and _frame is not None:
+            _frame.Replace_branches(_objs)                  # 구조 교체 — 순번=obj_id; leaf 보존

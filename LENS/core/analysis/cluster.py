@@ -47,11 +47,15 @@ from ..typing import Arg_Info as UI
 #: 대기 풀에 남은 표본 — 아직 어느 type 에도 안 붙었다.
 POOL = -1
 
+#: 자의적 경계 병합(:func:`_merge_cells`)이 받아 줄 조합 수 상한 — 관계 행렬이 ``C²`` bool 이다.
+#: 16,000 이면 256 MB. 넘으면 병합을 끄라고 말한다(끄면 조합이 곧 type 이라 답이 없진 않다).
+_WELD_CELL_CAP = 16000
+
 #: **종합 판정**의 자리 이름 — 축이 아니라 축들의 곱집합(:func:`join`)이다.
 #:
 #: 도메인과 같은 서랍(``index.types`` · ``Composition`` · ``Keys``)을 쓰므로 화면이 축 하나처럼
 #: 다룰 수 있다. 대신 **좌표가 없다** — 중심·퍼짐·3D 배치는 축에서만 정의된다. 잣대 이름으로
-#: 쓰일 수 없게 :class:`~.extract.Mask_Geometry` 가 막는다.
+#: 쓰일 수 없게 :func:`~.extract.Contract` 가 막는다.
 JOINT = "joint"
 
 
@@ -101,13 +105,14 @@ class Cluster_Params:
         min=0.0, max=3.0, step=0.05)] = 0.3
 
     weld_types: Annotated[bool, UI(
-        label="종합 — 자의적 경계 병합",
-        tip="종합에서 **모든 축이 같거나 이웃**인 조합끼리 붙인다. 한 축이라도 멀면 안 붙는다 — "
-            "그 축이 실제로 가른 자리다.\n"
+        label="종합 — 자의적 경계 병합 (공통)",
+        tip="종합에서 **그 축이 같거나 이웃**인 조합끼리 붙인다 — 켠 축만 그렇게 보고, 끈 축은 "
+            "'같을 때만' 붙는다(그 축이 가른 것을 지킨다).\n"
             "축이 쪼갠 것을 되돌리는 게 아니다 — 두 type 이 서로 이웃이면 그 사이 선은 데이터가 그은 "
             "게 아니라 연결이 한 번 끊긴 자리다.\n"
-            "실측: 종합 type 1,585 → 832 · 순도 88.5% → 88.1% · 1건짜리 53 → 22.\n"
-            "끄면 조합이 곧 type 이다(더 잘게 쪼개진다)")] = True
+            "**축마다 답이 다르다** — 실루엣(`outline`)은 분할 노이즈로 경계가 흔들리지만 구멍"
+            "(`signed`)이 가른 것은 실체가 있다. 잣대 목록에서 축별로 덮는다.\n"
+            "여기 값은 목록에서 안 정한 축의 기본이다")] = True
 
     max_axis_types: Annotated[int, UI(
         label="type 축 경고 상한",
@@ -130,6 +135,57 @@ class Cluster_Params:
     #: 는 2채널이라 값이 겹치고 ``radial_outline`` 은 512채널이라 흩어진다) 같은 이웃 수가 같은
     #: 뜻이 되지 않는다.
     neighbor_counts: dict[str, int] = field(default_factory=dict)
+
+    #: **도메인별 정규화 방법** ``{도메인: 'none'|'equalize'|'floor'}`` — 없으면 :data:`NORM_EQUALIZE`.
+    #:
+    #: 축척만 바꾼다 — 좌표에 곱해지는 상수가 달라질 뿐이라 **군집 결과는 그대로고 ``k`` 의 단위가
+    #: 바뀐다**(:func:`equalize`). 공통값을 안 두는 것은 이 값이 축마다 다른 것이 요점이라서다.
+    norm_methods: dict[str, str] = field(default_factory=dict)
+
+    #: **도메인별 병합 허용** ``{도메인: bool}`` — 없는 도메인은 위 ``weld_types`` 공통값.
+    #:
+    #: 종합 전용이라 그 축의 가르기에는 영향이 없다(:func:`gauge_params` 에 안 들어간다). 축마다
+    #: 답이 다른 이유는 **경계가 자의적인 정도가 다르기** 때문이다 — 실루엣은 분할 노이즈로 흔들리고
+    #: (도넛÷솔리드 최근접비 0.89) 구멍 유무는 이산적이다(2.45).
+    #:
+    #: 실측(`temp/probe_weld_order.py`, 38,192 표본) — ``outline`` 만 켠 것이 최선이다::
+    #:
+    #:     양쪽 켬     type 710 · 1건 82 · 순수type 93.2% · signed 되붙임 45
+    #:     전부 끔     type 843 · 1건 107 · 순수type 93.6% · signed 되붙임  0
+    #:     outline 만  type 780 · 1건  90 · 순수type 93.7% · signed 되붙임  0   ← 지금 기본
+    #:     signed 만   type 773 · 1건  99 · 순수type 93.1% · signed 되붙임 45
+    weld_axes: dict[str, bool] = field(default_factory=dict)
+
+
+#: 정규화 방법 — **축척만** 정한다. 셋 다 스칼라 나눗셈이라 분할 결과는 같고 ``k`` 의 뜻이 갈린다.
+NORM_NONE     = "none"      # 원 단위 그대로 — `k` = 채널당 평균 몇 px
+NORM_EQUALIZE = "equalize"  # (x−μ)/σ      — `k` = 채널당 평균 몇 σ  (지금까지의 기본)
+NORM_FLOOR    = "floor"     # x / 노이즈 바닥 — `k` = 바닥의 몇 배
+NORM_METHODS  = (NORM_NONE, NORM_EQUALIZE, NORM_FLOOR)
+
+#: 노이즈 바닥 = **표본 최근접거리**의 이 분위수. class 를 안 쓴다 — 축 계산에 라벨이 들어오면
+#: 그 축의 답이 라벨에 달리게 된다. 낮은 분위수를 쓰는 것은 조밀한 자리의 최근접이 바닥에 가깝기
+#: 때문이고, 그래도 **진짜 미세 구조를 노이즈로 흡수한다**(그 한계는 남는다).
+NORM_FLOOR_Q = 0.1
+
+
+def normalize_of(params: dict, domain: str | None = None) -> str:
+    """그 도메인의 **정규화 방법** — 안 적었으면 :data:`NORM_EQUALIZE`."""
+    _per = params.get("norm_methods") or {}
+    _m = str(_per.get(str(domain), "")) if domain is not None else ""
+    return _m if _m in NORM_METHODS else NORM_EQUALIZE
+
+
+def floor_of(X: np.ndarray, quantile: float = NORM_FLOOR_Q) -> float:
+    """이 좌표의 **노이즈 바닥** — 최근접거리 분포의 하위 분위수 (표본이 모자라면 1.0).
+
+    ``X`` 는 아직 안 나눈 좌표다(:data:`NORM_NONE` 상태). 여기서 나온 값으로 나누면 거리 1 이
+    "노이즈 한 배" 가 된다.
+    """
+    if len(X) < 2:
+        return 1.0
+    _d, _ = knn(np.asarray(X, np.float32), 1)
+    return max(float(np.quantile(_d[:, 0], quantile)), 1e-6)
 
 
 def threshold_of(params: dict, domain: str | None = None) -> float:
@@ -169,6 +225,18 @@ def members_of(params: dict, domain: str | None = None) -> int:
     return max(int(params.get("min_members", 3)), 1)
 
 
+def welds_of(params: dict, domain: str | None = None) -> bool:
+    """그 축의 **자의적 경계를 병합할지** — :func:`threshold_of` 와 같은 규칙(개별이 공통을 이긴다).
+
+    **종합 전용이다** — 그 축의 가르기는 안 바뀌므로 :func:`gauge_params` 가 아니라
+    :func:`~.group.joint_signature` 가 이 값을 해싱한다.
+    """
+    _per = params.get("weld_axes") or {}
+    if domain is not None and str(domain) in _per:
+        return bool(_per[str(domain)])
+    return bool(params.get("weld_types", True))
+
+
 def gauge_params(params: dict, domain: str) -> dict:
     """그 도메인의 **묶기 입력 전부** — 서명이 해싱하는 것이 곧 이것이다.
 
@@ -177,28 +245,31 @@ def gauge_params(params: dict, domain: str) -> dict:
     """
     return {"threshold": threshold_of(params, domain),
             "neighbors": neighbors_of(params, domain),
-            "min_members": members_of(params, domain)}
+            "min_members": members_of(params, domain),
+            "norm": normalize_of(params, domain)}
 
 
 # ── 도메인 축 — 정규화 상수와 그 위의 좌표 ─────────────────────────────────────
 def equalize(arr: np.ndarray, norm_d: dict | None) -> np.ndarray:
-    """도메인 **배치** → 표준화 좌표 ``(n, dim)``: ``(x - mean)/std`` 후 ``1/√dim``.
+    """도메인 **배치** → 비교 좌표 ``(n, dim)``. 방법은 ``norm_d['method']`` 가 든다.
 
-    ``√dim`` 으로 나누므로 거리²가 **채널당 평균 표준화 편차²** 가 된다 — 거리 1 = "채널마다
-    평균 1σ 차이". 그래서 채널 수가 다른 도메인끼리도 ``k`` 가 같은 뜻으로 읽힌다(값은 달라도
-    좋지만 뜻이 같아야 견줄 수 있다).
+    셋 다 **스칼라 나눗셈**이라 거리가 일정 배로만 바뀐다 — 분할 결과는 같고 ``k`` 의 단위가 갈린다
+    (:data:`NORM_METHODS`). 어느 방법이든 마지막에 ``1/√dim`` 을 곱해 거리가 **채널당 평균**이 되게
+    한다: 512칸이 전부 1px 씩 다르면 거리가 22.6 이 아니라 1.0 이다.
 
-    **첫 축은 늘 배치다.** 표본 하나면 호출 측이 ``arr[None]`` 로 넣는다 — 옛 구현은 1D 를 표본
-    하나로 봐주는 분기가 있었는데, 그러면 sequence 도메인의 단일 표본 ``(NT, K)`` 을 "표본 NT 개 ×
-    K 채널" 로 조용히 오해한다(실측 ``radial_rle`` 에서 그렇게 깨졌다). 도메인마다 native shape 이
-    달라 배치 여부를 값만 보고는 알 수 없으므로 규약으로 못박는다.
+    **채널별로 나누지 않는다.** ``mean``·``std`` 는 도메인당 스칼라 하나다 — 도메인은 scale 을
+    공유하는 채널 묶음이라(:func:`norm_from_totals`) 채널마다 다른 상수를 쓰면 그 전제가 깨진다.
 
-    옛 구현에는 ``weight`` 인자도 있어 밖에서 나눔수를 받았다. 여러 도메인을 한 좌표로 이어 붙일
-    때 도메인마다 몫을 맞추려던 것인데, 도메인이 직교가 되면서 필요가 없어졌다.
+    **첫 축은 늘 배치다.** 표본 하나면 호출 측이 ``arr[None]`` 로 넣는다 — 1D 를 표본 하나로 봐주면
+    sequence 도메인의 단일 표본 ``(NT, K)`` 을 "표본 NT 개" 로 조용히 오해한다.
     """
     _a = np.asarray(arr, np.float64)
-    if norm_d:
-        _a = (_a - norm_d["mean"]) / norm_d["std"]
+    _n = norm_d or {}
+    _m = str(_n.get("method", NORM_EQUALIZE))
+    if _m == NORM_EQUALIZE and "std" in _n:
+        _a = (_a - float(_n["mean"])) / float(_n["std"])
+    elif _m == NORM_FLOOR and _n.get("floor"):
+        _a = _a / float(_n["floor"])
     _flat = _a.reshape(_a.shape[0], -1)
     return _flat / np.sqrt(max(_flat.shape[1], 1))
 
@@ -372,6 +443,10 @@ def components(n: int, edges: np.ndarray, min_members: int) -> np.ndarray:
     """간선으로 이어진 **연결 성분** → type 번호 ``(n,)``. ``min_members`` 미만은 :data:`POOL`.
 
     번호는 성분의 **크기 내림차순**이다 — type 0 이 늘 가장 큰 덩어리라 화면이 안정된다.
+
+    간선을 **받아서** 돈다 — 쌍이 성기다는 전제다(상호 최근접이라 ``n·m`` 이 상한). 쌍이
+    ``n²`` 까지 갈 수 있는 자리는 간선을 실체화하면 안 되므로 여기를 안 쓴다
+    (:meth:`~.store.Cluster_Bucket.Resolution`).
     """
     _parent = np.arange(n)
 
@@ -465,6 +540,26 @@ def fit(X: np.ndarray, k: float, min_members: int, *, neighbors: int = 5,
 
 
 # ── 기권을 메운다 — 다른 축이 후보를 좁힌다 ───────────────────────────────────
+def _cooccur(a: np.ndarray, b: np.ndarray) -> dict[int, set[int]]:
+    """``a`` 의 type → 같은 표본이 ``b`` 에서 받은 type 들 (**둘 다 배정된** 표본만).
+
+    표본을 하나씩 도는 대신 고유 쌍만 센다 — 6만 행이 수백 쌍으로 접힌다.
+
+    쌍을 ``a·M + b`` **정수 하나로 눌러** 1-D 로 센다. ``np.unique(…, axis=0)`` 은 lexsort 에
+    구조체 뷰까지 타서 파이썬 zip 루프보다도 느리다(실측 6만 행 68 ms vs 30 ms) — 1-D 는 15 ms 다.
+    """
+    _ok = (a >= 0) & (b >= 0)
+    _out: dict[int, set[int]] = {}
+    if not _ok.any():
+        return _out
+    _a, _b = a[_ok].astype(np.int64), b[_ok].astype(np.int64)
+    _M = int(_b.max()) + 1
+    for _c in np.unique(_a * _M + _b).tolist():
+        _out.setdefault(int(_c // _M), set()).add(int(_c % _M))
+    return _out
+
+
+
 def impute(labels: dict[str, np.ndarray], coords: dict[str, np.ndarray],
            centers_by: dict[str, np.ndarray], bound: float,
            ) -> tuple[dict[str, np.ndarray], dict[str, list[int]]]:
@@ -495,26 +590,26 @@ def impute(labels: dict[str, np.ndarray], coords: dict[str, np.ndarray],
         ``(메운 배정, {도메인: [메운 표본 index]})``.
     """
     _names = sorted(labels)
-    _out = {_d: np.asarray(_v, int).copy() for _d, _v in labels.items()}
+    _lab = {_d: np.asarray(_v, int) for _d, _v in labels.items()}
+    _out = {_d: _v.copy() for _d, _v in _lab.items()}
     _filled: dict[str, list[int]] = {_d: [] for _d in _names}
-    for _d in _names:
-        _cen = centers_by.get(_d)
-        _Z = coords.get(_d)
-        if _cen is None or _Z is None or not len(_cen):
-            continue
+    _live = [_d for _d in _names
+             if centers_by.get(_d) is not None and coords.get(_d) is not None
+             and len(centers_by[_d])]
+    # 다른 축 type → 이 축 type 후보. **고유 쌍만** 센다 — 표본을 하나씩 돌면 축쌍마다 전수라
+    # ``축² × 표본`` 인데(7축 6만이면 270만) 고유 쌍은 수백이다.
+    _peers = {(_e, _d): _cooccur(_lab[_e], _lab[_d])
+              for _d in _live for _e in _names if _e != _d}
+    for _d in _live:
+        _cen, _Z = centers_by[_d], coords[_d]
         _others = [_e for _e in _names if _e != _d]
-        _peers = {_e: {} for _e in _others}                # 다른 축 type → 이 축 type 후보
-        for _e in _others:
-            for _t, _v in zip(labels[_e], labels[_d]):
-                if _t >= 0 and _v >= 0:
-                    _peers[_e].setdefault(int(_t), set()).add(int(_v))
-        for _i in np.flatnonzero(np.asarray(labels[_d], int) < 0):
+        for _i in np.flatnonzero(_lab[_d] < 0):
             _cand: set[int] | None = None
             for _e in _others:
-                _t = int(labels[_e][_i])
+                _t = int(_lab[_e][_i])
                 if _t < 0:
                     continue
-                _here = _peers[_e].get(_t, set())
+                _here = _peers[(_e, _d)].get(_t, set())
                 _cand = set(_here) if _cand is None else (_cand & _here) or _cand
             if not _cand:
                 continue
@@ -652,6 +747,13 @@ def _merge_cells(cells: list[tuple], names: list[str],
     """조합 → 종합 type 자리 — **모든 축에서 같거나 이웃**인 것끼리 잇는다.
 
     ``type_edges`` 가 비면 조합이 곧 자기 자리다(병합 없음).
+
+    관계를 **축마다 접어 넣는다**. 한때 ``(축, C, C)`` 두 장을 쌓아 뒀는데, 조합 수 ``C`` 의 상한은
+    표본 수라 축을 늘릴수록 거기 가까워진다(2축 실측 688 · 7축이면 수천). 누적이면 늘 한 장이다.
+
+    Raises:
+        RuntimeError: 조합 수가 :data:`_WELD_CELL_CAP` 을 넘을 때 — 관계 행렬이 ``C²`` 라
+            여기서만 걸린다.
     """
     _C = len(cells)
     if not _C:
@@ -659,22 +761,25 @@ def _merge_cells(cells: list[tuple], names: list[str],
     _at = {_t: _i for _i, _t in enumerate(cells)}
     if not type_edges:
         return dict(_at)
+    if _C > _WELD_CELL_CAP:
+        raise RuntimeError(
+            f"종합 조합이 {_C:,} 개다 (상한 {_WELD_CELL_CAP:,}). 자의적 경계 병합은 조합끼리 "
+            f"관계를 재므로 {_C ** 2 / 1e9:.1f} GB 가 든다 — [종합 — 자의적 경계 병합]을 끄면 "
+            f"조합이 곧 type 이고, 축을 줄이면 조합도 준다.")
     _arr = np.asarray(cells, int)
-    _same = np.stack([_arr[:, _a][:, None] == _arr[:, _a][None] for _a in range(len(names))])
-    _near = []
+    # 한 축이라도 "같지도 이웃도 아니다" 면 안 붙는다 — 그 축이 실제로 가른 자리다.
+    _ok = np.ones((_C, _C), bool)
     for _a, _d in enumerate(names):
-        _e = np.asarray(type_edges.get(_d, np.zeros((0, 2), int)), int)
         _lab = _arr[:, _a]
-        _M = int(max(_lab.max(), _e.max() if len(_e) else 0)) + 1
+        _e = np.asarray(type_edges.get(_d, np.zeros((0, 2), int)), int)
+        _M = max(int(max(_lab.max(), _e.max() if len(_e) else 0)) + 1, 1)
         _adj = np.zeros((_M, _M), bool)
         if len(_e):
             _adj[_e[:, 0], _e[:, 1]] = True
             _adj[_e[:, 1], _e[:, 0]] = True
         _have = _lab >= 0
-        _near.append(_adj[np.ix_(np.maximum(_lab, 0), np.maximum(_lab, 0))]
-                     & _have[:, None] & _have[None, :])
-    _near = np.stack(_near)
-    # 한 축이라도 "같지도 이웃도 아니다" 면 안 붙는다 — 그 축이 실제로 가른 자리다.
-    _ok = (_same | _near).all(0)
+        _near = (_adj[np.ix_(np.maximum(_lab, 0), np.maximum(_lab, 0))]
+                 & _have[:, None] & _have[None, :])
+        _ok &= (_lab[:, None] == _lab[None, :]) | _near
     _grp = components(_C, np.argwhere(np.triu(_ok, 1)), 1)
     return {_t: int(_grp[_i]) for _t, _i in _at.items()}

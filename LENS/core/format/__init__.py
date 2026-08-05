@@ -19,6 +19,12 @@
 한때 이게 `codec/polygon.py::Decode_polygon` 이었는데, 이름의 "Decode"(= 정준형으로 푼다)가 곧 "폴리곤은
 언제나 픽셀이다"라는 결정이었다 — I/O 모듈이 의미를 정하고 있었던 것.
 
+## payload 구조만 사는 건 아니다
+
+[`id_map`](id_map.py)(class 표)은 geometry 도 payload 도 아니지만 여기 산다 — 판별 기준은 "무엇의 구조냐"가
+아니라 **아는 게 구조뿐이냐**다. 표는 자기가 어느 데이터셋 것인지도(뜻), 정본 params leaf 인지 내보낸
+yaml 인지도(자리) 모르고, 아는 건 항목의 모양과 그 위의 연산(합치기·지우기·더하기)뿐이다.
+
 ## 규칙
 
 1. **`Data_Ref` 도 I/O 도 모른다.** numpy·cv2 는 쓴다 — 순수해야 하는 건 [`../schema.py`](../schema.py)

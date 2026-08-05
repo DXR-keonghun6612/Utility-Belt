@@ -29,7 +29,10 @@ dependencies = [
 
     # 분석 (analysis/) — 시각화·임베딩·클러스터링·CSV export
     "matplotlib",     # chroma 히트맵·mask shape 산점도
-    "scikit-learn",   # StandardScaler·PCA (scipy 를 끌어옴)
+    "scikit-learn",   # KMeans·silhouette (scipy 를 끌어옴)
+    # BLAS·OpenMP 스레드 상한 — sklearn 의존이라 이미 깔리지만, 우리가 직접 부르므로 명시한다
+    # (근거는 core/analysis/cluster.py 의 `_THREADS`).
+    "threadpoolctl",
     "umap-learn",     # 비선형 임베딩(UMAP), 미설치 시 PCA fallback
     "hdbscan",        # 임베딩 클러스터링
     "pandas",         # feature matrix CSV export

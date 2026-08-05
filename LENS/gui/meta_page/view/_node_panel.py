@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
 )
 
 from core import port
+from core.constant import UNCLASSIFIED_ID
 
 from ._node_tree import Node, Node_tree
 
@@ -126,7 +127,24 @@ class Node_panel(QWidget):
         _lay.addLayout(_tool)
 
         self.tree = Node_tree(scope)
+        self.tree.reordered.connect(self._on_reorder)
         _lay.addWidget(self.tree, stretch=1)
+
+    def _on_reorder(self, path: tuple, order: list) -> None:
+        """드래그로 바뀐 순서를 store 에 적용한다 — 정수 key(obj_id)면 번호까지 다시 매겨진다.
+
+        적용 뒤 **통째로 다시 읽는다** — 번호가 바뀌면 이름이 달라지므로 항목별 증분 갱신으로는 못 맞춘다.
+        """
+        _store = self._get_store()
+        if _store is None or not self._editable:
+            return
+        try:
+            _store.Reorder(tuple(path), list(order))
+        except (KeyError, ValueError) as _e:              # 순서로 표현 못 하는 요청 — 조용히 넘기지 않는다
+            QMessageBox.warning(self, "순서 변경", str(_e))
+            return
+        self.load(_store, self._get_key())
+        self.changed.emit()
 
     def _add_button(self, tool, text: str, tip: str, slot) -> None:
         _b = QPushButton(text)
@@ -170,7 +188,7 @@ class Node_panel(QWidget):
 
     # ── 추가 / 삭제 ───────────────────────────────────────────────────────────
     def add_object(self) -> None:
-        """객체를 stem 직속에 더한다 — **빈 ``class_id`` attr 을 달고 나온다**(Split_objects 와 같은 모양).
+        """객체를 stem 직속에 더한다 — **미분류(0) ``class_id`` attr 을 달고 나온다**(Split_objects 와 같은 모양).
 
         그래야 새 객체도 곧바로 인스펙터에서 id_map 콤보로 class 를 고를 수 있다(mask·bbox 는 캔버스에서).
         """
@@ -181,7 +199,7 @@ class Node_panel(QWidget):
         _name = _store.Add_branch(_path)
         _obj = _store.tree.At(_path + (_name,))
         if _obj is not None:
-            _obj.Set_attr("class_id", "")
+            _obj.Set_attr("class_id", UNCLASSIFIED_ID)
         self.load(_store, self._get_key())
         self.changed.emit()
 

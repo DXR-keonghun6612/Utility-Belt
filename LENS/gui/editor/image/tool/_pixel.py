@@ -177,7 +177,9 @@ class Pixel_tool(Draw_tool):
         return self._e.target().raster.shape
 
     def _brush_at(self, a, b) -> np.ndarray:
-        return _raster.brush(self._shape(), a, b, self._size.value())
+        # 굵기 스핀은 **반경**이다(커서 원도 그 반지름으로 그린다) — 그런데 ``brush`` 는 그 값을
+        # 선 굵기(=지름)로 쓰는 cv2.line 이라, 2 를 곱해 지름으로 넘겨야 커서와 실제 칠이 맞는다.
+        return _raster.brush(self._shape(), a, b, self._size.value() * 2)
 
     def _value(self) -> int:
         """찍을 값 — 지우기는 0(배경), 그리기는 **조준한 대상의 라벨**."""

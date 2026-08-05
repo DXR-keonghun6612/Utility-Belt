@@ -24,35 +24,54 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+import numpy as np
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import QMessageBox, QSplitter, QWidget
 
-from core.analysis import Cluster_Bucket, Mask_Geometry, build, inject, propagate
+from core.analysis import (
+    Cluster_Bucket, Contract, build, inject, propagate, reclass, regroup)
 from core.analysis.store import Type_explosion
-from core.constant import CLASS_SRC, SRC_HUMAN, TO_META, TO_STORAGE, UNCLASSIFIED_ID
+from core.process.stream.mask import profile
+from core.constant import CLASS_SRC, SRC_HUMAN, STAGED, UNCLASSIFIED_ID
 from core.store import Dataset_Meta
 from gui._worker import Pipeline_worker
 from gui.widgets import Class_picker, Pop_dialog
 from ._panel import Control_panel
 from ._view import Result_view
 
-#: 정본 params — 이 데이터셋을 무엇으로 분석하나(transform config 경로).
-_CFG_PARAM = "analysis_config"
-
-#: 정본 params — 화면 레시피 ``{unit, obj_index, classes, 묶기 파라미터, domains}``.
-#:
-#: **산출물이 아니라 정본이 든다** — 레시피는 config 고 버킷은 data 라 수명이 다르다. 한 폴더에 두면
-#: ``[feature 삭제]`` 가 도메인 선택까지 지우고, 되살아난 기본값(전부 선택)이 단위 섞인 축을 조용히
-#: 켠다.
-_RECIPE_PARAM = "analysis_recipe"
-
-#: 레시피 그릇 — **파일(docs)** 이다. 인라인 ``attr`` 은 str·int·float·list 뿐이라 중첩 dict 가 못
-#: 간다. 정본 ``params/`` 의 ``id_map.yaml`` 과 같은 자리다.
-_RECIPE_SPEC = {"to": TO_STORAGE, "type": "docs", "format": "json"}
-
 #: 기본 전처리 config — **이 레포의 `config/` 안**이다. 학습(413 `conf/transform/`)과 같은 사슬을
 #: 태우되 `radial_domains` 만 다르므로(학습은 `rle` 하나) 파일을 갈라 뒀다. 편집 가능하게 노출한다.
-_DEFAULT_CFG = str(Path(__file__).resolve().parents[3] / "config/analysis/mask_geometry.yaml")
+_DEFAULT_CFG = str(Path(__file__).resolve().parents[3] / "config/gauge/mask_shape.yaml")
+
+
+def _feature_of(contract: dict) -> tuple[str, tuple[int, ...]]:
+    """계약에 적힌 ``(feature 이름, 모양)`` — 없으면 ``("", ())``.
+
+    계약을 다시 세울 때(잣대 갱신) 정본을 열지 않으려고 여기서 읽는다 — 모양은 적재 때 이미 쟀다.
+    """
+    _feats = (contract.get("features") or {})
+    for _name in sorted(_feats):
+        return _name, tuple(_feats[_name].get("shape") or ())
+    return "", ()
+
+
+def _profile_shape(store, leaf: str) -> tuple[int, ...] | None:
+    """정본이 든 표본 하나치 모양 ``(NT, K)`` — 그 leaf 를 든 **첫 stem** 에서 잰다.
+
+    눈금(``params/profile_spec``)이 있으면 그것으로 답하고, 없으면 배열을 한 장 열어 잰다. 배열의
+    첫 축은 객체 수라 떼고 본다. 어느 stem 도 그 leaf 를 안 들면 None — flow 를 안 돌렸다는 뜻이다.
+    """
+    _spec = store.Param(profile.SPEC_PARAM)
+    if isinstance(_spec, dict) and "num_angular" in _spec:
+        return (int(_spec["num_angular"]), int(_spec["max_transitions"]))
+    for _cat in store.CATEGORIES:
+        for _stem, _frame in store.Bucket(_cat).items():
+            if _frame.Get(leaf) is None:
+                continue
+            _arr = store.Load(_stem, leaf)
+            if _arr is not None and np.ndim(_arr) >= 2:
+                return tuple(np.shape(_arr)[1:])
+    return None
 
 
 def _gauges_of(spec) -> dict:
@@ -143,6 +162,7 @@ class Analysis_dialog(Pop_dialog):
         self._view = Result_view()
         self._view.move_requested.connect(self._on_move)
         self._view.unlabel_requested.connect(self._on_unlabel)
+        self._view.stage_requested.connect(self._on_stage)
         self._view.unify_requested.connect(self._on_unify)
         self._view.threshold_requested.connect(self._on_threshold)
         self._view.propagate_requested.connect(self._on_propagate)
@@ -160,62 +180,34 @@ class Analysis_dialog(Pop_dialog):
         self._restore()
 
     def _restore(self) -> None:
-        """지난 세션 이어가기 — config 경로 → 설정 → **저장된 산출물을 바로 건다**.
+        """지난 세션 이어가기 — 산출물이 든 설정으로 config 경로까지 되돌린다.
 
-        **config 경로는 정본이 든다** — 그 경로가 있어야 산출물 폴더를 찾으므로 산출물 안에 둘 수
-        없다. 정본에 값이 있으면 그것이 이긴다 — :data:`_DEFAULT_CFG` 는 **한 번도 안 고른 정본을
-        위한 씨앗**이지 기본 정책이 아니다.
+        **정본은 안 건드린다.** 설정은 그 결과를 만든 폴더(``.analysis/``)가 든다 — 같은 정본을
+        다른 조건으로 여러 번 돌려도 서로 안 섞인다. ``[feature 삭제]`` 로 그 폴더를 지우면 설정도
+        함께 사라지고 :data:`_DEFAULT_CFG` 씨앗에서 다시 시작한다.
         """
-        _pipe = self._get_pipeline() if self._get_pipeline else None
-        if _pipe is None:
+        if (self._get_pipeline() if self._get_pipeline else None) is None:
             return
-        _saved = str((_pipe.meta.Param(_CFG_PARAM) or "") or "")
-        if _saved:
-            self._panel.set_config_path(_saved)
-        else:
-            self._remember_config()      # 씨앗도 곧바로 굳힌다 — 다음에 열면 "고른 값"이다
+        _cfg = str(self._saved_recipe().get("config") or "")
+        if _cfg:
+            self._panel.set_config_path(_cfg)
         self._sync_contract()
 
     def _on_config(self) -> None:
-        """config 경로가 확정됐다 — **곧바로 정본에 남기고** 계약을 다시 읽는다.
-
-        옛 구현은 이 값을 :meth:`_remember` 안에서만 썼는데 그건 [feature 생성]·[clustering] 이
-        불렀다. 그래서 경로만 고르고 창을 닫으면 다음에 열 때 씨앗값으로 되돌아갔다 — 사용자가 고른
-        것이 사라진 자리다. 고르는 것 자체가 결정이므로 누르는 것과 묶지 않는다.
-        """
-        self._remember_config()
+        """config 경로가 확정됐다 — 계약을 다시 읽는다. **쓰지 않는다**(저장은 [clustering] 뿐)."""
         self._sync_contract()
 
-    def _remember_config(self) -> None:
-        """config 경로만 정본에 쓴다 (레시피는 안 건드린다 — 목록이 아직 안 섰을 수 있다).
-
-        **인라인이다** — 파일 codec 에 경로 문자열을 주면 "그 파일을 들여오라"로 읽혀 config 내용이
-        통째로 복사된다(``File_Codec.Save`` 는 raw Path 를 복사한다).
-        """
+    def _saved_recipe(self, bucket: Cluster_Bucket | None = None) -> dict:
+        """산출물(``.analysis/``)이 든 설정. ``bucket`` 을 안 주면 params 만 열어 읽는다(밀리초)."""
         _pipe = self._get_pipeline() if self._get_pipeline else None
-        _cfg = self._panel.config_path()
-        if _pipe is not None and _cfg:
-            _pipe.meta.Put_param(_CFG_PARAM, {"to": TO_META}, _cfg)
-
-    def _remember(self) -> None:
-        """지금 설정을 남긴다 — config 경로도 레시피도 **정본**에."""
-        _pipe = self._get_pipeline() if self._get_pipeline else None
-        _t = self._target()
-        if _pipe is None or _t is None:
-            return
-        _root, _cfg = _t
-        self._remember_config()
-        _recipe = self._panel.recipe()
-        if not self._panel.domain_count():
-            # 계약이 없어 표가 **비어 있는 것**이지 사용자가 값을 지운 게 아니다. 이 상태로 덮으면
-            # `[feature 삭제]` → `[feature 생성]` 사이에서 도메인별 k 가 조용히 증발한다.
-            _recipe["thresholds"] = dict(self._saved_recipe().get("thresholds") or {})
-        _pipe.meta.Put_param(_RECIPE_PARAM, _RECIPE_SPEC, _recipe)
-
-    def _saved_recipe(self) -> dict:
-        """정본에 남긴 레시피 (없으면 빈 dict)."""
-        _pipe = self._get_pipeline() if self._get_pipeline else None
-        return dict((_pipe.meta.Param(_RECIPE_PARAM) or {}) if _pipe is not None else {})
+        if bucket is not None:
+            return bucket.Recipe()
+        if _pipe is None or not Path(Cluster_Bucket.Root(_pipe.meta.root)).exists():
+            return {}
+        try:
+            return Cluster_Bucket.Open(_pipe.meta.root, params_only=True).Recipe()
+        except Exception:                            # 산출물이 낡았거나 깨졌다 — 창은 뜬다
+            return {}
 
     def _sync_contract(self) -> None:
         """계약(``contract`` params)을 읽어 **고를 수 있는 도메인**을 좌측에 채운다.
@@ -224,17 +216,19 @@ class Analysis_dialog(Pop_dialog):
         추측하지 않는다(그 목록의 진실은 추출기 계약뿐이다).
         """
         _pipe = self._get_pipeline() if self._get_pipeline else None
-        # 레시피는 **산출물과 무관하게** 먼저 얹는다 — 산출물을 지운 뒤에도 설정은 남아 있어야 한다.
-        self._panel.load_recipe(self._saved_recipe())
         if _pipe is None:
+            self._panel.load_recipe(self._saved_recipe())
             self._panel.set_domains({})
             return
         try:
             _bucket = self._open(_pipe.meta.root, params_only=True)
         except Exception as _e:                      # config 가 깨졌다 — 창은 뜨되 이유를 적는다
+            self._panel.load_recipe(self._saved_recipe())
             self._panel.set_domains({})
             self._panel.set_status(f"config 를 못 읽는다 — {_e}")
             return
+        self._refresh_gauges(_bucket)                # 계약을 config 와 맞추는 **유일한 자리**
+        self._panel.load_recipe(self._saved_recipe(_bucket))
         self._panel.set_domains(_bucket.Kinds(), _bucket.Gauges(), _bucket.Declared())
         if _bucket.Index():                          # 저장분이 있으면 **바로 건다**
             self._opened = _bucket
@@ -265,29 +259,36 @@ class Analysis_dialog(Pop_dialog):
         ``params_only`` 는 계약·index 만 물을 때다. 전체 복원은 6만 사이드카라 실측 4.0 s 이고 그게
         GUI 스레드에서 돌면 창이 언다 — params 만이면 밀리초다. **전체를 여는 경로는 전부 워커 안**이다.
 
-        여는 김에 **잣대를 config 와 맞춘다** — 여기가 유일한 여는 자리라 한 번만 걸면 된다.
+        **계약은 안 건드린다.** 잣대를 config 와 맞추는 일은 :meth:`_sync_contract` 만 한다 —
+        여기 붙여 두면 class 이동·적용·전파처럼 계약과 무관한 걸음까지 config 를 다시 읽어 덮는다.
         """
-        _b = Cluster_Bucket.Open(root, params_only=params_only)
-        self._refresh_gauges(_b)
-        return _b
+        return Cluster_Bucket.Open(root, params_only=params_only)
 
-    def _refresh_gauges(self, bucket: Cluster_Bucket) -> None:
-        """config 의 잣대를 계약에 **재추출 없이** 반영한다.
+    def _refresh_gauges(self, bucket: Cluster_Bucket) -> None:   # noqa: D401  (_sync_contract 전용)
+        """config 의 잣대를 계약에 **다시 모으지 않고** 반영한다.
 
-        잣대를 계약의 features 와 같이 ``[feature 생성]`` 만 쓰게 두면, config 에 축을 더해도 6만
-        표본을 다시 뽑기 전엔 화면에 안 뜬다 — 접는 식만 바뀌었는데 추출을 다시 도는 건 갈라 둔 이유를
-        무너뜨린다. 계약이 아직 없으면(추출 전) 손대지 않는다 — 그건 ①이 통째로 쓴다.
+        잣대를 계약의 features 와 같이 ``[적재]`` 만 쓰게 두면, config 에 축을 더해도 6만 표본을 다시
+        모으기 전엔 화면에 안 뜬다 — 접는 식만 바뀌었는데 적재를 다시 도는 건 갈라 둔 이유를 무너뜨린다.
+        계약이 아직 없으면(적재 전) 손대지 않는다 — 그건 ①이 통째로 쓴다.
 
-        추출기를 짓지만 마스크는 안 태운다(실측 24 ms — 8×8 탐침만 돈다).
+        **마스크도 config 의 모듈도 안 태운다** — 계약이 드는 것은 정본이 이미 든 배열의 모양과
+        config 의 잣대뿐이다.
         """
         _cfg = self._panel.config_path()
-        if not _cfg or not bucket.Contract():
+        _contract = bucket.Contract()
+        if not _cfg or not _contract:
             return
-        bucket.Set_gauges(_gauges_of(Mask_Geometry(_cfg).Spec()))
+        _feat, _shape = _feature_of(_contract)
+        if _feat:
+            bucket.Set_gauges(_gauges_of(Contract(_cfg, _feat, _shape)))
 
-    # ── ① feature 생성 ──────────────────────────────────────────────────────────
+    # ── ① 적재 ─────────────────────────────────────────────────────────────────
     def _on_inject(self) -> None:
-        """정본을 훑어 **바뀐 표본만** 특징화해 저장한다 (가장 비싸다)."""
+        """정본을 훑어 목록을 세우고 표본 벡터를 **묶음별로 모은다**.
+
+        값을 만드는 것은 flow 다(``radial_profile``) — 여기는 그것을 읽어 묶는다. 정본에 그 배열이
+        없으면(flow 를 안 돌렸으면) 대상이 0 건으로 나온다.
+        """
         _t = self._target()
         if _t is None:
             return
@@ -295,33 +296,35 @@ class Analysis_dialog(Pop_dialog):
         _spec = self._panel.source_spec()
 
         def _task(_progress) -> None:
+            _store = Dataset_Meta.Restore(_root)
+            _shape = _profile_shape(_store, _spec.leaf)
+            if _shape is None:
+                raise RuntimeError(
+                    f"정본에 '{_spec.leaf}' 배열이 없다 — flow(radial_profile)를 먼저 돌린다")
             _bucket = self._open(_root)
-            _ex = Mask_Geometry(_cfg)
-            _c = _ex.Spec()
+            _c = Contract(_cfg, _spec.leaf, _shape)
             _bucket.Set_contract({
-                "extractor": type(_ex).__name__,
-                "inputs": {_p: _spec.Leaf_of(_p) for _p in _c.inputs},
+                "source": "canonical",
+                "inputs": {_spec.leaf: _spec.leaf},
                 "unit": _spec.unit,
-                # 두 목록을 **갈라서** 남긴다 — 디스크에 있는 것(features)과 그것을 접어 재는
-                # 것(gauges). 잣대만 바뀌면 재추출 없이 다시 접기만 하면 된다.
+                # 두 목록을 **갈라서** 남긴다 — 정본에 있는 것(features)과 그것을 접어 재는
+                # 것(gauges). 잣대만 바뀌면 다시 모으지 않고 접기만 하면 된다.
                 "features": {_f: {"shape": list(_o.shape)} for _f, _o in _c.features.items()},
                 "gauges": _gauges_of(_c)})
-            self._injected = inject(Dataset_Meta.Restore(_root), _bucket, _ex, _spec,
-                                    progress=_progress)
+            self._injected = inject(_store, _bucket, _spec, _c, progress=_progress)
             self._opened = _bucket
 
-        self._remember()
         self._injected = None
-        self._run(_task, "feature 생성", self._on_inject_done)
+        self._run(_task, "적재", self._on_inject_done)
 
     def _on_inject_done(self, ok: bool, info: str) -> None:
-        if not self._finish(ok, info, "feature 생성"):
+        if not self._finish(ok, info, "적재"):
             return
         self._sync_contract()                    # ①이 계약을 남겼다 — 묶기 도메인 목록이 여기서 뜬다
-        # 대상 수만 적으면 두 번째 실행도 같은 숫자라 증분이 걸렸는지 알 수 없다 — 재추출 수를 함께.
-        _parts = " · ".join(f"{_c} {_v['total']}건(재추출 {_v['extracted']})"
+        # 대상 수만 적으면 두 번째 실행도 같은 숫자라 증분이 걸렸는지 알 수 없다 — 새로 모은 수를 함께.
+        _parts = " · ".join(f"{_c} {_v['total']}건(새로 모음 {_v['collected']})"
                             for _c, _v in sorted((self._injected or {}).items()))
-        self._panel.set_status(f"feature 생성 완료 — {_parts}.  이어서 [clustering]")
+        self._panel.set_status(f"적재 완료 — {_parts}.  이어서 [clustering]")
 
     # ── ②③ clustering (묶고 그대로 판정) ────────────────────────────────────────
     def _on_cluster(self) -> None:
@@ -337,18 +340,26 @@ class Analysis_dialog(Pop_dialog):
             self._panel.set_status("분석할 도메인을 하나 이상 켜야 한다 — 좌측 도메인 탭에서 체크한다")
             return
 
+        _recipe = {**self._panel.recipe(), "config": _cfg}
+
         def _task(_progress) -> None:
             _bucket = self._open(_root)
+            _bucket.Set_recipe(_recipe)          # 이 산출물을 만든 설정 — 폴더가 스스로 든다
             # 잣대는 config 가 늘릴 수 있지만 그 재료(feature)는 추출만이 만든다 — 없는 재료를 가리키는
             # 축은 **조용히 빠지면 안 된다**(체크해 둔 축이 결과에서 사라져도 화면은 성공이라 말한다).
             _have = set(_bucket.Contract().get("features") or {})
             _gone = sorted(_d for _d in _use if (_g := _bucket.Gauges().get(_d)) and _g[0] not in _have)
             if _gone:
-                raise KeyError(f"{', '.join(_gone)} 의 feature 가 저장돼 있지 않다 — [feature 생성] 을 다시 돈다")
-            build(_bucket, _params, domains=_use, progress=_progress)
+                raise KeyError(f"{', '.join(_gone)} 의 feature 가 적재돼 있지 않다 — [적재] 를 다시 돈다")
+            _done = build(_bucket, _params, domains=_use, progress=_progress)
+            # 배정이 섰으니 캐시를 **type 축으로** 다시 편성한다 — 템플릿·재군집이 그 단위로 돌고,
+            # class 축으로는 type 하나를 읽는 데 여러 파일을 다 열어야 한다. 축은 하나만 고른다
+            # (여럿이면 같은 표본이 축마다 복제된다) — 사람이 켠 것 중 첫째.
+            _axis = next((_d for _d in _use if _d in _done), "")
+            if _axis:
+                regroup(_bucket, _axis, progress=_progress)
             self._opened = _bucket
 
-        self._remember()
         self._run(_task, "clustering", self._on_cluster_done)
 
     def _on_cluster_done(self, ok: bool, info: str) -> None:
@@ -387,7 +398,6 @@ class Analysis_dialog(Pop_dialog):
                                          progress=_progress)
             self._opened = _bucket
 
-        self._remember()
         self._run(_task, "메움 전파", self._on_propagate_done)
 
     def _on_propagate_done(self, ok: bool, info: str) -> None:
@@ -459,11 +469,48 @@ class Analysis_dialog(Pop_dialog):
         if addresses:
             self._stage(addresses, str(UNCLASSIFIED_ID))
 
+    def _on_stage(self, addresses: list) -> None:
+        """고른 표본이 든 **프레임**을 STAGED 로 보낸다 — 정본 전이라 확인을 받는다.
+
+        전이 단위가 프레임이라 같은 프레임의 다른 객체도 함께 간다. 그 수를 세어 보이고 누르게 한다 —
+        분석 화면은 객체 단위라 이 차이가 안 보이면 의도보다 많이 옮겨진다.
+
+        **대기에 안 쌓는다.** 대기는 class 이동(값 편집)의 자리고, 이건 검수 상태 전이라 성격이 다르다.
+        """
+        _pipe = self._get_pipeline() if self._get_pipeline else None
+        if _pipe is None or not addresses or self._thread is not None:
+            return
+        _stems = sorted({str(_a[0]) for _a in addresses})
+        _all = sum(len(_it.Branches()) for _s in _stems
+                   if (_it := _pipe.meta.Find(_s)) is not None)
+        if QMessageBox.question(
+                self, "STAGED 로",
+                f"고른 표본 {len(addresses):,} 건이 든 **프레임 {len(_stems):,} 개**를 "
+                f"STAGED 로 보낸다.\n\n"
+                f"전이 단위가 프레임이라 그 안의 객체 **{_all:,} 개가 함께** 간다"
+                f"{f' (고른 것 외 {_all - len(addresses):,} 개 포함)' if _all > len(addresses) else ''}.\n"
+                f"되돌리려면 메인 창에서 다시 전이해야 한다.\n\n보낼까?") != QMessageBox.Yes:
+            return
+
+        def _task(_progress) -> None:
+            for _i, _s in enumerate(_stems, 1):
+                _pipe.meta.Move(_s, STAGED)
+                _progress("STAGED 로", _i, len(_stems))
+
+        self._run(_task, "전이", self._on_stage_done)
+
+    def _on_stage_done(self, ok: bool, info: str) -> None:
+        if not self._finish(ok, info, "전이"):
+            return
+        self.meta_changed.emit()                 # 정본이 바뀌었다 — 메인 창 목록을 다시 그린다
+        self._panel.set_status(
+            "STAGED 로 보냈다.  산출물의 상태는 다음 [적재] 때 따라온다 "
+            "(`index.state` 는 적재가 쓴다)")
+
     def _on_views(self) -> None:
         """도메인 켬/끔·보기 변경 — **재군집 없이** 그림만 다시 그리고 정본에 남긴다."""
         self._view.set_domains(self._panel.enabled_domains())
         self._view.set_views(self._panel.view_modes())
-        self._remember()
 
     def _on_threshold(self, class_id: str, value: float) -> None:
         """결과 화면에서 온 **도메인별 반경** 지정 — 설정에만 올리고 **재군집은 [clustering] 이** 한다.
@@ -472,7 +519,6 @@ class Analysis_dialog(Pop_dialog):
         """
         _n = self._panel.set_threshold(class_id, value)
         _what = ("공통값으로 되돌림" if value < 0 else f"{value:.3f}σ 로 지정")
-        self._remember()                         # 정본에 남긴다 — 창을 닫아도 유지된다
         self._panel.set_status(
             f"{class_id} → {_what} (도메인별 지정 {_n}개).  "
             f"[clustering] 이 **그 도메인만** 다시 가른다")
@@ -532,15 +578,17 @@ class Analysis_dialog(Pop_dialog):
             return
         _root, _cfg = _t
 
+        _spec = self._panel.source_spec()
+
         def _task(_progress) -> None:
             _missed = _write_classes(_pipe.meta, _items, _progress)
             if _missed:
                 raise KeyError(f"정본에 없거나 객체가 없는 주소 {_missed}건 — 적용이 불완전하다")
-            # bucket 은 **index 한 줄**만 고친다 — 파일도 재추출도 **재군집도** 없다. class 는 obj 에
-            # 붙은 값이라 배정에 안 들어가고, 바뀌는 것은 저장하지 않는 집계뿐이다.
+            # 산출물은 **옮긴 class 만** 다시 모은다 — 정본 전수 순회 없이 두 묶음뿐이다.
+            # `index.class` 와 캐시 묶음이 한 걸음에서 함께 고쳐진다(주소가 곧 class 라 갈라지면
+            # 그 행을 못 찾는다). 군집 결과·정규화 상수는 안 건드린다.
             _bucket = self._open(_root)
-            for _cid in {_c for _, _c in _items}:
-                _bucket.Set_class([_a for _a, _c in _items if _c == _cid], _cid)
+            self._reclassed = reclass(_pipe.meta, _bucket, _spec, _items, _progress)
             self._opened = _bucket
 
         self._run(_task, "적용", self._on_apply_done)
@@ -557,7 +605,11 @@ class Analysis_dialog(Pop_dialog):
             self._panel.set_status(f"적용 {_n}건 — 볼 산출물이 없다")
             return
         self._show()
-        self._panel.set_status(f"적용 {_n}건 완료 — 배정은 그대로다 (class 는 값이라 안 가른다)")
+        _re = getattr(self, "_reclassed", {}) or {}
+        self._panel.set_status(
+            f"적용 {_n}건 완료 — 정본에 쓰고 옮긴 묶음 {len(_re)}개만 다시 모았다"
+            f"{' (' + ' · '.join(f'{_c} {_v:,}' for _c, _v in sorted(_re.items())) + ')' if _re else ''}."
+            f"  배정은 그대로다 (class 는 값이라 안 가른다)")
 
     # ── feature 삭제 ────────────────────────────────────────────────────────────
     def _on_drop(self) -> None:

@@ -49,7 +49,7 @@ class Tasker_profile_dialog(Pop_dialog):
         _save.setToolTip("현재 설정을 tasker 레시피(yaml)로 저장 (재현용 config)")
         _save.clicked.connect(self._on_save)
         _load = QPushButton("불러오기")
-        _load.setToolTip("tasker 레시피(yaml)를 폼에 싣는다 (config/sampler/*.yaml 등)")
+        _load.setToolTip("tasker 레시피(yaml)를 폼에 싣는다")
         _load.clicked.connect(self._on_load)
         self._bottom_bar(left=[_save, _load], on_reject=self.accept)
 

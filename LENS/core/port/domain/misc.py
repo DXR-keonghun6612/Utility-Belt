@@ -28,6 +28,24 @@ class Array_Domain(Domain):
         return 3 if (params and isinstance(value, np.ndarray) and value.ndim) else 0
 
 
+@DOMAIN_REGISTRY.Register_module("arrays")
+class Arrays_Domain(Domain):
+    """**이름 붙은 배열 묶음** — npz 파일. 함께 갈리고 함께 쓰이는 배열들이 한 파일이어야 할 때.
+
+    배열 하나는 ``array``(npy)가 든다. 여기는 ``{이름: 배열}`` 이라 되읽을 때 key 가 보존된다 —
+    쪼개면 파일이 이름 수만큼 늘고, 합치면 한 번에 실려 온다.
+    """
+
+    FORMATS:   ClassVar[tuple[str, ...]] = ("npz",)
+    INFERABLE: ClassVar[bool]            = True
+
+    @classmethod
+    def Claims(cls, value: Any, *, storage: bool, params: bool) -> int:
+        """배열 값을 가진 dict — ``docs``(중첩 구조)보다 세게 집는다(그쪽은 JSON 이라 배열이 안 실린다)."""
+        return 4 if (isinstance(value, dict) and value
+                     and all(isinstance(_v, np.ndarray) for _v in value.values())) else 0
+
+
 @DOMAIN_REGISTRY.Register_module("docs")
 class Docs_Domain(Domain):
     """중첩 구조(dict/list) — yaml/json 파일. ``id_map`` 등."""

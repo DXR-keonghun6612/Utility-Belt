@@ -32,7 +32,7 @@ class Coco_exporter(Frame_exporter):
         self._require_meta()
         self._require_frame_samples()
         _out = Path(dest)
-        _ids = self._resolve_id_map(self._classes())
+        _table = self._resolve_classes(self._classes())
 
         for _split in self.source.CATEGORIES:
             _images: list[dict] = []
@@ -44,23 +44,22 @@ class Coco_exporter(Frame_exporter):
                     _entry["height"], _entry["width"] = _rec.size_hw
                 _images.append(_entry)
                 for _inst in _rec.instances:
-                    _anns.append(self._annotation(_inst, _iid, len(_anns) + 1, _ids))
+                    _anns.append(self._annotation(_inst, _iid, len(_anns) + 1))
             Write_to(_out / _split / f"instances_{_split}.json", {
                 "images":      _images,
                 "annotations": _anns,
-                "categories":  [{"id": _i, "name": _n} for _n, _i in _ids.items()],
+                "categories":  [{"id": _e["class_id"], "name": _n} for _n, _e in _table.items()],
             })
-        Write_to(_out / "id_map.yaml", self._id_map_document(_ids))
+        Write_to(_out / "id_map.yaml", self._id_map_document(_table))
 
     # ── annotation 조립 ─────────────────────────────────────────────────────────
-    def _annotation(self, inst: Instance, image_id: int, ann_id: int,
-                    ids: dict[str, int]) -> dict:
+    def _annotation(self, inst: Instance, image_id: int, ann_id: int) -> dict:
         """한 인스턴스 → COCO annotation. mask 가 있으면 ``segmentation`` 필드까지 (segmentation task)."""
         _bbox = self._coco_bbox(inst.bbox)
         _ann = {
             "id":          ann_id,
             "image_id":    image_id,
-            "category_id": ids.get(inst.class_id, 0),      # class-agnostic 이면 0
+            "category_id": inst.class_id or 0,             # 저장된 번호가 곧 COCO category (미분류=0)
             "bbox":        _bbox,
             "area":        self._area(inst.mask, _bbox),
             "iscrowd":     0,

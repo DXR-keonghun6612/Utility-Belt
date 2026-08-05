@@ -38,6 +38,8 @@ from PySide6.QtWidgets import (
 from gui.meta_page.view._data_view import Data_view
 from gui.meta_page.view._node_panel import Node_panel
 from gui.meta_page.view._node_tree import Node
+from core.process.stream.mask import profile
+from gui.meta_page.view._normalize import Fit_profile, Normalize
 from gui.meta_page.view._params_panel import Params_panel
 from gui.meta_page.view._stem_list import Stem_list
 from gui.widgets import Collapsible
@@ -50,11 +52,13 @@ class Meta_view(QWidget):
         meta_changed: 내용이 편집돼 영속됐을 때 emit (상위 알림용).
         transition_requested: 대량 stem 전이 요청 ``(to_state, [stem…])`` — 상위가 백그라운드로 실행.
         remove_requested: 대량 stem 삭제 요청 ``[stem…]`` — 상위가 백그라운드로 실행.
+        class_edit_requested: id_map 표 편집 요청 ``(Id_map, remap)`` — 상위가 백그라운드로 실행.
     """
 
     meta_changed         = Signal()
     transition_requested = Signal(str, list)
     remove_requested     = Signal(list)
+    class_edit_requested = Signal(object, object)
 
     def __init__(self, pipeline=None, parent=None) -> None:
         super().__init__(parent)
@@ -72,7 +76,13 @@ class Meta_view(QWidget):
 
         _top = QHBoxLayout()
         self._save_btn = QPushButton("저장")
-        self._save_btn.setToolTip("이 stem 의 편집을 저장하고 객체를 재정렬한다 (obj_id 구멍 압축)  [Ctrl+S]")
+        self._save_btn.setToolTip(
+            "이 stem 의 편집을 저장한다. 저장 직전에 **mask 에서 파생되는 것들을 다시 맞춘다** —\n"
+            "  ① bbox 를 mask 외접 상자로 (mask 가 truth 고 상자는 그 요약이다)\n"
+            "  ② center_offset · pose (자리 + 주축각) 를 무게중심에서 다시 계산\n"
+            "  ③ 이미지 중심에서 가까운 순으로 객체 재정렬 (obj_id 재부여)\n"
+            "  ④ 형상 배열(radial_rle) 을 다시 뜬다 — 행이 곧 obj_id 라 ③ 뒤여야 한다\n"
+            "편집 중엔 안 한다 — 붓질마다 상자가 움직이면 잡고 있을 수 없다  [Ctrl+S]")
         self._save_btn.setEnabled(False)
         self._save_btn.clicked.connect(self._on_save)
         _top.addWidget(self._save_btn)
@@ -92,11 +102,14 @@ class Meta_view(QWidget):
         self._stem_list.delete_requested.connect(self.remove_requested)
 
         # 가운데 = params(dataset-wide) · 데이터(leaf) · 객체(objects). 같은 렌더러, 다른 scope.
-        self._params = Params_panel(self._meta, get_size=lambda: self._data.canvas_size())
+        self._params = Params_panel(self._meta, get_size=lambda: self._data.canvas_size(),
+                                    get_stats=self._class_stats)
         self._params.tree.selected.connect(self._on_params_select)   # 선택 = 읽기전용 미리보기 (전역이라)
         self._params.tree.layers_changed.connect(self._redraw)
         self._params.edit_requested.connect(self._on_params_edit)    # [수정] = 조준·편집
         self._params.changed.connect(self._on_params_changed)
+        # id_map 편집은 전 stem 의 라벨을 다시 쓴다 — 진행바·잠금을 든 상위(Meta_ops)로 그대로 올린다.
+        self._params.class_edit_requested.connect(self.class_edit_requested)
 
         self._leaf_panel = Node_panel("leaves", self._meta, lambda: self._key)
         self._leaf_tree = self._leaf_panel.tree
@@ -144,7 +157,7 @@ class Meta_view(QWidget):
 
         * ``0``–``9``  : 그 순번 객체 선택 (라벨링 중 손이 트리로 안 가게)
         * ``A``        : 객체 추가 · ``Delete`` : 선택 노드 삭제 · ``M`` : 고른 객체 병합
-        * ``Ctrl+S``   : 저장 (+ 객체 재정렬) · ``Ctrl+R`` : 저장 안 한 편집 버리고 다시 읽기
+        * ``Ctrl+S``   : 저장 (+ bbox·center 맞춤 · 객체 재정렬) · ``Ctrl+R`` : 편집 버리고 다시 읽기
         """
         def _bind(seq: str, slot) -> None:
             _sc = QShortcut(QKeySequence(seq), self)
@@ -210,8 +223,25 @@ class Meta_view(QWidget):
             self.clear()
             return
         self._reset_dirty()                             # 디스크 상태로 다시 그리므로 대기 편집은 없다
+        self._data.set_class_names(self._class_names())  # 저장은 번호, 상자 라벨은 이름 (id_map 은 여기서 바뀔 수 있다)
         self._params.load(_meta)                        # dataset-wide — stem 과 무관하게 유지
         self._stem_list.load(_meta, keep=keep if keep is not None else self._key)
+
+    def focus_stem(self, stem: str, obj: int | None = None) -> bool:
+        """밖(분석 창 등)에서 지목한 표본으로 본문을 옮긴다 — 목록 선택 + 그 객체 조준. 찾으면 True.
+
+        ``refresh`` 를 안 쓴다 — 그건 6.5만 줄을 다시 세우는 일이고 여기서 바뀌는 건 **어디를 보고
+        있나** 뿐이다. 목록이 선택을 옮기면 ``selected`` 가 흘러 나머지(트리·캔버스)가 따라온다.
+
+        Args:
+            stem: 볼 stem.
+            obj:  그 stem 안에서 조준할 객체 id (없으면 stem 만).
+        """
+        if not self._stem_list.focus(stem):
+            return False
+        if obj is not None:
+            self._obj_tree.select_name(str(obj))     # 이름 = obj_id (순번이 아니라 키로 찾는다)
+        return True
 
     def clear(self) -> None:
         """본문을 비운다."""
@@ -227,9 +257,39 @@ class Meta_view(QWidget):
     def _meta(self):
         return self._pipeline.meta if self._pipeline is not None else None
 
-    def _classes(self) -> list[str]:
-        """class 후보 (정본 id_map) — **어느 노드에 줄지는 여기가 정한다**(뷰어는 도메인을 모른다)."""
-        return sorted(self._pipeline.Id_map()) if self._pipeline is not None else []
+    def _classes(self) -> dict[str, str]:
+        """class 후보 ``{이름: class_id}`` (정본 id_map) — **어느 노드에 줄지는 여기가 정한다**.
+
+        저장되는 건 번호고 이름은 표시일 뿐이다(뷰어는 그 사실도 모른다 — 사전을 받아 키를 보여주고
+        값을 돌려줄 뿐).
+        """
+        return self._pipeline.Class_choices() if self._pipeline is not None else {}
+
+    def _class_stats(self) -> tuple | None:
+        """id_map 편집기가 볼 ``((표본 수, 겹침), 제안들)`` — 분석 산출물이 없으면 None.
+
+        **여기가 이걸 아는 이유**는 정본 root 를 아는 유일한 자리라서다(산출물은 그 아래 ``.analysis``).
+        재배정이 끝난 뒤 "무엇을 합치나" 의 근거가 그쪽에 있는데, params 패널은 그 자리를 모른다.
+
+        index 가 수십 MB 라 열 때 잠깐 걸린다 — 사람이 편집기를 여는 순간에만 한 번 돈다.
+        """
+        if self._pipeline is None:
+            return None
+        from pathlib import Path
+
+        from core.analysis import Cluster_Bucket, class_usage, cleanup_hints
+        if not Path(Cluster_Bucket.Root(self._pipeline.root)).exists():
+            return None
+        try:
+            _b = Cluster_Bucket.Open(self._pipeline.root, params_only=True)
+            _usage = class_usage(_b)
+            return _usage, cleanup_hints(_b, usage=_usage)
+        except Exception:                     # 산출물이 낡았거나 깨졌다 — 편집 자체를 막지는 않는다
+            return None
+
+    def _class_names(self) -> dict[str, str]:
+        """표시용 역인덱스 ``{class_id: 이름}`` — 캔버스 상자 라벨이 번호를 이름으로 되돌릴 때."""
+        return self._pipeline.Class_names() if self._pipeline is not None else {}
 
     def _on_stem(self, key: str) -> None:
         """목록 선택 → 그 stem 의 서브트리를 데이터·객체 트리에 펼치고 캔버스를 다시 그린다.
@@ -283,7 +343,10 @@ class Meta_view(QWidget):
         `roi` 같은 dataset-wide 이미지는 어느 stem 위에든 겹쳐 보는 게 자연스럽다. params 를 먼저
         쌓아 stem 의 것이 그 위에 오게 한다. 객체(bbox)는 raster 가 아니라 attr 이라 객체 트리가 준다.
         """
-        self._data.set_objects(self._obj_tree.top_nodes())
+        # 객체 mask 는 layer 로 안 온다 — 한 장의 라벨맵으로 합쳐 그리므로(색 = obj_id) **어느 객체를
+        # 넣을지**를 넘긴다. 객체 자체(bbox·조준)는 체크와 무관하게 전부 필요하다.
+        self._data.set_objects(self._obj_tree.top_nodes(),
+                               visible={_n.path[-1] for _n in self._obj_tree.checked_layers()})
         self._data.show_layers(self._params.tree.checked_layers()
                                + self._leaf_tree.checked_layers())
 
@@ -323,18 +386,58 @@ class Meta_view(QWidget):
 
     # ── 명시적 저장 (auto-save 대신) — 저장 = flush (사이드카 write) ─────────────────
     def _on_save(self) -> None:
-        """이 stem 의 편집을 flush 한다 (대기 라스터 Route + 사이드카 Save).
+        """이 stem 의 편집을 정돈해서 flush 한다.
 
-        객체 재정렬·유령 제거는 여기서 안 한다 — obj_id 는 라벨맵 픽셀값이 아니라 트리 key 라 연속일
-        필요가 없고(구멍 압축 불필요), mask 무게중심 정렬은 ``order_objects`` process(flow)의 몫이다.
-        저장은 편집을 디스크에 영속할 뿐이다.
+        **정돈이 먼저다** — mask 를 고쳤으면 거기서 파생되는 것들(bbox·center·순서)이 낡았고, 낡은 채로
+        디스크에 앉으면 다음에 여는 사람은 그게 낡았다는 걸 알 길이 없다. 무엇을 어떤 순서로 맞추는지는
+        [`_normalize`](_normalize.py) 가 소유한다.
+
+        정돈을 **저장에 붙인 이유**는 편집 중에는 못 하기 때문이다. 붓질마다 bbox 가 따라 움직이면
+        상자를 잡고 있을 수 없고, 순서가 바뀌면 트리에서 겨누던 줄이 튄다.
         """
         if self._pipeline is None or not self._editable or not self._dirty:
             return
         _key = self._key
+        self._normalize()                               # bbox·center 맞추고 obj_id 재부여
         self._flush()                                   # 대기 라스터 Route + 사이드카 Save
         self._show_stem(_key)                           # 현재 stem 만 다시 그린다 (65k 목록 재구축 없음)
         self.meta_changed.emit()
+
+    def _normalize(self) -> None:
+        """저장 전 파생값 정돈 — ``bbox`` ← mask · ``center_offset``·``pose`` · 정렬 · 형상 배열.
+
+        ``Reorder`` 는 **정수 key 를 다시 매기므로** 트리의 obj_id 가 0부터 새로 붙는다. 그래서 이걸
+        돌린 뒤 노드를 다시 읽어야 하는데, 어차피 :meth:`_on_save` 가 ``_show_stem`` 으로 다시 세운다.
+
+        ``Reorder`` 가 거절하는 경우(파일 payload 를 든 객체 — 이름이 곧 경로라 번호를 못 바꾼다)는
+        **정렬만 접고 나머지는 살린다**. bbox·pose 는 이미 맞았고 그 둘이 저장의 본론이다.
+
+        **형상 배열(``radial_rle``)은 맨 끝이다** — 행이 곧 obj_id 라 번호가 확정된 뒤라야 행과 객체가
+        맞는다. 그래서 정렬이 접힌 경우에도(번호는 그대로니) 뜨고, 트리 노드가 아니라 store 에서 다시
+        읽어 뜬다(재부여 후의 진실).
+        """
+        _meta = self._meta()
+        if _meta is None or not self._key:
+            return
+        _objs = self._obj_tree.top_nodes()
+        if not _objs:
+            return
+        _spec = _meta.Param(profile.SPEC_PARAM) or None
+        _order = Normalize(_objs, self._data.canvas_size(), _spec)
+        _path = _meta.Item_path(self._key)
+        if _path is None:
+            return
+        if _order:
+            try:
+                _meta.Reorder(tuple(_path), _order)
+            except (KeyError, ValueError) as _e:  # 순서로 표현 못 하는 요청 — 조용히 넘기지 않는다
+                QMessageBox.warning(self, "객체 정렬",
+                                    f"bbox·pose 는 맞췄지만 정렬은 건너뜁니다.\n{_e}")
+        try:
+            Fit_profile(_meta, self._key)
+        except Exception as _e:                   # 형상은 파생값 — 못 떠도 편집 저장은 살린다
+            QMessageBox.warning(self, "형상 배열",
+                                f"나머지는 저장했지만 radial_rle 은 못 떴습니다.\n{_e}")
 
     def _on_revert(self) -> None:
         """저장 안 한 편집을 **버리고 디스크에서 다시 읽는다** — 편집의 취소는 되돌리기가 아니다.

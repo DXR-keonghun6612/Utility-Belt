@@ -43,13 +43,27 @@ def _unwrap(ann) -> tuple[Any, dict]:
     return ann, {}
 
 
+def _hints_of(cls: type) -> dict:
+    """파라미터 이름 → 해소된 타입. **두 출처를 합친다** — 클래스가 이기고, 빈 자리를 ``__init__`` 이 채운다.
+
+    한쪽만 보면 절반이 샌다: dataclass 는 필드가 **클래스** 어노테이션이라 생성된 ``__init__`` 을 보면
+    ``Annotated`` 가 안 풀리고(NameError), 손으로 쓴 ``__init__`` 을 둔 일반 클래스(모델 빌더)는 클래스
+    어노테이션이 **비어 있어** ``{}`` 가 나온다 — 예외가 아니라 빈 dict 라 fallback 도 안 걸리고,
+    ``from __future__ import annotations`` 탓에 타입이 문자열(``"str"``)로 남아 폼이 렌더를 못 한다.
+    """
+    _hints: dict = {}
+    for _src in (cls.__init__, cls):                 # 뒤가 이긴다 (클래스 우선)
+        try:
+            _hints |= get_type_hints(_src, include_extras=True)
+        except Exception:                            # 한쪽이 안 풀려도 다른 쪽으로 간다
+            continue
+    return _hints
+
+
 def specs_from_callable(cls: type) -> list[_Spec]:
     """callable class 의 ``__init__`` 시그니처에서 ``_Spec`` 목록을 뽑는다 (식별/구조 필드 제외)."""
     _sig = inspect.signature(cls)
-    try:
-        _hints = get_type_hints(cls.__init__, include_extras=True)
-    except Exception:
-        _hints = {}
+    _hints = _hints_of(cls)
     _specs: list[_Spec] = []
     for _name, _p in _sig.parameters.items():
         if _name == "self" or _p.kind in (_p.VAR_KEYWORD, _p.VAR_POSITIONAL):

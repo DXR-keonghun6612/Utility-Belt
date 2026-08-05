@@ -14,6 +14,7 @@ dict 풀**(``Pipeline._RESOURCE_POOL``)로 공유한다(프로세스 수명, 인
 
 from __future__ import annotations
 
+import csv
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -21,7 +22,8 @@ from typing import Any, Callable, ClassVar
 
 from python_toolbox.project.config import Base_Config
 
-from .constant import MODIFIED
+from .constant import MODIFIED, TO_STORAGE, UNCLASSIFIED_ID
+from .format.id_map import Id_map
 from .process import Build_flow, Sample_stage
 from .store import SAMPLE_DIR, Dataset_Meta, Sample_Set
 from .tasker import Load_taskers, Save_taskers
@@ -72,13 +74,16 @@ class Pipeline:
     # 모델 인스턴스 풀 — 클래스 var(프로세스 수명, 인스턴스 공유). 같은 스펙은 세션당 1회만 빌드.
     _RESOURCE_POOL: ClassVar[dict[tuple, Any]] = {}
 
-    def __init__(self, cfg: Pipeline_config) -> None:
+    def __init__(self, cfg: Pipeline_config, *,
+                 progress: Callable[[int, int], None] | None = None) -> None:
+        """``progress`` 가 있으면 meta 복원(수만 사이드카 로드)이 ``(읽은 수, 전체)`` 로 진행을 알린다 —
+        GUI 가 이걸 백그라운드 워커의 진행바로 돌려 초 단위 로드에 UI 가 얼지 않게 한다."""
         self.root            = Path(cfg.dataset_root)
         self._converter_cfg  = cfg.converter
         self._flow_cfgs      = cfg.flows
         self._sample_cfg     = cfg.sample
         self._verify_cfg     = cfg.verify
-        self.meta            = Dataset_Meta.Restore(self.root)   # 정본 (Dataset_Meta)
+        self.meta            = Dataset_Meta.Restore(self.root, progress=progress)   # 정본 (Dataset_Meta)
         self._sample_root    = self.root / SAMPLE_DIR            # 파생 root ({root}/sample/{tasker})
 
     def Reload(self) -> None:
@@ -247,31 +252,137 @@ class Pipeline:
         return Run_export(
             self.Load_sample(name), Path(dest) / name,
             task=_task, format=format,         # format None → task 기본 레이아웃
-            meta=self.meta, id_map=self._meta_id_map())
+            meta=self.meta, id_map=self.Class_table() or None)
 
-    def Id_map(self) -> dict:
-        """정본 ``meta.params`` 의 id_map 을 원본 dict 로 돌려준다 (없으면 ``{}``).
+    def Split_export(self, dest: str | Path, ratios: dict[str, float], *,
+                     salt: str = "", stratified: bool = False, min_count: int = 0,
+                     task: str = "segmentation", format: str | None = "coco",
+                     progress: Callable[[str, int, int], None] | None = None) -> Path:
+        """검수 끝난(`staged`) 프레임을 비율대로 갈라 ``dest`` 아래 폴더별로 내보낸다.
+
+        배정 규칙과 조율은 [`split.py`](split.py) 가 소유한다 — 바인더가 여기서 하는 일은
+        :meth:`Export_tasker` 와 같다: **정본과 class 표를 붙여 넘기는 것**.
+
+        Args:
+            dest:       산출물 루트 (``{dest}/{몫}/…``).
+            ratios:     ``{몫 이름: 비율}`` — 이름이 곧 폴더 이름이다.
+            salt:       해시 salt (같은 데이터를 다르게 나누되 재현 가능하게).
+            stratified: class별 공평 배분.
+            min_count:  이만큼 안 나온 class 의 주석을 안 적는다 (0 = 끄기). id_map 은 그대로.
+            task:       ``detection`` / ``segmentation``.
+            format:     직렬화 레이아웃 (기본 ``coco``).
+            progress:   진행 콜백 ``(label, i, total)``.
+        """
+        from .split import Run_split
+        return Run_split(self.meta, dest, ratios, salt=salt, stratified=stratified,
+                         min_count=min_count, task=task, format=format,
+                         id_map=self.Class_table() or None, progress=progress)
+
+    def Class_map(self) -> Id_map:
+        """정본 ``meta.params`` 의 id_map 을 **표**(:class:`~core.format.id_map.Id_map`)로 (없으면 빈 표).
+
+        파일에 앉은 모양(호출번호 키 dict)과 다루는 모양(표)은 다르다 — 형식과 그 위의 편집은
+        [`format.id_map`](format/id_map.py) 이 소유하고, 여기는 **어디서 읽어 오나**만 안다. 아래 조회
+        셋(:meth:`Class_table`·:meth:`Class_choices`·:meth:`Class_names`)도 전부 이 표에서 나온다.
 
         params leaf 는 인라인(attr)일 수도 파일(doc yaml/json)일 수도 있는데, ``meta.Param`` 이 그걸
-        통합해 푼다 — 바인더는 포맷을 모른다. 값 구조(``{class:{class_id,category_id}}`` 등)는 그대로:
-        재배정 class 후보(키 = class 이름) 소스로 GUI 가 쓴다. index 로 평탄화한 건 ``_meta_id_map``.
+        통합해 푼다 — 바인더는 포맷을 모른다.
         """
         _val = self.meta.Param("id_map") if self.meta is not None else None
-        return _val if isinstance(_val, dict) else {}
+        return Id_map.Restore(_val if isinstance(_val, dict) else {})
 
-    def _meta_id_map(self) -> dict[str, int] | None:
-        """정본 id_map 을 flat ``{class:int}`` 로 (없으면 None → sink 가 class 정렬로 자동 생성).
+    def Apply_class_map(self, table: Id_map, remap: dict[int, int] | None = None,
+                        progress: Callable[[str, int, int], None] | None = None) -> int:
+        """편집한 class 표를 정본에 앉힌다 — **라벨 재배정이 먼저, 표 교체가 나중**. 바뀐 객체 수 반환.
 
-        정본이 class→index 매핑을 이미 갖고 있으면 산출물에 그대로 써 재빌드·재분할해도 index 가 안
-        흔들린다. 값이 ``{class:{class_id:int,…}}`` 중첩이면 ``class_id``(없으면 첫 정수)를 골라 평탄화한다.
+        표만 고치면 사라진 번호를 든 라벨이 표에 없는 class 를 가리키게 되므로 둘은 한 걸음이다. 그
+        **순서가 규약이다**: 재배정이 중간에 끊겨도 최악이 "표는 옛것, 라벨 일부는 새 번호"라 두 값 모두
+        표 안에 있다. 뒤집으면 표에서 사라진 번호를 든 라벨이 남는다.
+
+        바인더가 드는 이유도 그거다 — 표(params)와 라벨(item)이 store 의 서로 다른 자리에 살아서, 둘을
+        같은 순서로 묶는 건 조율이지 라이프사이클이 아니다.
+
+        Args:
+            table:    새 표 (호출 측이 ``Id_map`` 편집으로 만든 것).
+            remap:    그 편집이 낸 ``{옛 class_id: 새 class_id}``. 비면 라벨은 안 건드린다(추가만 한 경우).
+            progress: stem 순회 진행 콜백 ``(label, i, total)``.
         """
-        _flat: dict[str, int] = {}
-        for _cls, _v in self.Id_map().items():
-            if isinstance(_v, dict):
-                _v = _v.get("class_id", next(iter(_v.values()), None))
-            if isinstance(_v, (int, float)):
-                _flat[str(_cls)] = int(_v)
-        return _flat or None
+        _moved = self.meta.Remap_classes(remap, progress=progress) if remap else {}
+        _ref = self.meta.Params().get("id_map")
+        _fmt = _ref.format if _ref is not None and _ref.format else ("docs", "yaml")
+        self.meta.Put_param(
+            "id_map",
+            {"to": TO_STORAGE, "type": _fmt[0],
+             "format": _fmt[1] if len(_fmt) > 1 else "yaml"},
+            table.Document())
+        self._log_class_edit(remap or {}, _moved)
+        return sum(_moved.values())
+
+    def _log_class_edit(self, remap: dict[int, int], moved: dict[int, int]) -> None:
+        """번호 이동을 ``{root}/params/id_map_history.csv`` 에 덧붙인다 — ``from,to,ct`` 세 칸.
+
+        표 편집은 압축 때문에 하나를 지워도 **뒤의 번호가 전부 밀리므로**, 나중에 "이 라벨이 왜 이 번호가
+        됐나"를 되짚을 근거가 어딘가 남아야 한다. 정본에는 마지막 상태만 남고 과정이 안 남는다.
+
+        - ``from`` 옮겨간 번호 · ``to`` 도착한 번호(삭제는 0=미분류) · ``ct`` 실제로 바뀐 객체 수.
+        - 헤더는 **파일을 처음 만들 때 한 번만** 쓰고 이후는 행만 덧붙인다 (그래야 CSV 로 그냥 읽힌다).
+
+        **임시 기록이다** — 제대로 된 이력 기능이 생기면 이 자리가 통째로 그리로 옮겨간다.
+        """
+        _path = self.root / self.meta.PARAMS / "id_map_history.csv"
+        _path.parent.mkdir(parents=True, exist_ok=True)
+        _new = not _path.exists()
+        with _path.open("a", encoding="utf-8", newline="") as _f:
+            _w = csv.writer(_f)
+            if _new:
+                _w.writerow(["from", "to", "ct"])
+            _w.writerows([_o, _remap_to, moved.get(_o, 0)]
+                         for _o, _remap_to in sorted(remap.items()))
+
+    def Class_table(self) -> dict[str, dict]:
+        """내보내기용 class 표 ``{class 이름: {class_id, …}}``. **0번(미분류 예약)은 뺀다**.
+
+        호출번호 키를 class 이름 키로 뒤집은 것 — 내보내기가 다루는 축이 class 이름이라서다(호출번호는
+        목록의 자리일 뿐 정체가 아니다). ``class_id`` 0 은 학습 측 ignore_index 자리이고 내보내기가
+        ``no_label`` 로 직접 채우므로(``Exporter._id_map_document``) 여기서 빠져야 한다.
+
+        정본이 든 **부속 칸(``category_id`` 등)을 그대로 나른다** — 무엇이 붙어 있는지는 표가 아니라
+        소비 측이 아는 것이고(``Id_entry.extra``), 여기서 걸러내면 내보낸 id_map 에서 조용히 깎인다.
+        """
+        return {_name: _e for _name, _e in self._entries().items()
+                if _e["class_id"] != UNCLASSIFIED_ID}
+
+    def Class_choices(self) -> dict[str, str]:
+        """편집 후보 ``{표시 이름: class_id}`` — **미분류(``no_label``, 0)도 포함**한다.
+
+        저장되는 건 번호이고 이름은 표시일 뿐이라(:data:`core.constant.UNCLASSIFIED_ID` 참고) GUI 는
+        이 사전으로 "이름을 보여주고 번호를 쓴다". 미분류는 라벨을 **되돌리는** 선택지라 후보에 있어야
+        한다 — 빼면 한 번 붙인 class 를 지울 방법이 빈 값밖에 없다.
+
+        **값이 문자열이다** — 저장 표현이 그렇다(``Data_Ref.Set_attr`` 이 문자열로 굳힌다). 여기서
+        int 를 주면 고른 값이 저장분과 다른 타입으로 들어가 다음 조회가 빗나간다.
+        """
+        return {_name: str(_e["class_id"]) for _name, _e in self._entries().items()}
+
+    def Class_names(self) -> dict[str, str]:
+        """표시용 역인덱스 ``{class_id: 이름}`` — 저장된 번호를 사람이 읽는 이름으로 되돌린다.
+
+        **키가 문자열이다** — 저장 표현이 그렇기 때문이다. ``class_id`` 는 객체의 인라인 attr 이고
+        ``Data_Ref.Set_attr`` 이 값을 문자열로 굳히므로, 정본에서 읽으면 늘 ``"197"`` 이다. 여기서
+        int 키를 내면 소비처가 ``names.get("197")`` 로 물어 **전부 빗나가고**(캔버스 상자 라벨이
+        번호로 남는다) 조회가 실패한 것도 안 드러난다.
+        """
+        return {str(_e["class_id"]): _name for _name, _e in self._entries().items()}
+
+    def _entries(self) -> dict[str, dict]:
+        """class 표 → ``{class 이름: {class_id, …부속 칸}}`` (0번 포함, 번호순).
+
+        위 셋의 공통 앞단이다 — 축을 **이름**으로 뒤집는다(내보내기·GUI 가 다루는 축이 이름이라서).
+        읽을 수 없는 항목을 버리는 건 표(``Id_map.Restore``)가 하고, 여기는 축만 바꾼다. 부속 칸은
+        **열어 두고 나른다** — 이 계층은 ``category_id`` 가 있는지도 모른다.
+        """
+        return {_e.id_name: {"class_id": _e.id_num, **_e.extra}
+                for _e in self.Class_map().Sorted()}
 
     def Delete_tasker(self, name: str) -> None:
         """tasker 를 제거한다 — 폴더(``{root}/sample/{name}``)와 ``taskers.yaml`` 항목 (없으면 no-op)."""

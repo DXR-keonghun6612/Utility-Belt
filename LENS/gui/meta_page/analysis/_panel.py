@@ -22,7 +22,8 @@ from PySide6.QtWidgets import (
     QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
-from core.analysis.cluster import Cluster_Params
+from core.analysis.cluster import (
+    NORM_EQUALIZE, NORM_FLOOR, NORM_NONE, Cluster_Params)
 from core.analysis.inject import FRAME, OBJECT, Source_Spec
 from gui.form._form import Config_form
 from gui.form._spec import specs_from_callable
@@ -35,6 +36,7 @@ _UNITS = ((OBJECT, "object — 프레임의 객체마다"), (FRAME, "frame — �
 _THRESHOLDS_FIELD = "thresholds"
 _NEIGHBORS_FIELD = "neighbor_counts"
 _MEMBERS_FIELD = "min_member_counts"
+_WELD_FIELD = "weld_axes"
 
 #: 도메인별 spinbox 의 "공통값 사용" 자리 — 0 은 거리로도 이웃 수로도 뜻이 없어 특수값으로 쓴다.
 _COMMON = 0.0
@@ -49,6 +51,13 @@ _VIEWS_FIELD = "views"
 #: 레시피 열쇠 — 분석에 쓸 도메인. 없는 이름은 **켠 것**으로 본다(새 도메인이 조용히 빠지면 안 된다).
 _ENABLED_FIELD = "enabled"
 _VIEW_MODES = (("auto", "자동"), ("silhouette", "실루엣"), ("channels", "채널"))
+
+#: 축별 **종합 병합** — ``None`` 은 공통값 사용(다른 칸의 `공통` 과 같은 자리).
+_WELD_MODES = ((None, "공통"), (True, "켬"), (False, "끔"))
+
+#: 축별 **정규화** — `k` 의 단위를 정한다. 공통값이 없다(축마다 다른 것이 요점).
+_NORM_FIELD = "norm_methods"
+_NORM_MODES = ((NORM_EQUALIZE, "σ (기본)"), (NORM_NONE, "원 단위"), (NORM_FLOOR, "노이즈 바닥"))
 
 
 class Control_panel(QWidget):
@@ -83,6 +92,8 @@ class Control_panel(QWidget):
         self._wanted: dict[str, float] | None = None   # 복원된 도메인별 k — 목록이 선 뒤에 얹는다
         self._wanted_nb: dict[str, int] = {}
         self._wanted_mm: dict[str, int] = {}
+        self._wanted_weld: dict[str, bool] = {}
+        self._wanted_norm: dict[str, str] = {}
         self._wanted_views: dict[str, str] = {}
         self._wanted_on: set[str] | None = None
         self._domain_state: dict[str, dict] = {}
@@ -111,7 +122,8 @@ class Control_panel(QWidget):
         # 달렸다(아래 잣대 트리가 든다).
         self._params = Config_form([_s for _s in specs_from_callable(Cluster_Params)
                                     if _s.name not in (_THRESHOLDS_FIELD, _NEIGHBORS_FIELD,
-                                                       _MEMBERS_FIELD)])
+                                                       _MEMBERS_FIELD, _WELD_FIELD,
+                                                       _NORM_FIELD)])
         _lay.addWidget(self._params)
         _lay.addWidget(self._build_domains())
 
@@ -219,13 +231,14 @@ class Control_panel(QWidget):
         _lay.setContentsMargins(0, 0, 0, 0)
         _lay.addWidget(QLabel("도메인 → 잣대별 설정"))
         self._tree = QTreeWidget()
-        self._tree.setHeaderLabels(["도메인 / 잣대", "거리 상한 (σ)", "이웃", "최소 표본", "보기"])
+        self._tree.setHeaderLabels(
+            ["도메인 / 잣대", "거리 상한", "정규화", "이웃", "최소 표본", "종합 병합", "보기"])
         self._tree.setRootIsDecorated(True)
         self._tree.setSelectionMode(QAbstractItemView.NoSelection)
         self._tree.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._tree.itemChanged.connect(self._on_item_changed)
         self._tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
-        for _c in (1, 2, 3, 4):
+        for _c in (1, 2, 3, 4, 5, 6):
             self._tree.header().setSectionResizeMode(_c, QHeaderView.ResizeToContents)
         self._tree.setMinimumHeight(200)
         _lay.addWidget(self._tree)
@@ -246,7 +259,7 @@ class Control_panel(QWidget):
         키가 잣대 이름인 것이 중요하다 — 아래 계층(`build`·`store`)이 그 이름으로만 도메인을
         만나므로, 묶어 보이는 것은 여기서 끝나고 밖으로 새 개념이 안 나간다.
         """
-        _row = QTreeWidgetItem(parent, [label, "", "", "", ""])
+        _row = QTreeWidgetItem(parent, [label, "", "", "", "", "", ""])
         _row.setFlags(_row.flags() | Qt.ItemIsUserCheckable)
         _row.setCheckState(0, Qt.Checked)
         _row.setToolTip(0, f"{gauge} ({kind})\n"
@@ -267,6 +280,20 @@ class Control_panel(QWidget):
         _k.valueChanged.connect(lambda *_a: self._sync_hint())
         self._tree.setItemWidget(_row, 1, _k)
 
+        # **`k` 의 단위를 정한다** — 셋 다 스칼라 나눗셈이라 군집 결과는 같고 숫자의 뜻만 바뀐다.
+        _nm = QComboBox()
+        for _val, _txt in _NORM_MODES:
+            _nm.addItem(_txt, _val)
+        _nm.setToolTip(
+            "왼쪽 `거리 상한` 을 **무엇으로 재나**.\n"
+            "**σ** — 이 축 값의 표준편차. 지금까지의 기본. 표본 구성이 바뀌면 같은 k 가 다른 뜻이 된다.\n"
+            "**원 단위** — px 그대로. 채널이 전부 px 인 축(`radial_*`)에서 물리적 뜻이 그대로 읽힌다.\n"
+            "**노이즈 바닥** — 같은 것을 다시 쟀을 때 값이 흔들리는 거리로 나눈다. k 가 '바닥의 몇 배' "
+            "가 되어 **축을 건너 같은 뜻**이 된다.\n"
+            "**축척만 바뀐다** — 군집 결과는 그대로고 k 의 숫자가 달라진다(바꾸면 그 축만 다시 돈다)")
+        _nm.currentIndexChanged.connect(lambda *_a: self._sync_hint())
+        self._tree.setItemWidget(_row, 2, _nm)
+
         _m = QSpinBox()
         _m.setRange(_COMMON_N, 50)
         _m.setSpecialValueText("공통")
@@ -277,7 +304,7 @@ class Control_panel(QWidget):
             "**잣대마다 다른 값이 필요한 이유는 밀도다** — 채널 수가 다르면 같은 이웃 수가 같은 "
             "뜻이 아니다")
         _m.valueChanged.connect(lambda *_a: self._sync_hint())
-        self._tree.setItemWidget(_row, 2, _m)
+        self._tree.setItemWidget(_row, 3, _m)
 
         _p2 = QSpinBox()
         _p2.setRange(_COMMON_N, 50)
@@ -287,7 +314,21 @@ class Control_panel(QWidget):
             "잣대마다 두는 이유는 **서명 때문**이다 — 전역으로 두면 값 하나를 만졌을 때 안 건드린 "
             "게이지까지 전부 다시 돈다.")
         _p2.valueChanged.connect(lambda *_a: self._sync_hint())
-        self._tree.setItemWidget(_row, 3, _p2)
+        self._tree.setItemWidget(_row, 4, _p2)
+
+        # **종합 전용** — 이 축의 가르기는 안 바뀐다. 축마다 답이 다르므로 여기 둔다.
+        _wd = QComboBox()
+        for _val, _txt in _WELD_MODES:
+            _wd.addItem(_txt, _val)
+        _wd.setToolTip(
+            "종합에서 이 축의 **이웃한 type 끼리도 붙일지**. 끄면 '같을 때만' 붙어 **이 축이 가른 "
+            "것이 지켜진다**.\n"
+            "축마다 답이 다르다 — 실루엣은 분할 노이즈로 경계가 흔들려 붙일 값어치가 있지만, 구멍이 "
+            "가른 것은 실체가 있어 지켜야 한다(실측 도넛÷솔리드 최근접비 outline 0.89 / signed 2.45).\n"
+            "실측: `outline` 만 켰을 때 signed 되붙임 45자리→0 · 순수type 93.2%→93.7%.\n"
+            "**이 축의 type 은 안 바뀐다** — 종합만 다시 돈다")
+        _wd.currentIndexChanged.connect(lambda *_a: self._sync_hint())
+        self._tree.setItemWidget(_row, 5, _wd)
 
         _v = QComboBox()
         for _val, _txt in _VIEW_MODES:
@@ -297,10 +338,10 @@ class Control_panel(QWidget):
             "그건 값의 뜻이라 원래 추출기 계약이 답해야 하는데 아직 선언이 없다.\n"
             "**계산에 영향이 없다** — 보기만 바뀌고 재군집은 안 돈다")
         _v.currentIndexChanged.connect(lambda *_a: self.views_changed.emit())
-        self._tree.setItemWidget(_row, 4, _v)
+        self._tree.setItemWidget(_row, 6, _v)
 
-        self._domain_state[gauge] = {"k": _k, "neighbors": _m, "members": _p2,
-                                     "view": _v, "node": _row}
+        self._domain_state[gauge] = {"k": _k, "neighbors": _m, "members": _p2, "norm": _nm,
+                                     "weld": _wd, "view": _v, "node": _row}
 
     def _build_actions(self) -> QHBoxLayout:
         _row = QHBoxLayout()
@@ -382,7 +423,19 @@ class Control_panel(QWidget):
         return {**self._params.get(),
                 _THRESHOLDS_FIELD: self._threshold_state(),
                 _NEIGHBORS_FIELD: self._neighbor_state(),
-                _MEMBERS_FIELD: self._member_state()}
+                _MEMBERS_FIELD: self._member_state(),
+                _WELD_FIELD: self._weld_state(),
+                _NORM_FIELD: self._norm_state()}
+
+    def _weld_state(self) -> dict[str, bool]:
+        """축별 병합 허용 — **공통값과 다르게 둔 축만**. 자리는 :meth:`_threshold_state` 와 같다."""
+        return {_d: bool(_s["weld"].currentData()) for _d, _s in self._domain_state.items()
+                if _s["weld"].currentData() is not None}
+
+    def _norm_state(self) -> dict[str, str]:
+        """축별 정규화 방법 — **기본과 다르게 둔 축만**."""
+        return {_d: str(_s["norm"].currentData()) for _d, _s in self._domain_state.items()
+                if str(_s["norm"].currentData()) != NORM_EQUALIZE}
 
     def set_threshold(self, domain: str, value: float) -> int:
         """그 도메인의 거리 상한을 지정한다 (**음수면 해제** — 공통값으로 되돌린다).
@@ -458,6 +511,10 @@ class Control_panel(QWidget):
                            for _d, _v in (recipe.get(_NEIGHBORS_FIELD) or {}).items()}
         self._wanted_mm = {str(_d): int(_v)
                            for _d, _v in (recipe.get(_MEMBERS_FIELD) or {}).items()}
+        self._wanted_weld = {str(_d): bool(_v)
+                             for _d, _v in (recipe.get(_WELD_FIELD) or {}).items()}
+        self._wanted_norm = {str(_d): str(_v)
+                             for _d, _v in (recipe.get(_NORM_FIELD) or {}).items()}
         self._wanted_views = {str(_d): str(_v)
                               for _d, _v in (recipe.get(_VIEWS_FIELD) or {}).items()}
         self._wanted_on = ({str(_d) for _d in recipe[_ENABLED_FIELD]}
@@ -474,6 +531,12 @@ class Control_panel(QWidget):
             _st["k"].setValue(float(self._wanted.get(_d, _COMMON)))
             _st["neighbors"].setValue(int((self._wanted_nb or {}).get(_d, _COMMON_N)))
             _st["members"].setValue(int((self._wanted_mm or {}).get(_d, _COMMON_N)))
+            _nmv = str((self._wanted_norm or {}).get(_d, NORM_EQUALIZE))
+            _order_n = [_v for _v, _ in _NORM_MODES]
+            _st["norm"].setCurrentIndex(_order_n.index(_nmv) if _nmv in _order_n else 0)
+            _w = (self._wanted_weld or {}).get(_d)
+            _st["weld"].setCurrentIndex([_v for _v, _ in _WELD_MODES].index(_w) if _w in (True, False)
+                                        else 0)
             _m = str((self._wanted_views or {}).get(_d, "auto"))
             _st["view"].setCurrentIndex(_order.index(_m) if _m in _order else 0)
             _st["node"].setCheckState(
@@ -502,6 +565,8 @@ class Control_panel(QWidget):
         _first = set(declared or ()) or None
         _keep_k, _keep_v = self._threshold_state(), self.view_modes()
         _keep_n, _keep_m = self._neighbor_state(), self._member_state()
+        _keep_nm = {_d: str(_s['norm'].currentData()) for _d, _s in self._domain_state.items()}
+        _keep_wd = {_d: _s['weld'].currentData() for _d, _s in self._domain_state.items()}
         _keep_on = set(self.enabled_domains()) if self._domain_state else None
         _g = dict(gauges or {})
         self._tree.blockSignals(True)
@@ -514,7 +579,7 @@ class Control_panel(QWidget):
             _by_group.setdefault(str(_g.get(_d, (_d, ()))[0]), []).append(_d)
 
         for _grp, _members in sorted(_by_group.items()):
-            _top = QTreeWidgetItem(self._tree, [_grp, "", "", "", ""])
+            _top = QTreeWidgetItem(self._tree, [_grp] + [""] * (self._tree.columnCount() - 1))
             _top.setFlags(_top.flags() & ~Qt.ItemIsUserCheckable)
             _top.setToolTip(0, f"저장 feature '{_grp}' — 여기 달린 잣대는 **함께 재추출**된다. "
                                f"눈금(k)은 잣대마다 따로다")
@@ -528,6 +593,12 @@ class Control_panel(QWidget):
                 _st["k"].setValue(float(_keep_k.get(_d, _COMMON)))
                 _st["neighbors"].setValue(int(_keep_n.get(_d, _COMMON_N)))
                 _st["members"].setValue(int(_keep_m.get(_d, _COMMON_N)))
+                if _d in _keep_nm:
+                    _st["norm"].setCurrentIndex(
+                        [_v for _v, _ in _NORM_MODES].index(_keep_nm[_d]))
+                if _d in _keep_wd:
+                    _st["weld"].setCurrentIndex(
+                        [_v for _v, _ in _WELD_MODES].index(_keep_wd[_d]))
                 if _d in _keep_v:
                     _st["view"].setCurrentIndex(
                         [_v for _v, _ in _VIEW_MODES].index(_keep_v[_d]))
@@ -542,7 +613,11 @@ class Control_panel(QWidget):
         self._sync_hint()
 
     def _sync_hint(self) -> None:
-        """끈 잣대는 흐리게, 갈래 줄에는 **접어 둬도 보이게** 요약을 적는다."""
+        """끈 잣대는 흐리게, 갈래 줄에는 **접어 둬도 보이게** 요약을 단다.
+
+        요약은 **칸이 아니라 툴팁**이다 — 값 칸(`거리 상한`)에 적으면 잣대가 늘어날수록 문자열이
+        길어지고 그 칸이 `ResizeToContents` 라 폭이 끝없이 밀린다.
+        """
         self._tree.blockSignals(True)
         _summary: dict[str, list[str]] = {}
         for _d, _st in self._domain_state.items():
@@ -555,12 +630,14 @@ class Control_panel(QWidget):
             _grp = _node.parent()
             if _grp is not None:
                 _summary.setdefault(_grp.text(0), []).append(
-                    f"{_node.text(0)} {f'{_k:.3f}' if _k > _COMMON else '공통'}"
-                    f"/{_m if _m > _COMMON_N else '공통'}"
-                    f"/{_mm if _mm > _COMMON_N else '공통'}"
-                    if _on else f"({_node.text(0)} 끔)")
+                    f"{_node.text(0)}   k {f'{_k:.3f}' if _k > _COMMON else '공통'}"
+                    f" · 이웃 {_m if _m > _COMMON_N else '공통'}"
+                    f" · 최소 {_mm if _mm > _COMMON_N else '공통'}"
+                    if _on else f"{_node.text(0)}   (끔)")
         for _grp, _node in getattr(self, "_group_nodes", {}).items():
-            _node.setText(1, " · ".join(_summary.get(_grp, [])))
+            _rows = _summary.get(_grp, [])
+            _node.setToolTip(0, "\n".join(["이 feature 의 잣대 설정 — 접어 둬도 여기서 읽는다", *_rows]))
+            _node.setText(1, f"잣대 {len(_rows)}" if _rows else "")
         self._tree.blockSignals(False)
         _n = len(self._domain_state)
         if not _n:

@@ -56,7 +56,9 @@ class Node_tree(QTreeWidget):
     """
 
     selected       = Signal(object)
+    activated      = Signal(object)           # 더블클릭 ``(Node)`` — "이걸 열어라" (무엇이 열리나는 상위가)
     layers_changed = Signal()
+    reordered      = Signal(object, object)   # (컨테이너 path, 새 자식 순서) — 적용은 store 가 한다
 
     def __init__(self, scope: str = "all", check_default: bool = True, parent=None) -> None:
         """``scope`` = 루트의 직속 자식 중 무엇을 보일지: ``all`` / ``leaves``(데이터) / ``objects``.
@@ -81,8 +83,50 @@ class Node_tree(QTreeWidget):
         if scope == "objects":                       # 여럿을 골라 **병합**한다 (데이터는 하나씩 다룬다)
             self.setSelectionMode(QTreeWidget.SelectionMode.ExtendedSelection)
         self._editable = True
+        self.setDragDropMode(QTreeWidget.DragDropMode.InternalMove)   # 순서 바꾸기 (같은 부모 안에서만)
+        self.setDropIndicatorShown(True)
         self.currentItemChanged.connect(self._on_current)
         self.itemChanged.connect(self._on_check)
+        self.itemDoubleClicked.connect(self._on_activate)
+
+    # ── 순서 바꾸기 (드래그앤드롭) ─────────────────────────────────────────────
+    def dropEvent(self, event) -> None:
+        """**같은 부모 안에서 항목 사이로** 떨어뜨린 것만 받는다 — 순서 변경이지 이동이 아니다.
+
+        컨테이너 **위**에 떨어뜨리면 소속이 바뀌는데(객체를 다른 객체 안으로), 그건 순서가 아니라 다른
+        연산이라 거절한다. 부모가 다른 항목을 섞어 끌어도 마찬가지.
+
+        Qt 가 항목을 직접 옮기게 두지 않는다(``super()`` 를 안 부른다) — 진실은 store 에 있고, 트리는
+        store 가 바꾼 뒤 다시 읽는다. 그래야 정수 key 재부여처럼 **이름까지 달라지는** 결과가 그대로 뜬다.
+        """
+        _pos = self.dropIndicatorPosition()
+        _between = (QTreeWidget.DropIndicatorPosition.AboveItem,
+                    QTreeWidget.DropIndicatorPosition.BelowItem,
+                    QTreeWidget.DropIndicatorPosition.OnViewport)
+        _items = [_it for _it in self.selectedItems() if _it.data(0, _ROLE) is not None]
+        _target = self.itemAt(event.position().toPoint())
+        _dest = _target.parent() if _target is not None else None
+        if (not self._editable or not _items or _pos not in _between
+                or any(_it.parent() is not _dest for _it in _items)):
+            event.ignore()
+            return
+        _order = self._order_after(_items, _dest, _target,
+                                   _pos == QTreeWidget.DropIndicatorPosition.BelowItem)
+        event.accept()
+        self.reordered.emit(_items[0].data(0, _ROLE).path, _order)
+
+    def _order_after(self, items, dest, target, below: bool) -> list[str]:
+        """끌어놓은 뒤의 자식 key 순서 — 끌린 것들을 빼고 목표 자리에 통째로 끼운다."""
+        _parent = dest if dest is not None else self.invisibleRootItem()
+        _names = [_parent.child(_i).data(0, _ROLE).name for _i in range(_parent.childCount())
+                  if _parent.child(_i).data(0, _ROLE) is not None]
+        _moving = [_it.data(0, _ROLE).name for _it in items]
+        _rest = [_n for _n in _names if _n not in _moving]
+        if target is None:                                   # 빈 곳 → 맨 뒤
+            return _rest + _moving
+        _at = _names.index(target.data(0, _ROLE).name) + (1 if below else 0)
+        _at -= sum(1 for _n in _moving if _names.index(_n) < _at)   # 앞에서 빠진 만큼 당긴다
+        return _rest[:_at] + _moving + _rest[_at:]
 
     # ── 채우기 ────────────────────────────────────────────────────────────────
     def load(self, store, key: str) -> None:
@@ -251,3 +295,9 @@ class Node_tree(QTreeWidget):
     def _on_check(self, *_a) -> None:
         self._checked = {_n.name for _n in self.checked_layers()}   # stem 넘어가도 유지할 선택
         self.layers_changed.emit()
+
+    def _on_activate(self, item, _col: int = 0) -> None:
+        """더블클릭 — **여는 것**은 트리가 정하지 않는다. 노드만 실어 올리고 상위가 무엇을 열지 고른다."""
+        _node = item.data(0, _ROLE) if item is not None else None
+        if _node is not None:
+            self.activated.emit(_node)

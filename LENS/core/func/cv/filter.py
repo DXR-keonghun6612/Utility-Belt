@@ -13,9 +13,16 @@ import numpy as np
 from ...typing import IMAGE, GRAY_IMAGE
 
 
-def Make_morph_kernel(size: int = 3) -> np.ndarray:
-    """사각형 morphology 커널을 생성한다."""
-    return cv2.getStructuringElement(cv2.MORPH_RECT, (size, size))
+def Make_morph_kernel(size: int = 3, *, ellipse: bool = False) -> np.ndarray:
+    """morphology 커널을 생성한다 — 기본 사각형, ``ellipse`` 면 원형.
+
+    Args:
+        size: 커널 한 변(px). **반경이 아니라 지름**이라 대칭 팽창·침식은 홀수(``2*r+1``)를 준다.
+        ellipse: 원형(등방) 커널. 사각형은 대각선으로 ``√2`` 배 더 번지므로, 경계를 **거리만큼**
+            물리려는 자리(반경 의미의 팽창)는 원형이 맞다.
+    """
+    return cv2.getStructuringElement(cv2.MORPH_ELLIPSE if ellipse else cv2.MORPH_RECT,
+                                     (size, size))
 
 
 def Band_threshold(image: IMAGE, low: int = 0, high: int = 255) -> GRAY_IMAGE:

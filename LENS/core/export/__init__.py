@@ -44,20 +44,16 @@ class Task_spec:
     default_format: str
 
 
+# **지금은 instance segmentation × coco 하나뿐이다.** detection 은 그 부분집합이라 걷었고
+# (bbox 는 mask 에서 나온다), 나머지 조합은 이 층을 다시 쓸 때 함께 세운다 — 지금 남겨 두면
+# 화면이 고를 수 있는데 뒤가 골격뿐이라 고른 사람이 빈 산출물을 받는다.
 TASKS: dict[str, Task_spec] = {
-    "classification": Task_spec(unit="object", needs_mask=False, default_format="imagefolder"),
-    "detection":      Task_spec(unit="frame",  needs_mask=False, default_format="coco"),
-    "segmentation":   Task_spec(unit="frame",  needs_mask=True,  default_format="coco"),
+    "segmentation": Task_spec(unit="frame", needs_mask=True, default_format="coco"),
 }
 
 # (task, format) → exporter. det/seg 가 coco·yolo serializer 를 공유(task 가 mask 토글).
 EXPORTERS: dict[tuple[str, str], type[Exporter]] = {
-    ("classification", "imagefolder"): ImageFolder_exporter,
-    ("detection",      "coco"):        Coco_exporter,
-    ("detection",      "yolo"):        Yolo_exporter,
-    ("segmentation",   "coco"):        Coco_exporter,
-    ("segmentation",   "yolo"):        Yolo_exporter,
-    ("segmentation",   "mask"):        Mask_exporter,
+    ("segmentation", "coco"): Coco_exporter,
 }
 
 
@@ -69,7 +65,7 @@ def Formats_for(task: str) -> list[str]:
 
 
 def Run_export(source: Sample_Set, dest: str | Path, *, task: str, format: str | None = None,
-               meta=None, id_map: dict[str, int] | None = None) -> Path:
+               meta=None, id_map: dict[str, dict] | None = None, min_count: int = 0) -> Path:
     """파생 store 를 ``(task, format)`` 레이아웃으로 ``dest`` 아래에 실체화한다 (원본 비파괴).
 
     **split 은 재배정하지 않는다** — store 가 이미 split 범주로 갈려 있다(빌드가 배정). 여기서 정하는 건
@@ -81,7 +77,8 @@ def Run_export(source: Sample_Set, dest: str | Path, *, task: str, format: str |
         task:   데이터 성격 (``TASKS`` 의 key).
         format: 직렬화 레이아웃 (미지정 → task 기본).
         meta:   정본 store — 프레임 픽셀·객체가 sample 이 아니라 정본에 있어 필요하다(det/seg).
-        id_map: class→정수. None 이면 class 정렬로 생성.
+        id_map: class 표 ``{class 이름: {class_id, category_id}}``. None 이면 class 정렬로 생성.
+        min_count: 이만큼 안 나온 ``class_id`` 의 **주석을 안 적는다** (0 = 끄기). id_map 은 그대로.
 
     Raises:
         ValueError: task 가 없거나 그 task 에 format 조합의 exporter 가 없을 때.
@@ -95,7 +92,7 @@ def Run_export(source: Sample_Set, dest: str | Path, *, task: str, format: str |
         raise ValueError(f"task {task!r} 에 format {_format!r} 조합이 없다 "
                          f"(가능: {', '.join(Formats_for(task))})") from None
     _out = Path(dest)
-    _exporter = _cls(source=source, meta=meta, id_map=id_map, task=task)
+    _exporter = _cls(source=source, meta=meta, id_map=id_map, task=task, min_count=min_count)
     _exporter.Export(_out)
     # dataset-wide params(roi 등)는 어느 split 에도 안 속하므로 split 폴더의 **형제**로 앉힌다
     # (`{dest}/params/` — store 레이아웃과 같다). 여기서 부르므로 format 마다 잊을 일이 없다.

@@ -1,7 +1,11 @@
 """가르기 오케스트레이션 — **도메인 단위**로 움직인다. 정본을 안 읽는다.
 
-계산은 :func:`~.cluster.fit` 이 다 하고 여기는 배선만 든다: 어느 도메인이 낡았나 → 그 도메인
-좌표를 모아 → ``fit`` → 배정과 통계를 store 에 앉힌다.
+계산은 :func:`~.cluster.fit` 이 다 하고 여기는 배선만 든다: 어느 도메인이 낡았나 → 필요한 잣대
+좌표를 **한 번의 순회로** 모아(:func:`_load`) → 도메인마다 ``fit`` → 배정과 통계를 store 에 앉힌다.
+
+**적재 축과 가르기 축이 다르다.** 파일은 저장 feature 단위인데 가르기는 잣대 단위라, 잣대마다
+따로 적재하면 같은 파일을 잣대 수만큼 다시 읽는다. 그래서 적재는 한 번이고 그 산출을 축 루프와
+종합이 나눠 쓴다.
 
 옛 구현은 class 단위였다(``members_by_class`` 로 묶어 class 마다 ``split_class``). class 가 배정에
 안 들어가면서 그 축이 통째로 사라졌고, 대신 **도메인**이 단위가 됐다 — 도메인끼리 직교라 하나를
@@ -20,8 +24,10 @@ import numpy as np
 
 from .cluster import (
     JOINT, POOL, centers, components, equalize, fit, gauge_params, impute, join, knn,
-    members_of, merge_totals, neighbors_of, norm_from_totals, stats_of, threshold_of,
-    totals_of, type_neighbors)
+    NORM_EQUALIZE, NORM_FLOOR, NORM_FLOOR_Q, NORM_NONE, members_of, merge_totals, neighbors_of,
+    norm_from_totals, normalize_of, stats_of, threshold_of, totals_of, type_neighbors, welds_of)
+from . import cache
+from .extract import Fold
 from .store import Cluster_Bucket
 
 Progress = Callable[[str, int, int], None] | None
@@ -72,7 +78,8 @@ def build(bucket: Cluster_Bucket, params: dict, *, domains: list[str] | None = N
     _known = dict(_cfg.get("signatures") or {})
     _all = bucket.Domains()
     _domains = [_d for _d in _all if domains is None or _d in set(domains)]
-    _norm = _ensure_norm(bucket, _domains, _keys, progress)
+    _ensure_norm(bucket, _domains, _keys, params, progress)
+    _norm = _norms(bucket, params)
 
     _todo = []
     for _d in _domains:
@@ -90,8 +97,18 @@ def build(bucket: Cluster_Bucket, params: dict, *, domains: list[str] | None = N
     # 계속 옛 값으로 판단했다. 쓰기는 가르기의 부산물이 아니다.
     bucket.Set_cluster_cfg({**dict(params), "signatures": _known})
 
+    # **적재는 한 번이다.** 축 루프와 종합이 같은 좌표를 쓰고, 한 사이드카에서 모든 잣대가 나온다
+    # (:func:`_load`). 종합이 돌 것 같으면 그 축들도 미리 함께 싣는다 — 아래에서 서명을 다시
+    # 확인해 정말 필요할 때만 쓰고, 모자라면 그때 채운다.
+    _axes = [_d for _d in _domains if _d != JOINT]
+    _ahead = {_d: dict(_todo).get(_d, _known.get(_d, "")) for _d in _axes}
+    _want = {_d for _d, _ in _todo}
+    if len(_axes) >= 2 and _known.get(JOINT) != joint_signature(params, _ahead):
+        _want |= set(_axes)
+    _coords = _load(bucket, sorted(_want), _keys, _norm, progress) if _want else {}
+
     for _i, (_dom, _sig) in enumerate(_todo, 1):
-        _X, _used = _stack(bucket, _dom, _keys, _norm.get(_dom), progress)
+        _X, _used = _coords.get(_dom, _EMPTY)
         if not len(_used):
             continue
         _lab, _dist, _stats, _ = fit(
@@ -110,11 +127,13 @@ def build(bucket: Cluster_Bucket, params: dict, *, domains: list[str] | None = N
 
     # **종합 서명 = 축 서명들 + 종합 자기 설정.** 축 label 을 통째로 해싱하면 6만×축 을 매번 도는데,
     # 축이 안 바뀌면 label 도 안 바뀌므로 축 서명이 그 사실을 이미 답한다.
-    _axes = [_d for _d in _domains if _d != JOINT]
     _sig = joint_signature(params, {_d: _known.get(_d, "") for _d in _axes})
     _ran = False
     if _known.get(JOINT) != _sig and len(_axes) >= 2:
-        _build_joint(bucket, params, _axes, _keys, _norm, progress)
+        _late = [_d for _d in _axes if _d not in _coords]   # 위 예측이 빗나갔으면 그때 채운다
+        if _late:
+            _coords.update(_load(bucket, _late, _keys, _norm, progress))
+        _build_joint(bucket, params, _axes, _keys, _coords, progress)
         _known[JOINT] = _sig
         bucket.Set_cluster_cfg({**dict(params), "signatures": _known})
         _ran = True
@@ -135,26 +154,37 @@ def joint_signature(params: dict, axis_signatures: dict[str, str]) -> str:
     return hashlib.blake2b(
         json.dumps({"axes": dict(sorted(axis_signatures.items())),
                     "bound": float(params.get("impute_bound", 0.3)),
-                    "weld": bool(params.get("weld_types", True))},
+                    # 축마다 다르므로 **켠 축의 목록**을 해싱한다 — 전역 bool 만 보면 한 축의
+                    # 병합을 꺼도 종합이 안 다시 돈다.
+                    "weld": sorted(_d for _d in axis_signatures if welds_of(params, _d))},
                    sort_keys=True).encode("utf-8"), digest_size=5).hexdigest()
 
 
 def _build_joint(bucket: Cluster_Bucket, params: dict, domains: list[str], keys: list[str],
-                 norm: dict, progress: Progress) -> None:
-    """켠 축들을 합쳐 종합 자리에 앉힌다 — 낼 것이 없으면 걷고 ``None``.
+                 coords: dict[str, tuple[np.ndarray, list[str]]], progress: Progress) -> None:
+    """켠 축들을 합쳐 종합 자리에 앉힌다.
 
     두 걸음이다::
 
         ① impute   기권한 축을 **다른 축을 참고해** 메운다 (:func:`~.cluster.impute`)
         ② join     메운 label 로 조합을 만들고(쪼갬), **자의적인 경계는 도로 붙인다**(병합)
 
-    ①이 좌표를 필요로 하므로 축마다 한 번 더 쌓는다. 축 루프에서 이미 읽어 트리에 앉혀 뒀으면
-    사이드카를 다시 안 탄다(``_resolved`` 캐시).
+    ①이 좌표를 쓰므로 ``coords`` 를 받는다 — 호출 측이 축 루프에서 이미 실은 것을 그대로 넘긴다
+    (여기서 다시 실으면 전수를 축 수만큼 또 읽는다).
 
     **종합은 자기 장부에 앉는다** — ``index.types`` 에 안 섞는다. 거기 있는 것은 잣대가 문턱을 넘어
     인정한 값이고, 메운 자리는 추정이라 수명도 뜻도 다르다.
 
     호출 측이 **낼지 말지를 이미 정한다** — 여기는 내는 일만 한다.
+
+    Args:
+        bucket: 산출물 store.
+        params: 묶기 설정 (``impute_bound`` · ``weld_types`` · 축별 ``k``·이웃 수).
+        domains: 곱할 축 이름.
+        keys: 표본 key — ``labels`` 의 자리 순서를 정한다.
+        coords: :func:`_load` 의 산출 ``{도메인: ((n, D), 쓴 키)}``. 키가 ``keys`` 전부가 아닌
+            축은 메우기에서 빠진다(자리가 안 맞으면 거리를 엉뚱한 표본에 붙인다).
+        progress: ``(라벨, 한 것, 전체)``.
     """
     _use = list(domains)
     _index = bucket.Index()
@@ -163,7 +193,7 @@ def _build_joint(bucket: Cluster_Bucket, params: dict, domains: list[str], keys:
 
     _coords, _centers = {}, {}
     for _d in _use:
-        _X, _used = _stack(bucket, _d, keys, norm.get(_d), progress)
+        _X, _used = coords.get(_d, _EMPTY)
         if len(_used) == len(keys):
             _coords[_d] = _X
         _centers[_d] = bucket.Centers(_d)
@@ -172,9 +202,12 @@ def _build_joint(bucket: Cluster_Bucket, params: dict, domains: list[str], keys:
     if _bound > 0 and _coords:
         _labels, _filled = impute(_labels, _coords, _centers, _bound)
 
-    _edges = ({_d: type_neighbors(bucket.Centers(_d), threshold_of(params, _d),
-                                  neighbors_of(params, _d)) for _d in _use}
-              if params.get("weld_types", True) else None)
+    # **축마다 켜고 끈다.** 빠진 축은 `_merge_cells` 에서 "같을 때만" 붙으므로 그 축이 가른 것이
+    # 지켜진다 — 실루엣은 경계가 흔들려 붙일 값어치가 있지만 구멍이 가른 것은 지켜야 한다
+    # (:func:`~.cluster.welds_of` 의 실측표).
+    _edges = {_d: type_neighbors(bucket.Centers(_d), threshold_of(params, _d),
+                                 neighbors_of(params, _d))
+              for _d in _use if welds_of(params, _d)} or None
     _lab, _members = join(_labels, _edges)
     _assign = {_k: int(_t) for _k, _t in zip(keys, _lab.tolist()) if _t >= 0}
     _imputed: dict[str, dict[str, int]] = {}
@@ -188,7 +221,7 @@ def _build_joint(bucket: Cluster_Bucket, params: dict, domains: list[str], keys:
 
 
 
-def _ensure_norm(bucket: Cluster_Bucket, domains: list[str], keys: list[str],
+def _ensure_norm(bucket: Cluster_Bucket, domains: list[str], keys: list[str], params: dict,
                  progress: Progress) -> dict:
     """정규화 상수가 **없는 도메인만** 채운다 — 재추출 없이.
 
@@ -196,19 +229,18 @@ def _ensure_norm(bucket: Cluster_Bucket, domains: list[str], keys: list[str],
     축을 더하면 상수가 안 생기고 :func:`~.cluster.equalize` 가 원 단위로 통과시킨다 — 그러면 ``k``
     가 σ 가 아니라 px 를 재게 되어 **아무도 안 붙는다**(실측 64,336건 100% 미배정).
 
-    모델은 안 태운다. 저장된 feature 를 접기만 하면 되므로 사이드카 읽기 한 바퀴다.
+    모델은 안 태운다. 저장된 feature 를 접기만 하면 되므로 사이드카 읽기 한 바퀴다 — 그 한 바퀴는
+    :func:`_folded` 가 적재와 **같은 경로**로 돈다. 다만 표준화는 못 한다(그 상수를 지금 구하는
+    중이라) — 접은 값을 그대로 누적한다.
     """
     _norm = dict(bucket.Norm())
-    _missing = [_d for _d in domains if _d not in _norm and _d != JOINT]
+    # `equalize` 를 쓰는 축만 잰다 — `none`·`floor` 는 mean/std 를 안 본다(한 바퀴가 공짜가 아니다).
+    _missing = [_d for _d in domains
+                if _d not in _norm and _d != JOINT and normalize_of(params, _d) == NORM_EQUALIZE]
     if not _missing:
         return _norm
-    _totals = []
-    for _i, _k in enumerate(keys):
-        _v = bucket.Measure(bucket.Address(_k), _missing)
-        if _v:
-            _totals.append(totals_of(_v))
-        if progress is not None and (_i + 1) % 2000 == 0:
-            progress(f"정규화 상수 ({' · '.join(_missing)})", _i + 1, len(keys))
+    _totals = [totals_of({_d: _v for _d, (_v, _) in _chunk.items()})
+               for _chunk in _folded(bucket, _lens(bucket, _missing), keys, progress, "정규화 상수")]
     if not _totals:
         return _norm
     _norm.update(norm_from_totals([merge_totals(_totals)]))
@@ -216,31 +248,131 @@ def _ensure_norm(bucket: Cluster_Bucket, domains: list[str], keys: list[str],
     return _norm
 
 
-def _stack(bucket: Cluster_Bucket, domain: str, keys: list[str], norm_d: dict | None,
-           progress: Progress) -> tuple[np.ndarray, list[str]]:
-    """그 도메인의 전 표본을 **표준화 좌표**로 쌓는다 ``(n, D) float32``.
+#: 접기를 한 번에 태울 표본 수 — 버퍼는 원본 feature 라 ``radial_rle (512, 8)`` 기준 16 MB 다.
+_CHUNK = 1024
 
-    상주는 도메인 **하나치**다(실측 ``radial_outline`` 512채널 × 6만 = 132 MB). 도메인이 직교라
-    한 번에 하나만 들면 되고, :func:`~.cluster.fit` 이 블록으로 거리를 재므로 스트리밍으로는 안 된다.
+#: 좌표가 없을 때 내는 빈 자리 ``(빈 배열, 빈 키)`` — **읽기 전용**. ``.get()`` 의 기본값으로만 쓴다.
+_EMPTY: tuple[np.ndarray, list[str]] = (np.zeros((0, 0), np.float32), [])
 
-    값을 못 읽은 표본은 **키 목록에서도 뺀다**. 배열만 짧아지면 뒤이은 ``zip(used, lab)`` 이 배정을
-    엉뚱한 표본에 붙인다 — 조용히 어긋나는 자리라 둘을 함께 낸다.
+
+def _norms(bucket: Cluster_Bucket, params: dict) -> dict[str, dict]:
+    """도메인별 정규화 상수에 **이번에 쓸 방법**을 얹는다 — :func:`~.cluster.equalize` 가 이 dict 만 본다.
+
+    방법을 인자로 따로 흘리지 않는 이유는 소비처가 넷(:func:`_load`·:func:`pool_groups`·
+    :func:`propagate`·화면)이라서다 — 상수와 방법이 갈라져 다니면 한쪽만 넘기는 자리가 생긴다.
+    """
+    _n = dict(bucket.Norm())
+    return {_d: {**dict(_n.get(_d) or {}), "method": normalize_of(params, _d)}
+            for _d in set(_n) | set(bucket.Gauges())}
+
+
+def _scaled(bucket: Cluster_Bucket, domain: str, X: np.ndarray, norm_d: dict) -> np.ndarray:
+    """축척을 맞춘 좌표. **최근접거리 분포를 같이 재서** ``norm`` 에 남긴다 — 없을 때 한 번만.
+
+    한 번의 ``knn(X, 1)`` 이 둘을 다 낸다:
+
+    - ``floor`` — 그 분포의 하위 분위수(:data:`~.cluster.NORM_FLOOR_Q`). 축척이 된다.
+    - ``nn`` — **최종 좌표 단위**의 ``[10%, 50%, 90%]``. ``k`` 추천의 근거다
+      (:meth:`~.store.Cluster_Bucket.Suggest_k`) — 표본이 이웃 하나라도 가지려면 ``k`` 가 자기
+      최근접거리를 넘어야 하므로, ``k = q90`` 이면 표본의 90% 가 최소한 하나와 이어진다.
+
+    바닥은 ``1/√dim`` 까지 적용된 좌표에서 잰다. 나눗셈이라 순서는 상관없지만(``x/floor/√D`` ==
+    ``x/√D/floor``) 재는 쪽과 쓰는 쪽의 단위가 같아야 ``k`` 가 "바닥의 몇 배" 로 읽힌다.
+    """
+    _n = dict(norm_d or {})
+    _need = (_n.get("method") == NORM_FLOOR and not _n.get("floor")) or not _n.get("nn")
+    if _need and len(X) > 1:
+        _raw = equalize(X, {"method": NORM_NONE})            # /√D 만 — 원 단위
+        _d1 = knn(_raw, 1)[0][:, 0]
+        if _n.get("method") == NORM_FLOOR and not _n.get("floor"):
+            _n["floor"] = max(float(np.quantile(_d1, NORM_FLOOR_Q)), 1e-6)
+        # 최종 좌표는 원 좌표를 상수로 나눈 것이라 최근접거리도 같은 상수로 나뉜다.
+        _by = (float(_n["std"]) if _n.get("method") == NORM_EQUALIZE and "std" in _n
+               else float(_n["floor"]) if _n.get("method") == NORM_FLOOR else 1.0)
+        _n["nn"] = [float(_q) for _q in np.quantile(_d1 / max(_by, 1e-12), (0.1, 0.5, 0.9))]
+        _all = dict(bucket.Norm())
+        _all.setdefault(str(domain), {}).update(
+            {_k: _n[_k] for _k in ("floor", "nn") if _k in _n})
+        bucket.Set_norm(_all)
+    return equalize(X, _n).astype(np.float32)
+
+
+def _lens(bucket: Cluster_Bucket, domains) -> dict[str, tuple[str, tuple[str, ...]]]:
+    """요청한 이름 중 **계약에 있는** 잣대만 ``{도메인: (원본 feature, 접기)}``."""
+    _g = bucket.Gauges()
+    return {_d: _g[_d] for _d in domains if _d in _g}
+
+
+def _folded(bucket: Cluster_Bucket, lens: dict, keys: list[str], progress: Progress = None,
+            label: str = "적재"):
+    """저장된 값을 **묶음마다 한 번씩** 읽어 잣대별로 접는다 — ``{도메인: (접힌 배치, 그 키들)}``.
+
+    **묶음을 전부 연다.** 어느 묶음에 무엇이 들었는지는 npz 가 답하지 index 가 답하지 않는다 —
+    index 의 class 로 열 묶음을 고르면 라벨을 고치는 순간 읽히는 표본이 달라지고, 그러면 **class 가
+    군집 입력이 된다**(형상만 봐야 하는 자리다).
+
+    한 번 읽으면 그 표본의 **모든 잣대**가 나온다 — ``signed`` 와 ``outline`` 은 같은 ``radial_rle``
+    에서 접힌다. 접기는 묶음을 통째로 태운다(표본마다 torch 를 왕복하면 접기가 적재보다 비싸진다).
+
+    Args:
+        bucket: 표본 store.
+        lens: :func:`_lens` 의 산출 ``{도메인: (feature, 접기)}``.
+        keys: 쓸 item key — 이 중 캐시에 있는 것만 나온다.
+        progress: ``(라벨, 한 것, 전체)``.
+        label: 진행 라벨의 머리말.
+
+    Yields:
+        ``{도메인: ((m, …) 접힌 값, [그 m 개의 키])}``.
+    """
+    if not lens:
+        return
+    _want = set(keys)
+    _groups = cache.Groups(bucket, cache.CLASS)
+    _label = f"{label} ({' · '.join(lens)})"
+    for _i, _g in enumerate(_groups, 1):
+        _got = cache.Load(bucket, cache.CLASS, _g)
+        if progress is not None:
+            progress(_label, _i, len(_groups))
+        if _got is None:
+            continue
+        _ks, _rows = _got
+        _take = [_j for _j, _k in enumerate(_ks) if _k in _want]
+        if not _take:
+            continue
+        _rows, _use = _rows[_take], [_ks[_j] for _j in _take]
+        yield {_d: (Fold(_folds, _rows, batched=True), _use)
+               for _d, (_, _folds) in lens.items()}
+
+
+def _load(bucket: Cluster_Bucket, domains: list[str], keys: list[str], norm: dict,
+          progress: Progress = None) -> dict[str, tuple[np.ndarray, list[str]]]:
+    """잣대들을 **한 번의 순회로** 표준화 좌표에 쌓는다 — ``{도메인: ((n, D) float32, 쓴 키)}``.
+
+    값을 못 읽은 표본은 **그 잣대의 키 목록에서도 뺀다**. 배열만 짧아지면 뒤이은
+    ``zip(used, lab)`` 이 배정을 엉뚱한 표본에 붙인다 — 조용히 어긋나는 자리라 둘을 함께 낸다.
+    빠지는 표본이 잣대마다 다를 수 있어 키 목록도 잣대마다다.
+
+    Args:
+        bucket: 표본 store.
+        domains: 쌓을 잣대 이름들. 계약에 없는 이름은 결과에 안 담는다.
+        keys: 순회할 item key — 결과의 순서가 이걸 따른다.
+        norm: ``{도메인: {mean, std}}`` (:meth:`~.store.Cluster_Bucket.Norm`).
+        progress: ``(라벨, 한 것, 전체)``.
 
     Returns:
-        ``((n, D) 좌표, 실제로 쌓인 키)`` — 순서가 같다.
+        ``{도메인: ((n, D) 좌표, 그 순서의 키)}``.
     """
-    _rows, _used = [], []
-    for _i, _k in enumerate(keys):
-        _v = bucket.Measure(bucket.Address(_k), [domain]).get(domain)
-        if _v is None:
-            continue                                  # 값이 없다 — 이 표본은 가를 대상이 아니다
-        _rows.append(equalize(np.asarray(_v)[None], norm_d)[0].astype(np.float32))
-        _used.append(_k)
-        if progress is not None and (_i + 1) % 5000 == 0:
-            progress(f"[{domain}] 적재", _i + 1, len(keys))
-    if not _rows:
-        return np.zeros((0, 0), np.float32), []
-    return np.stack(_rows), _used
+    _lens_d = _lens(bucket, domains)
+    _out: dict[str, list[np.ndarray]] = {_d: [] for _d in _lens_d}
+    _used: dict[str, list[str]] = {_d: [] for _d in _lens_d}
+    for _chunk in _folded(bucket, _lens_d, keys, progress):
+        for _d, (_v, _ks) in _chunk.items():
+            _out[_d].append(np.asarray(_v, np.float32).reshape(len(_ks), -1))
+            _used[_d] += _ks
+    # **축척은 마지막에 한 번** — `floor` 는 그 축의 전수를 봐야 잴 수 있다(청크마다 재면 값이 다르다).
+    return {_d: (_scaled(bucket, _d, np.concatenate(_out[_d]), norm.get(_d, {}))
+                 if _out[_d] else _EMPTY[0], _used[_d])
+            for _d in _lens_d}
 
 
 def pool_groups(bucket: Cluster_Bucket, domain: str,
@@ -271,7 +403,8 @@ def pool_groups(bucket: Cluster_Bucket, domain: str,
     _keys = bucket.Keys(domain, POOL)
     if len(_keys) < 2:
         return [[_k] for _k in _keys]
-    _X, _used = _stack(bucket, domain, _keys, bucket.Norm().get(domain), progress)
+    _X, _used = _load(bucket, [domain], _keys, _norms(bucket, bucket.Cluster_cfg()),
+                      progress).get(domain, _EMPTY)
     if len(_used) < 2:
         return [[_k] for _k in _used]
     _, _idx = knn(_X, 1)                          # 각자의 최근접 하나 — 그것이 곧 간선이다
@@ -404,82 +537,131 @@ def cleanup_hints(bucket: Cluster_Bucket, domains: list[str] | None = None,
     return sorted(_out, key=lambda _h: (_h.level != "strong", -_h.n))
 
 
-#: class 응집도 등급의 문턱 — 가장 큰 type 이 담는 몫과 보류 몫.
+#: **응집** 문턱 — 배정된 표본 중 가장 큰 type 이 담는 몫.
 COHERENT_SHARE = 0.8
-LOOSE_SHARE    = 0.5
+
+#: id 별 판정 — **응집(내가 하나인가) × 배타(남과 갈리나)** 네 갈래. 조치가 갈래마다 다르다.
+DISTINCT  = "distinct"     # 구분   — 응집 ○ 배타 ○ · 이 잣대로는 제 자리를 가진다
+DUPLICATE = "duplicate"    # 중복   — 응집 ○ 배타 ✘ · 뭉쳐 있는데 남과 같은 type 에 든다
+CONFUSED  = "confused"     # 혼동   — 응집 ✘ 배타 ○ · 자기 표본이 흩어졌다
+UNCLEAR   = "unclear"      # 판단 불가 — 둘 다 ✘ 이거나 배정이 아예 없다
+
+_TRUST_ORDER = {UNCLEAR: 0, DUPLICATE: 1, CONFUSED: 2, DISTINCT: 3}
 
 
 @dataclass(frozen=True)
 class Class_stat:
-    """한 class 가 **자기 안에서** 얼마나 한 덩어리인가 — 분류 결과를 믿을 근거.
+    """class id 하나의 **신뢰도** — 이 잣대가 그 번호를 지지하는가.
 
-    지금까지 본 것(type → 어떤 class 들이 들었나)의 **반대 방향**이다. 같은 번호를 단 것들끼리
-    비교해서, 그 번호가 실제로 한 물건을 가리키는지 묻는다.
+    두 물음을 함께 답한다. 한쪽만 보면 틀린다 — 실측에서 ``c131``(2,989건)과 ``c93``(1,477건)은
+    각자 놓고 보면 응집 98% 로 완벽한데, 서로의 98% 가 같은 type 에 든다. 응집만 재면 둘 다
+    **구분**이 나오고, 그런 자리가 **26종**이었다.
+
+    ==========  ==================================  ====================================
+    /           배타 ○ (남과 갈린다)                배타 ✘
+    ==========  ==================================  ====================================
+    응집 ○      :data:`DISTINCT` — 구분             :data:`DUPLICATE` — 중복
+    응집 ✘      :data:`CONFUSED` — 혼동             :data:`UNCLEAR` — 판단 불가
+    ==========  ==================================  ====================================
+
+    **판정은 이 잣대에 대한 진술이다** — "c131 = c93" 이 아니라 "이 feature 로 안 갈림" 이다.
+
+    **판정의 분모는 배정된 표본이다 — 보류는 안 센다.** 보류는 "이 잣대가 자리를 못 정했다" 는
+    말이라 그 표본에 대해 응집도 배타도 관측이 없다. 분모에 넣으면 없는 관측이 *불리한* 관측처럼
+    작동해, 절반이 보류인 class 는 나머지가 완벽히 뭉쳐 있어도 응집이 0.5 로 눌린다. 보류를 두고
+    무엇을 할지는 아직 화면이 없으므로(→ [`TODO.md`](TODO.md)) 관측으로만 내보인다.
 
     Attributes:
-        name:       class 이름.
-        n:          표본 수.
-        types:      걸친 type 수 (보류 제외) — 많을수록 흩어져 있다.
-        top_share:  가장 큰 type 이 담는 몫 — **응집도**. 1.0 이면 통째로 한 type 이다.
-        pool_share: 어디에도 안 붙은 몫 — 형상이 불안정하거나 표본이 특이하다.
-        d_med:      중심까지 거리 중앙값 (보류는 뺀다) — 같은 type 안에서도 가장자리인가.
-        level:      ``strong`` / ``medium`` / ``weak``.
+        name:        class 이름.
+        n:           표본 수 (보류 포함 — 이 class 가 몇 건인가).
+        types:       걸친 type 수 (보류 제외) — 많을수록 흩어져 있다.
+        top_share:   **배정된 표본 중** 가장 큰 type 이 담는 몫 — **응집**. 1.0 이면 배정된 것이
+            통째로 한 type 이다.
+        pool_share:  전체 중 어디에도 안 붙은 몫 — **판정에 안 들어가는 관측**이다. 형상이
+            불안정하거나 표본이 특이하다는 뜻이고, 크면 위 두 몫이 얇은 근거 위에 서 있다.
+        rival:       가장 크게 겹치는 class (없으면 ``""``).
+        rival_share: 그 겹침의 **대칭 몫** — 양쪽의 *배정된* 표본에서 차지하는 몫 중 작은 쪽
+            (:data:`STRONG_OVERLAP` 참고). 한쪽만 보면 포함 관계가 100% 로 보인다.
+        level:       위 표의 네 갈래.
     """
 
-    name:       str
-    n:          int
-    types:      int
-    top_share:  float
-    pool_share: float
-    d_med:      float
-    level:      str
+    name:        str
+    n:           int
+    types:       int
+    top_share:   float
+    pool_share:  float
+    rival:       str
+    rival_share: float
+    level:       str
 
 
-def class_coherence(bucket: Cluster_Bucket, domain: str) -> list[Class_stat]:
-    """class 마다 **자기 표본끼리의 응집도**를 잰다 (약한 것 먼저).
+def class_trust(bucket: Cluster_Bucket, domain: str,
+                usage: tuple[dict, dict] | None = None) -> list[Class_stat]:
+    """class id 마다 **신뢰도**를 낸다 (약한 것 먼저) — 축 2 의 답이 이 목록이다.
 
-    ``cleanup_hints`` 가 *"이 둘이 안 갈린다"* 를 본다면 여기는 *"이 하나가 하나인가"* 를 본다.
-    한 class 의 표본이 여러 type 에 흩어져 있으면 둘 중 하나다 — **라벨이 섞였거나**(다른 물건이
-    같은 번호를 달았다) **그 부품이 원래 여러 모습**이거나(자세·변형). 어느 쪽인지는 데이터가 아니라
-    사람이 알지만, **흩어졌다는 사실**은 여기서 나온다.
+    재료는 둘 다 이미 있었지만 갈라져 있었다: **응집**은 배정을 접으면 나오고(한 class 가 몇 type 에
+    흩어졌나), **배타**는 :func:`class_usage` 의 겹침이 답한다(남과 같은 type 에 드나). 여기가
+    그 둘을 id 한 줄로 합치는 자리다 — 조치가 둘의 **조합**으로 갈리기 때문이다
+    (:class:`Class_stat` 의 표).
+
+    겹침은 **대칭 몫**으로 잰다(:data:`STRONG_OVERLAP` 과 같은 식) — 한쪽만 보면 큰 class 에
+    작은 class 가 들어앉은 자리가 100% 로 보인다.
+
+    **두 몫 다 분모가 배정 수다** — 보류는 관측이 없는 자리라 판정에서 뺀다
+    (:class:`Class_stat` 참고). 보류 자체는 열로 남겨 관측으로 보인다.
 
     **저장된 배정만 쓴다** — 좌표를 다시 안 읽으므로 6만 표본에서도 즉시 돈다.
 
     Args:
         bucket: 표본 store.
         domain: 볼 잣대. 종합(:data:`~.cluster.JOINT`)이면 자기 장부의 배정을 쓴다.
+        usage:  이미 구한 :func:`class_usage` 결과 (없으면 여기서 구한다) — 화면이 제안
+            (:func:`cleanup_hints`)과 함께 보일 때 index(수십 MB)를 두 번 읽지 않게 하는 자리다.
 
     Returns:
-        ``Class_stat`` 목록 — ``weak`` 먼저, 같은 등급 안에서는 표본이 많은 것부터(영향이 크다).
+        ``Class_stat`` 목록 — 약한 갈래 먼저(:data:`UNCLEAR` → :data:`DUPLICATE` →
+        :data:`CONFUSED` → :data:`DISTINCT`), 같은 갈래 안에서는 표본이 많은 것부터(영향이 크다).
     """
     _index = bucket.Index()
-    _dist = bucket.Distances(domain)
     _assign = bucket.Joint().get("assign", {}) if str(domain) == JOINT else None
+    # 표본 수는 안 쓴다 — 분모가 **배정 수**라 아래에서 직접 센다.
+    _ov = (usage if usage is not None else class_usage(bucket, [str(domain)]))[1]
 
-    _by_class: dict[str, list[tuple[int, float]]] = {}
+    _by_class: dict[str, list[int]] = {}
     for _k, _rec in _index.items():
         _t = int(_assign.get(_k, POOL) if _assign is not None
                  else (_rec.get("types") or {}).get(str(domain), POOL))
-        _by_class.setdefault(str(_rec.get("class", "")), []).append((_t, _dist.get(_k, np.inf)))
+        _by_class.setdefault(str(_rec.get("class", "")), []).append(_t)
+
+    # **판정의 분모는 배정된 표본이다** — 보류는 빠진다(:attr:`Class_stat.pool_share` 참고).
+    _placed = {_c: sum(1 for _t in _s if _t >= 0) for _c, _s in _by_class.items()}
 
     _out: list[Class_stat] = []
-    for _c, _rows in _by_class.items():
-        _n = len(_rows)
-        _seats = Counter(_t for _t, _ in _rows if _t >= 0)
-        _pool = sum(1 for _t, _ in _rows if _t < 0)
+    for _c, _seats_of in _by_class.items():
+        _n = len(_seats_of)
+        _seats = Counter(_t for _t in _seats_of if _t >= 0)
         _top = _seats.most_common(1)[0][1] if _seats else 0
-        _fin = [_d for _t, _d in _rows if _t >= 0 and np.isfinite(_d)]
-        _top_share, _pool_share = _top / max(_n, 1), _pool / max(_n, 1)
-        if _top_share >= COHERENT_SHARE and _pool_share <= (1 - COHERENT_SHARE):
-            _level = "strong"
-        elif _top_share < LOOSE_SHARE or _pool_share > LOOSE_SHARE:
-            _level = "weak"
-        else:
-            _level = "medium"
-        _out.append(Class_stat(_c, _n, len(_seats), _top_share, _pool_share,
-                               float(np.median(_fin)) if _fin else float("inf"), _level))
-    _order = {"weak": 0, "medium": 1, "strong": 2}
-    return sorted(_out, key=lambda _s: (_order[_s.level], -_s.n))
+        _top_share = _top / max(_placed[_c], 1)
+        _pool_share = (_n - _placed[_c]) / max(_n, 1)
+        # 배타 — 가장 크게 겹치는 상대. **양쪽을 각자의 몫으로** 본다(포함을 겹침으로 안 읽게).
+        # 겹침 수는 배정된 표본에서만 나오므로 분모도 배정 수다 — 전체로 나누면 보류가 많은 class
+        # 일수록 덜 겹치는 것처럼 보인다.
+        _rival, _share = "", 0.0
+        for _o in _ov.get(_c, {}):
+            _s = min(_ov.get(_c, {}).get(_o, 0) / max(_placed.get(_c, 0), 1),
+                     _ov.get(_o, {}).get(_c, 0) / max(_placed.get(_o, 0), 1))
+            if _s > _share:
+                _rival, _share = str(_o), _s
+        # **배정이 하나도 없으면 판정하지 않는다.** 겹칠 상대가 없는 것이 "남과 갈린다" 로 읽히면
+        # 아직 안 가른 축이 전부 "혼동" 으로 나온다 — 흩어진 게 아니라 안 잰 것이다.
+        _tight = _top_share >= COHERENT_SHARE
+        _apart = _share < WEAK_OVERLAP
+        _out.append(Class_stat(
+            _c, _n, len(_seats), _top_share, _pool_share, _rival, _share,
+            UNCLEAR if not _seats else
+            DISTINCT if (_tight and _apart) else DUPLICATE if _tight else
+            CONFUSED if _apart else UNCLEAR))
+    return sorted(_out, key=lambda _s: (_TRUST_ORDER[_s.level], -_s.n))
 
 
 def propagate(bucket: Cluster_Bucket, params: dict, progress: Progress = None) -> dict[str, int]:
@@ -520,10 +702,13 @@ def propagate(bucket: Cluster_Bucket, params: dict, progress: Progress = None) -
         return {}
 
     _keys = sorted(_index)
-    _norm = bucket.Norm()
+    _norm = _norms(bucket, params)
+    _axes = sorted(_by_domain) or bucket.Domains()
+    # 반영할 축과 종합이 곱할 축을 **한 번에** 싣는다 — 아래 루프와 `_build_joint` 가 나눠 쓴다.
+    _coords = _load(bucket, sorted(set(_by_domain) | set(_axes)), _keys, _norm, progress)
     _done: dict[str, int] = {}
     for _d, _assign in _by_domain.items():
-        _X, _used = _stack(bucket, _d, _keys, _norm.get(_d), progress)
+        _X, _used = _coords.get(_d, _EMPTY)
         if not len(_used):
             continue
         _at = {_k: _i for _i, _k in enumerate(_used)}
@@ -542,5 +727,5 @@ def propagate(bucket: Cluster_Bucket, params: dict, progress: Progress = None) -
         if progress is not None:
             progress(f"[{_d}] 반영 {len(_assign)}건", len(_done), len(_by_domain))
 
-    _build_joint(bucket, params, sorted(_by_domain) or bucket.Domains(), _keys, _norm, progress)
+    _build_joint(bucket, params, _axes, _keys, _coords, progress)
     return _done

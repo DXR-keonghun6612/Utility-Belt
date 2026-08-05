@@ -80,14 +80,6 @@ class Mask_Domain(Domain):
         return 3 if (not storage and not params
                      and isinstance(value, np.ndarray) and value.ndim >= 2) else 0
 
-
-def _is_rle(value: Any) -> bool:
-    return isinstance(value, dict) and "counts" in value
-
-
-def _is_polygon(value: Any) -> bool:
-    return isinstance(value, dict) and "contours" in value
-
     @classmethod
     def Can_visualize(cls) -> bool:
         return True
@@ -98,3 +90,11 @@ def _is_polygon(value: Any) -> bool:
         if size is None:
             raise ValueError("mask 빈 객체는 size(H, W)가 필요합니다")
         return np.zeros(size, np.uint8)
+
+
+def _is_rle(value: Any) -> bool:
+    return isinstance(value, dict) and "counts" in value
+
+
+def _is_polygon(value: Any) -> bool:
+    return isinstance(value, dict) and "contours" in value

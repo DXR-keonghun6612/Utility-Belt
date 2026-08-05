@@ -1,8 +1,0 @@
-task: segmentation
-unit: frame
-ratios:
-    train: 0.9
-    val: 0.1
-    test: 0.0
-salt: ''
-processes: []

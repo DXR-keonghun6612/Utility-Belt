@@ -10,21 +10,51 @@
 
 ---
 
-## ▶ 진행 중 — 검사(inspection)를 `process` 밖으로
+## ▶ 진행 중 — 분석을 두 단계로 가르고 `core/analysis/` 로
 
-**검사는 flow 가 아니다.** 계산을 외부에서 빌려오고(`torch_toolbox.modules.transform.mask`),
-`process` 의 어떤 유닛도 그 결과를 소비하지 않는다. `stream/` 에 유닛으로 두면 flow 인 척하게
-되므로 두지 않는다 — 시도했다가 걷어냈다(git).
+"검사/분석" 으로 뭉쳐둔 게 실은 **무엇을 아는가로 갈리는 두 단계**다(섞여서 "미리 조립"처럼 보였다):
 
-지금 `analysis/mask/shape/` 가 그 자리에 임시로 있고, **export 산출물 폴더를 glob** 한다.
-그래서 검사가 sampling 뒤에 묶여 있다 — 내보내기를 해야만 분석이 된다. 분리하면서 store 에서
-바로 읽게 한다.
+- **① 결과 생성 = `layer/`** — 입력(staged 0번 mask) → **학습이 쓰는 transform layer** 통과 →
+  geometry embedding(feature). transform·mask 만 알고 grouping 을 모른다. **per-sample·reference-free·
+  결정적**(입력+고정 config→결과). 이 프로젝트의 출발점("학습 transform layer 로 통과") 그 자체다.
+- **② 분석 = `cluster/`·`report/`** — 생성된 feature → 임베딩·군집·(A)/(B) 판정·리포트. feature·
+  grouping 만 알고 mask·transform 을 모른다. **cross-sample·탐색적**(파라미터 바꿔 재실행 → flow 아님).
 
-- [ ] **검사 패키지 분리** — `core/` 밖(또는 `core/inspect/`)으로. 파이프라인과 **수명이 다르다**:
-      파라미터를 바꿔 몇 번이고 재실행하는 것이지, 한 번 돌고 끝나는 stage 가 아니다.
-- [ ] **store 에서 읽기** — 폴더 glob 대신. task(classification/detection)와 무관해진다.
-- [ ] `Pipeline.Verify` 가 그것을 부르는 형태로. 지금은 `NotImplementedError` 다.
+**자리 — `core/analysis/`** (임시 거처 `core/process/analysis/mask/shape/` 를 벗어난다). `func/` 와
+구분: func 은 범용 배열 계산(도메인 타입만), analysis 는 분석용 표현 생성·평가다.
+
+```text
+core/analysis/
+├── layer/     ① source(folder | dataset_meta staged 0번) + transform(공유 config →
+│              Build_from_registry) + embedding(batch 적용 → feature 행렬)
+├── cluster/   ② UMAP embed + HDBSCAN + register(잔차) + (A)/(B) 판정
+└── report/    ② report + visualize        (조율 binder·CLI 는 analysis/ 루트)
+```
+
+**경계 판별**: per-sample·reference-free = **layer** (예: `Centroid_Frame` 4-fold 정준화, torch_toolbox) ·
+cross-sample·코호트 집계 필요 = **analysis** (예: `register` 는 class 평균 프로파일 대비 잔차 → cluster).
+`register` 는 numpy(LENS-local)이지 torch_toolbox 가 아니다 — layer 의 `r_outer` 를 소비하는 분석이다.
+
+**검사의 내용 — 0번 코호트 형상 적합성.** 프레임별 **0번 객체**(이미지 중심 → mask centroid 거리
+오름차순, GT는 ann[0]로 구움)만 모아 class 별 형상 일관성을 본다(0번=중심 최근접=카메라 기하 왜곡
+최소). 두 실패 모드를 **per-stem 으로** 낸다(집계 purity 만으론 "어느 stem" 이 안 나온다):
+
+- **(A) class 내 형상 이상** — 피처 중심/`register` 잔차 기준 이상치 → 마스크·세그멘테이션 불량.
+- **(B) 오분류** — class↔cluster/최근접중심 불일치 → 라벨 오류.
+
+- [ ] **folder 소스** — 지금 `analysis.Source_Spec` 은 store 만 본다. 폴더 배치(batch)를 같은 계약으로
+      먹이려면 입력 배선이 store 밖도 가리킬 수 있어야 한다.
+- [ ] `Pipeline.Verify` 가 `analysis` 진입점 셋을 부르는 형태로. 지금은 `NotImplementedError` 다.
 - [ ] `gui/meta_page/sample/_tab.py` 의 깊은 직접 import 정리 (`core.process.analysis.mask.shape`).
+- [ ] **라벨링** = Meta 뷰어 편집 + 평가 surface 양쪽(class·category 확인·수정).
+- [ ] **register 배선** — 지금 primitive 로만 있고 미배선. (A) 판정의 class 평균 프로파일 대비 잔차로 엮는다.
+
+**★ 토큰 전환은 `core/analysis` 에서 끝났다.** 도메인별 native feature(scalar `(dim,)` / sequence
+`(NT, K)`)를 병합 없이 다루고, 그 목록·성질·저장 그릇을 추출기 계약(`analysis.Extract_Spec`)이 든다.
+flat `(N, D)` 전제와 `Cohort_Result`·`persist` 는 사라졌다 — 남은 항목은 표현 쪽뿐이다:
+
+- [ ] **class 도 밴드로** — 지금 class 극좌표는 radial_outer/inner 선, 표본만 밴드. GUI 재빌드와 함께 통일
+      (→ [`../analysis/TODO.md`](../analysis/TODO.md) "GUI 전면 재빌드").
 
 **남은 process 쪽 정리**
 

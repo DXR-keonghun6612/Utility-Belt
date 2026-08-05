@@ -91,9 +91,19 @@ class Image_editor(Editor_base):
 
     def _build_status(self, row: QHBoxLayout) -> None:
         """표시 옵션 — 편집 잠금과 무관한 **보기 보정**이라 상태바에 산다(도구가 아니다)."""
+        self._boxes_btn = QToolButton()
+        self._boxes_btn.setText("▭")
+        self._boxes_btn.setToolTip("객체 상자 표시 — 끄면 상자에 가려진 mask·픽셀을 볼 수 있다 "
+                                   "(조준 중인 상자와 그리는 중인 미리보기는 남는다)")
+        self._boxes_btn.setCheckable(True)
+        self._boxes_btn.setChecked(True)
+        self._boxes_btn.setFixedSize(30, 26)
+        self._boxes_btn.clicked.connect(lambda _c: self.display_changed.emit())
+        row.addWidget(self._boxes_btn)
+
         self._labels_btn = QToolButton()
         self._labels_btn.setText("🏷")
-        self._labels_btn.setToolTip("객체 라벨 표시 — 상자 위에 obj_id · class_id 를 적는다")
+        self._labels_btn.setToolTip("객체 라벨 표시 — 상자 위에 obj_id · class 이름을 적는다")
         self._labels_btn.setCheckable(True)
         self._labels_btn.setChecked(True)
         self._labels_btn.setFixedSize(30, 26)
@@ -215,6 +225,13 @@ class Image_editor(Editor_base):
         self.bbox_changed.emit(_box.copy())
 
     # ── 표시 ──────────────────────────────────────────────────────────────────
+    def show_boxes(self) -> bool:
+        """객체 상자를 캔버스에 그릴까 (상위가 합성에 넘길 상자를 정할 때 묻는다).
+
+        상자는 mask 위에 그려져 **아래를 가린다** — 픽셀을 확인하려면 잠깐 걷어낼 수 있어야 한다.
+        """
+        return self._boxes_btn.isChecked()
+
     def show_labels(self) -> bool:
         """객체 라벨을 캔버스에 적을까 (상위가 합성에 넘길 텍스트를 정할 때 묻는다)."""
         return self._labels_btn.isChecked()
